@@ -1,12 +1,40 @@
-﻿using System.Collections.Generic;
-using System.Drawing;
-using System.IO;
-using System.Linq;
-using System.Numerics;
+﻿#if UNITY_3_4 || UNITY_3_5 || UNITY_4_0 || UNITY_4_0_1 || UNITY_4_2 || UNITY_4_3 || UNITY_4_5 || UNITY_4_6 || UNITY_5 || UNITY_5_3_OR_NEWER
+#define UNITY
+#if !UNITY_5_6_OR_NEWER
+#define OLDUNITY
+#endif
+#endif
+
 using LibBSP;
 
 namespace BSPConversionLib
 {
+#if UNITY
+	using Plane = UnityEngine.Plane;
+	using Vector3 = UnityEngine.Vector3;
+	using Vector2 = UnityEngine.Vector2;
+	using Color = UnityEngine.Color32;
+#if !OLDUNITY
+	using Vertex = UnityEngine.UIVertex;
+#endif
+#elif GODOT
+	using Plane = Godot.Plane;
+	using Vector3 = Godot.Vector3;
+	using Vector2 = Godot.Vector2;
+	using Color = Godot.Color;
+#elif NEOAXIS
+	using Plane = NeoAxis.PlaneF;
+	using Vector3 = NeoAxis.Vector3F;
+	using Vector2 = NeoAxis.Vector2F;
+	using Color = NeoAxis.ColorByte;
+	using Vertex = NeoAxis.StandardVertex;
+#else
+	using Plane = System.Numerics.Plane;
+	using Vector3 = System.Numerics.Vector3;
+	using Vector2 = System.Numerics.Vector2;
+	using Color = System.Drawing.Color;
+#endif
+
 	public class BSPConverter
 	{
 		private BSP quakeBsp;
