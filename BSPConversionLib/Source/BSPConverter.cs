@@ -6,6 +6,10 @@
 #endif
 
 using LibBSP;
+using System;
+using System.IO;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace BSPConversionLib
 {
@@ -251,7 +255,9 @@ namespace BSPConversionLib
 			var writer = new BSPWriter(sourceBsp);
 			writer.WriteBSP(outputPath);
 
-			Console.WriteLine($"Wrote BSP to path: {outputPath}");
+#if UNITY
+			UnityEngine.Debug.Log($"Wrote BSP to path: {outputPath}");
+#endif
 		}
 	}
 }
