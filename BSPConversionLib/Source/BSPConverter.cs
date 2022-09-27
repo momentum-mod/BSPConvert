@@ -56,6 +56,8 @@ namespace BSPConversionLib
 		public void Convert()
 		{
 			//ConvertTextures();
+			//ConvertModels();
+			ConvertBrushes();
 			ConvertFaces();
 			WriteBSP();
 		}
@@ -96,6 +98,98 @@ namespace BSPConversionLib
 			return sourceBsp.Textures.Count - 1;
 		}
 
+		private void ConvertModels()
+		{
+			foreach (var qModel in quakeBsp.Models)
+			{
+				// Modify model 0 on sourceBsp until ready to remove sourceBsp's models? Index 0 handles all world geometry, anything after is for brush entities
+				var data = new byte[Model.GetStructLength(sourceBsp.MapType)];
+				var sModel = new Model(data, sourceBsp.Models);
+
+				sModel.Minimums = qModel.Minimums;
+				sModel.Maximums = qModel.Maximums;
+				sModel.HeadNodeIndex = 0; // TODO: Find head node from leaf brushes?
+				sModel.Origin = new Vector3(0f, 0f, 0f);
+				(var firstFaceIndex, var numFaces) = CreateModelFaces(qModel);
+			}
+		}
+
+		private (int firstFaceIndex, int numFaces) CreateModelFaces(Model model)
+		{
+			throw new NotImplementedException();
+
+			return (-1, 0);
+		}
+
+		private void ConvertBrushes()
+		{
+			foreach (var qBrush in quakeBsp.Brushes)
+			{
+				var data = new byte[Brush.GetStructLength(sourceBsp.MapType)];
+				var sBrush = new Brush(data, sourceBsp.Brushes);
+
+				(var firstBrushSide, var numBrushSides) = CreateBrushSides(qBrush);
+				sBrush.FirstSideIndex = firstBrushSide;
+				sBrush.NumSides = numBrushSides;
+
+				const int CONTENTS_SOLID = 1; // TODO: Add contents enum
+				sBrush.Contents = CONTENTS_SOLID; // TODO: Find content flags from quake brush. This is likely defined on the Textures lump
+
+				sourceBsp.Brushes.Add(sBrush);
+
+				TempAddLeafBrush(sourceBsp.Brushes.Count - 1);
+			}
+
+			TempFixVisLeafBrushes(sourceBsp.LeafBrushes.Count - 1);
+		}
+
+		private (int firstBrushSideIndex, int numBrushSides) CreateBrushSides(Brush brush)
+		{
+			var firstBrushSideIndex = -1;
+			var numBrushSides = brush.NumSides;
+			var index = 0;
+
+			foreach (var qBrushSide in brush.Sides)
+			{
+				var data = new byte[BrushSide.GetStructLength(sourceBsp.MapType)];
+				var sBrushSide = new BrushSide(data, sourceBsp.BrushSides);
+
+				sBrushSide.PlaneIndex = CreatePlane(qBrushSide.Plane);
+				sBrushSide.TextureIndex = 0; // TODO: Get texture info index from matching brush side
+				sBrushSide.DisplacementIndex = 0;
+				sBrushSide.IsBevel = false;
+
+				sourceBsp.BrushSides.Add(sBrushSide);
+
+				if (index == 0)
+					firstBrushSideIndex = sourceBsp.BrushSides.Count - 1;
+
+				index++;
+			}
+
+			return (firstBrushSideIndex, numBrushSides);
+		}
+
+		private void TempAddLeafBrush(int brushIndex)
+		{
+			sourceBsp.LeafBrushes.Add(brushIndex);
+		}
+
+		private void TempFixVisLeafBrushes(int leafBrushIndex)
+		{
+			for (var i = 0; i < sourceBsp.Leaves.Count; i++)
+			{
+				var leaf = sourceBsp.Leaves[i];
+				// Note: When converting leafs from Q3, just use the existing references
+				if (leaf.Area == 1)
+				{
+					// Add cube brush
+					leaf.FirstMarkBrushIndex = leafBrushIndex;
+					leaf.NumMarkBrushIndices++;
+				}
+			}
+		}
+
 		private void ConvertFaces()
 		{
 			foreach (var qFace in quakeBsp.Faces)
@@ -131,7 +225,7 @@ namespace BSPConversionLib
 				TempAddLeafFace(sourceBsp.Faces.Count - 1);
 			}
 
-			TempFixVisLeafs(sourceBsp.Faces.Count);
+			TempFixVisLeafFaces(sourceBsp.Faces.Count);
 			TempFixModel(sourceBsp.Faces.Count);
 		}
 
@@ -140,7 +234,7 @@ namespace BSPConversionLib
 			sourceBsp.LeafFaces.Add(faceIndex);
 		}
 
-		private void TempFixVisLeafs(int numFaces)
+		private void TempFixVisLeafFaces(int numFaces)
 		{
 			for (var i = 0; i < sourceBsp.Leaves.Count; i++)
 			{
@@ -167,8 +261,12 @@ namespace BSPConversionLib
 			// TODO: Prevent adding duplicate planes
 			var distance = Vector3.Dot(face.Vertices.First().position, face.Normal);
 			var plane = new Plane(face.Normal, distance);
-			sourceBsp.Planes.Add(plane);
+			return CreatePlane(plane);
+		}
 
+		private int CreatePlane(Plane plane)
+		{
+			sourceBsp.Planes.Add(plane);
 			return sourceBsp.Planes.Count - 1;
 		}
 
