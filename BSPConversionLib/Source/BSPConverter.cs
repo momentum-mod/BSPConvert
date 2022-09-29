@@ -45,6 +45,8 @@ namespace BSPConversionLib
 		private BSP sourceBsp;
 		private string outputPath;
 
+		private const int CONTENTS_SOLID = 1; // TODO: Add contents enum
+
 		public BSPConverter(string quakeBspPath, string sourceBspPath, string outputPath)
 		{
 			quakeBsp = new BSP(new FileInfo(quakeBspPath));
@@ -55,15 +57,36 @@ namespace BSPConversionLib
 
 		public void Convert()
 		{
-			//ConvertTextures();
-			//ConvertModels();
+			ConvertEntities();
+			ConvertTextures();
+			ConvertPlanes();
+			ConvertNodes();
+			ConvertLeaves();
+			ConvertLeafFaces();
+			ConvertLeafBrushes();
+			ConvertModels();
 			ConvertBrushes();
+			ConvertBrushSides();
 			ConvertFaces();
+			ConvertVisData();
+
 			WriteBSP();
+		}
+
+		private void ConvertEntities()
+		{
+			sourceBsp.Entities.Clear();
+
+			foreach (var entity in quakeBsp.Entities)
+				sourceBsp.Entities.Add(entity);
 		}
 
 		private void ConvertTextures()
 		{
+			sourceBsp.TextureData.Clear();
+			sourceBsp.TextureTable.Clear();
+			sourceBsp.Textures.Clear();
+
 			foreach (var texture in quakeBsp.Textures)
 				CreateTextureData(texture);
 		}
@@ -88,18 +111,140 @@ namespace BSPConversionLib
 			return sourceBsp.TextureTable.Count - 1;
 		}
 
+		// Note: Returns texture data byte offset instead of index
 		private int CreateTextureDataStringData(string textureName)
 		{
-			var texture = new Texture();
-			texture.Name = textureName;
+			var offset = sourceBsp.Textures.Length;
+
+			textureName = FormatTextureName(textureName);
+
+			var data = System.Text.Encoding.ASCII.GetBytes(textureName);
+			var texture = new Texture(data, sourceBsp.Textures);
 
 			sourceBsp.Textures.Add(texture);
 
-			return sourceBsp.Textures.Count - 1;
+			return offset;
+		}
+
+		private void ConvertPlanes()
+		{
+			sourceBsp.Planes.Clear();
+
+			foreach (var qPlane in quakeBsp.Planes)
+			{
+				var data = new byte[PlaneBSP.GetStructLength(sourceBsp.MapType)];
+				var plane = new PlaneBSP(data, sourceBsp.Planes);
+
+				plane.Normal = qPlane.Normal;
+				plane.Distance = qPlane.Distance;
+				plane.Type = (int)GetVectorAxis(qPlane.Normal);
+
+				sourceBsp.Planes.Add(plane);
+			}
+		}
+
+		private PlaneBSP.AxisType GetVectorAxis(Vector3 normal)
+		{
+			// Note: Should these have an epsilon around 1.0?
+			if (normal.X() == 1f || normal.X() == -1f)
+				return PlaneBSP.AxisType.PlaneX;
+			if (normal.Y() == 1f || normal.Y() == -1f)
+				return PlaneBSP.AxisType.PlaneY;
+			if (normal.Z() == 1f || normal.Z() == -1f)
+				return PlaneBSP.AxisType.PlaneZ;
+
+			var aX = Math.Abs(normal.X());
+			var aY = Math.Abs(normal.Y());
+			var aZ = Math.Abs(normal.Z());
+
+			if (aX >= aY && aX >= aZ)
+				return PlaneBSP.AxisType.PlaneAnyX;
+
+			if (aY >= aX && aY >= aZ)
+				return PlaneBSP.AxisType.PlaneAnyY;
+
+			return PlaneBSP.AxisType.PlaneAnyZ;
+		}
+
+		private void ConvertNodes()
+		{
+			sourceBsp.Nodes.Clear();
+
+			foreach (var qNode in quakeBsp.Nodes)
+			{
+				var data = new byte[Node.GetStructLength(sourceBsp.MapType)];
+				var node = new Node(data, sourceBsp.Nodes);
+
+				node.PlaneIndex = qNode.PlaneIndex;
+				node.Child1Index = qNode.Child1Index;
+				node.Child2Index = qNode.Child2Index;
+				node.Minimums = qNode.Minimums;
+				node.Maximums = qNode.Maximums;
+
+				// Note: These are used to specify which faces are used to split the node (the face will have the "onNode" flag set to true)
+				// Not sure if these values are necessary as long as all faces have "onNode" set to false
+				node.FirstFaceIndex = 0;
+				node.NumFaceIndices = 0;
+
+				node.AreaIndex = 0; // TODO: Figure out how to compute areas
+
+				sourceBsp.Nodes.Add(node);
+			}
+		}
+
+		private void ConvertLeaves()
+		{
+			sourceBsp.Leaves.Clear();
+
+			foreach (var qLeaf in quakeBsp.Leaves)
+			{
+				var data = new byte[Leaf.GetStructLength(sourceBsp.MapType)];
+				var leaf = new Leaf(data, sourceBsp.Leaves);
+
+				if (sourceBsp.Leaves.Count == 0)
+				{
+					leaf.Contents = CONTENTS_SOLID; // First leaf is always solid, otherwise game crashes
+					leaf.Flags = 0;
+				}
+				else
+				{
+					leaf.Contents = qLeaf.Area >= 0 ? 0 : 1; // Set to 0 when inside map, 1 when outside map or overlapping brush
+					leaf.Flags = 2; // Not sure what the flags do, but 2 shows up on all leaves besides the first one
+				}
+				leaf.Visibility = qLeaf.Visibility;
+				leaf.Area = qLeaf.Area + 1; // TODO: Is + 1 necessary?
+				leaf.Minimums = qLeaf.Minimums;
+				leaf.Maximums = qLeaf.Maximums;
+				leaf.FirstMarkFaceIndex = qLeaf.FirstMarkFaceIndex;
+				leaf.NumMarkFaceIndices = qLeaf.NumMarkFaceIndices;
+				leaf.FirstMarkBrushIndex = qLeaf.FirstMarkBrushIndex;
+				leaf.NumMarkBrushIndices = qLeaf.NumMarkBrushIndices;
+				leaf.LeafWaterDataID = -1;
+
+				sourceBsp.Leaves.Add(leaf);
+			}
+		}
+
+		private void ConvertLeafFaces()
+		{
+			sourceBsp.LeafFaces.Clear();
+
+			foreach (var qLeafFace in quakeBsp.LeafFaces)
+				sourceBsp.LeafFaces.Add(qLeafFace);
+		}
+
+		private void ConvertLeafBrushes()
+		{
+			sourceBsp.LeafBrushes.Clear();
+
+			foreach (var qLeafBrush in quakeBsp.LeafBrushes)
+				sourceBsp.LeafBrushes.Add(qLeafBrush);
 		}
 
 		private void ConvertModels()
 		{
+			sourceBsp.Models.Clear();
+
 			foreach (var qModel in quakeBsp.Models)
 			{
 				// Modify model 0 on sourceBsp until ready to remove sourceBsp's models? Index 0 handles all world geometry, anything after is for brush entities
@@ -109,95 +254,65 @@ namespace BSPConversionLib
 				sModel.Minimums = qModel.Minimums;
 				sModel.Maximums = qModel.Maximums;
 				sModel.HeadNodeIndex = 0; // TODO: Find head node from leaf brushes?
-				sModel.Origin = new Vector3(0f, 0f, 0f);
-				(var firstFaceIndex, var numFaces) = CreateModelFaces(qModel);
+				sModel.Origin = new Vector3(0f, 0f, 0f); // Recalculate origin?
+				sModel.FirstFaceIndex = qModel.FirstFaceIndex;
+				sModel.NumFaces = qModel.NumFaces;
+
+				sourceBsp.Models.Add(sModel);
 			}
-		}
-
-		private (int firstFaceIndex, int numFaces) CreateModelFaces(Model model)
-		{
-			throw new NotImplementedException();
-
-			return (-1, 0);
 		}
 
 		private void ConvertBrushes()
 		{
+			sourceBsp.Brushes.Clear();
+
 			foreach (var qBrush in quakeBsp.Brushes)
 			{
 				var data = new byte[Brush.GetStructLength(sourceBsp.MapType)];
 				var sBrush = new Brush(data, sourceBsp.Brushes);
 
-				(var firstBrushSide, var numBrushSides) = CreateBrushSides(qBrush);
-				sBrush.FirstSideIndex = firstBrushSide;
-				sBrush.NumSides = numBrushSides;
-
-				const int CONTENTS_SOLID = 1; // TODO: Add contents enum
-				sBrush.Contents = CONTENTS_SOLID; // TODO: Find content flags from quake brush. This is likely defined on the Textures lump
+				sBrush.FirstSideIndex = qBrush.FirstSideIndex;
+				sBrush.NumSides = qBrush.NumSides;
+				sBrush.Contents = CONTENTS_SOLID; // TODO: Figure out how to get content flags from quake brush? This is important for water brushes
 
 				sourceBsp.Brushes.Add(sBrush);
-
-				TempAddLeafBrush(sourceBsp.Brushes.Count - 1);
 			}
-
-			TempFixVisLeafBrushes(sourceBsp.LeafBrushes.Count - 1);
 		}
 
-		private (int firstBrushSideIndex, int numBrushSides) CreateBrushSides(Brush brush)
+		private void ConvertBrushSides()
 		{
-			var firstBrushSideIndex = -1;
-			var numBrushSides = brush.NumSides;
-			var index = 0;
+			sourceBsp.BrushSides.Clear();
 
-			foreach (var qBrushSide in brush.Sides)
+			foreach (var qBrushSide in quakeBsp.BrushSides)
 			{
 				var data = new byte[BrushSide.GetStructLength(sourceBsp.MapType)];
 				var sBrushSide = new BrushSide(data, sourceBsp.BrushSides);
 
-				sBrushSide.PlaneIndex = CreatePlane(qBrushSide.Plane);
+				sBrushSide.PlaneIndex = qBrushSide.PlaneIndex;
 				sBrushSide.TextureIndex = 0; // TODO: Get texture info index from matching brush side
 				sBrushSide.DisplacementIndex = 0;
 				sBrushSide.IsBevel = false;
 
 				sourceBsp.BrushSides.Add(sBrushSide);
-
-				if (index == 0)
-					firstBrushSideIndex = sourceBsp.BrushSides.Count - 1;
-
-				index++;
-			}
-
-			return (firstBrushSideIndex, numBrushSides);
-		}
-
-		private void TempAddLeafBrush(int brushIndex)
-		{
-			sourceBsp.LeafBrushes.Add(brushIndex);
-		}
-
-		private void TempFixVisLeafBrushes(int leafBrushIndex)
-		{
-			for (var i = 0; i < sourceBsp.Leaves.Count; i++)
-			{
-				var leaf = sourceBsp.Leaves[i];
-				// Note: When converting leafs from Q3, just use the existing references
-				if (leaf.Area == 1)
-				{
-					// Add cube brush
-					leaf.FirstMarkBrushIndex = leafBrushIndex;
-					leaf.NumMarkBrushIndices++;
-				}
 			}
 		}
 
 		private void ConvertFaces()
 		{
+			sourceBsp.Faces.Clear();
+			sourceBsp.FaceEdges.Clear();
+			sourceBsp.Edges.Clear();
+			sourceBsp.Vertices.Clear();
+			sourceBsp.TextureInfo.Clear();
+			sourceBsp.OriginalFaces.Clear(); // Will this cause issues? Original faces are not converted.
+
 			foreach (var qFace in quakeBsp.Faces)
 			{
 				var data = new byte[Face.GetStructLength(sourceBsp.MapType)];
 				var sFace = new Face(data, sourceBsp.Faces);
 
-				sFace.PlaneIndex = CreatePlane(qFace);
+				// TODO: Re-use brush planes?
+				sFace.PlaneIndex = CreatePlane(qFace); // Quake faces don't have planes, so create one
 
 				// TODO: Figure out how to compute these values
 				sFace.PlaneSide = true;
@@ -212,7 +327,7 @@ namespace BSPConversionLib
 				sFace.SurfaceFogVolumeID = -1;
 				sFace.LightmapStyles = new byte[4];
 				sFace.Lightmap = 0;
-				sFace.Area = 4096; // TODO: Check if this needs to be computed
+				sFace.Area = 0; // TODO: Check if this needs to be computed
 				sFace.LightmapStart = new Vector2();
 				sFace.LightmapSize = new Vector2(); // TODO: Set to 128x128?
 				sFace.OriginalFaceIndex = -1; // Split faces reference the original face index
@@ -221,52 +336,21 @@ namespace BSPConversionLib
 				sFace.SmoothingGroups = 0;
 
 				sourceBsp.Faces.Add(sFace);
-
-				TempAddLeafFace(sourceBsp.Faces.Count - 1);
-			}
-
-			TempFixVisLeafFaces(sourceBsp.Faces.Count);
-			TempFixModel(sourceBsp.Faces.Count);
-		}
-
-		private void TempAddLeafFace(int faceIndex)
-		{
-			sourceBsp.LeafFaces.Add(faceIndex);
-		}
-
-		private void TempFixVisLeafFaces(int numFaces)
-		{
-			for (var i = 0; i < sourceBsp.Leaves.Count; i++)
-			{
-				var leaf = sourceBsp.Leaves[i];
-				if (leaf.FirstMarkFaceIndex == 12)
-				{
-					//leaf.FirstMarkFaceIndex = 0;
-					leaf.NumMarkFaceIndices += 6; // Add cube faces
-				}
-			}
-		}
-
-		private void TempFixModel(int numFaces)
-		{
-			for (var i = 0; i < sourceBsp.Models.Count; i++)
-			{
-				var model = sourceBsp.Models[i];
-				model.NumFaces = numFaces;
 			}
 		}
 
 		private int CreatePlane(Face face)
 		{
-			// TODO: Prevent adding duplicate planes
-			var distance = Vector3.Dot(face.Vertices.First().position, face.Normal);
-			var plane = new Plane(face.Normal, distance);
-			return CreatePlane(plane);
-		}
+			// TODO: Avoid adding duplicate planes
+			var data = new byte[PlaneBSP.GetStructLength(sourceBsp.MapType)];
+			var plane = new PlaneBSP(data, sourceBsp.Planes);
 
-		private int CreatePlane(Plane plane)
-		{
+			plane.Normal = face.Normal;
+			plane.Distance = Vector3.Dot(face.Vertices.First().position, face.Normal);
+			// TODO: Assign plane type?
+
 			sourceBsp.Planes.Add(plane);
+
 			return sourceBsp.Planes.Count - 1;
 		}
 
@@ -313,11 +397,12 @@ namespace BSPConversionLib
 		{
 			var data = new byte[TextureInfo.GetStructLength(sourceBsp.MapType)];
 			var textureInfo = new TextureInfo(data, sourceBsp.TextureInfo);
-			// Note: 0.5 tex scale = 2, 0.25 scale = 4
-			textureInfo.UAxis = new Vector3(0, 2, 0); // Get UV data from face vertices?
-			textureInfo.VAxis = new Vector3(0, 0, -2); // Get UV data from face vertices?
-			textureInfo.LightmapUAxis = new Vector3();
-			textureInfo.LightmapVAxis = new Vector3();
+			// TODO: Get UV data from face vertices
+			(var uAxis, var vAxis) = GetTextureVectors(face.Normal);
+			textureInfo.UAxis = uAxis;
+			textureInfo.VAxis = vAxis;
+			textureInfo.LightmapUAxis = uAxis / 4f; // TODO: Use lightmap scale
+			textureInfo.LightmapVAxis = vAxis / 4f;
 			textureInfo.Flags = 0;
 			textureInfo.TextureIndex = FindTextureDataIndex(face.Texture.Name);
 
@@ -326,10 +411,28 @@ namespace BSPConversionLib
 			return sourceBsp.TextureInfo.Count - 1;
 		}
 
+		private (Vector3 uAxis, Vector3 vAxis) GetTextureVectors(Vector3 faceNormal)
+		{
+			var axis = GetVectorAxis(faceNormal);
+			switch (axis)
+			{
+				case PlaneBSP.AxisType.PlaneX:
+				case PlaneBSP.AxisType.PlaneAnyX:
+					return (new Vector3(0f, 4f, 0f), new Vector3(0f, 0f, -4f));
+				case PlaneBSP.AxisType.PlaneY:
+				case PlaneBSP.AxisType.PlaneAnyY:
+					return (new Vector3(4f, 0f, 0f), new Vector3(0f, 0f, -4f));
+				case PlaneBSP.AxisType.PlaneZ:
+				case PlaneBSP.AxisType.PlaneAnyZ:
+					return (new Vector3(4f, 0f, 0f), new Vector3(0f, -4f, 0f));
+				default:
+					return (new Vector3(0f, 0f, 0f), new Vector3(0f, 0f, 0f));
+			}
+		}
+
 		private int FindTextureDataIndex(string textureName)
 		{
-			// TEMP? For some reason maps compiled from J.A.C.K. adds textures/ prefix. Not sure if this is typical for all Quake 3 maps
-			textureName = textureName.Replace("textures/", "");
+			textureName = FormatTextureName(textureName);
 
 			for (var i = 0; i < sourceBsp.TextureData.Count; i++)
 			{
@@ -341,11 +444,25 @@ namespace BSPConversionLib
 			return -1;
 		}
 
+		/// <summary>
+		/// Removed unnecessary prefixes from texture name
+		/// </summary>
+		private string FormatTextureName(string textureName)
+		{
+			// TEMP? For some reason maps compiled from J.A.C.K. adds textures/ prefix. Not sure if this is typical for all Quake 3 maps
+			return textureName.Replace("textures/", "");
+		}
+
 		private string GetTextureNameFromStringTable(TextureData textureData)
 		{
 			var nameStringTableId = textureData.TextureStringOffsetIndex;
 			var textureDataStringTableOffset = (int)sourceBsp.TextureTable[nameStringTableId];
 			return sourceBsp.Textures.GetTextureAtOffset((uint)textureDataStringTableOffset);
+		}
+
+		private void ConvertVisData()
+		{
+			sourceBsp.Visibility.Data = new byte[0];
 		}
 
 		private void WriteBSP()
@@ -354,7 +471,7 @@ namespace BSPConversionLib
 			writer.WriteBSP(outputPath);
 
 #if UNITY
-			UnityEngine.Debug.Log($"Wrote BSP to path: {outputPath}");
+			UnityEngine.Debug.Log($"Converted BSP: {outputPath}");
 #endif
 		}
 	}
