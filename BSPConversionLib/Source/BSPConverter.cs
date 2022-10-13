@@ -52,6 +52,9 @@ namespace BSPConversionLib
 			quakeBsp = new BSP(new FileInfo(quakeBspPath));
 			sourceBsp = new BSP(new FileInfo(sourceBspPath));
 
+			// TODO: Add missing lumps before creating a BSP from scratch (LUMP_OCCLUSION)
+			//sourceBsp = new BSP(Path.GetFileName(outputPath), MapType.Source20);
+
 			this.outputPath = outputPath;
 		}
 
@@ -69,6 +72,7 @@ namespace BSPConversionLib
 			ConvertBrushSides();
 			ConvertFaces();
 			ConvertVisData();
+			//ConvertMiscLumps();
 
 			WriteBSP();
 		}
@@ -196,6 +200,8 @@ namespace BSPConversionLib
 		{
 			sourceBsp.Leaves.Clear();
 
+			SetLumpVersionNumber(Leaf.GetIndexForLump(sourceBsp.MapType), 1);
+
 			foreach (var qLeaf in quakeBsp.Leaves)
 			{
 				var data = new byte[Leaf.GetStructLength(sourceBsp.MapType)];
@@ -251,6 +257,12 @@ namespace BSPConversionLib
 				var data = new byte[Model.GetStructLength(sourceBsp.MapType)];
 				var sModel = new Model(data, sourceBsp.Models);
 
+				//var mins = qModel.Minimums;
+				//var maxs = qModel.Maximums;
+				//var minExtents = -16384;
+				//var maxExtents = 16384;
+				//sModel.Minimums = new Vector3(Math.Clamp(mins.X(), minExtents, maxExtents), Math.Clamp(mins.Y(), minExtents, maxExtents), Math.Clamp(mins.Z(), minExtents, maxExtents));
+				//sModel.Maximums = new Vector3(Math.Clamp(maxs.X(), minExtents, maxExtents), Math.Clamp(maxs.Y(), minExtents, maxExtents), Math.Clamp(maxs.Z(), minExtents, maxExtents));
 				sModel.Minimums = qModel.Minimums;
 				sModel.Maximums = qModel.Maximums;
 				sModel.HeadNodeIndex = 0; // TODO: Find head node from leaf brushes?
@@ -304,7 +316,9 @@ namespace BSPConversionLib
 			sourceBsp.Edges.Clear();
 			sourceBsp.Vertices.Clear();
 			sourceBsp.TextureInfo.Clear();
-			sourceBsp.OriginalFaces.Clear(); // Will this cause issues? Original faces are not converted.
+			sourceBsp.OriginalFaces.Clear();
+
+			SetLumpVersionNumber(Face.GetIndexForLump(sourceBsp.MapType), 1);
 
 			foreach (var qFace in quakeBsp.Faces)
 			{
@@ -313,14 +327,21 @@ namespace BSPConversionLib
 
 				// TODO: Re-use brush planes?
 				sFace.PlaneIndex = CreatePlane(qFace); // Quake faces don't have planes, so create one
-
-				// TODO: Figure out how to compute these values
 				sFace.PlaneSide = true;
 				sFace.IsOnNode = false; // Set to false in order for face to be visible across multiple leaves?
 
-				(var surfEdgeIndex, var numEdges) = CreateSurfaceEdges(qFace.Vertices.ToArray());
-				sFace.FirstEdgeIndexIndex = surfEdgeIndex;
-				sFace.NumEdgeIndices = numEdges;
+				(var surfEdgeIndex, var numEdges) = CreateSurfaceEdges(qFace.Vertices.ToArray(), qFace.Indices.ToArray());
+				//var usePrims = sourceBsp.Primitives.Count < 6;
+				//if (usePrims)
+				//{
+				//	sFace.FirstEdgeIndexIndex = 0;
+				//	sFace.NumEdgeIndices = 0;
+				//}
+				//else
+				{
+					sFace.FirstEdgeIndexIndex = surfEdgeIndex;
+					sFace.NumEdgeIndices = numEdges;
+				}
 
 				sFace.TextureInfoIndex = CreateTextureInfo(qFace);
 				sFace.DisplacementIndex = -1;
@@ -330,9 +351,19 @@ namespace BSPConversionLib
 				sFace.Area = 0; // TODO: Check if this needs to be computed
 				sFace.LightmapStart = new Vector2();
 				sFace.LightmapSize = new Vector2(); // TODO: Set to 128x128?
-				sFace.OriginalFaceIndex = -1; // Split faces reference the original face index
-				sFace.NumPrimitives = 0;
-				sFace.FirstPrimitive = 0;
+				sFace.OriginalFaceIndex = -1; // Ignore since Quake 3 maps don't have split faces
+
+				//if (usePrims)
+				//{
+				//	sFace.FirstPrimitive = CreatePrimitive(qFace.Vertices.ToArray(), qFace.Indices.ToArray());
+				//	sFace.NumPrimitives = 1;
+				//}
+				//else
+				{
+					sFace.FirstPrimitive = 0;
+					sFace.NumPrimitives = 0;
+				}
+				
 				sFace.SmoothingGroups = 0;
 
 				sourceBsp.Faces.Add(sFace);
@@ -347,28 +378,109 @@ namespace BSPConversionLib
 
 			plane.Normal = face.Normal;
 			plane.Distance = Vector3.Dot(face.Vertices.First().position, face.Normal);
-			// TODO: Assign plane type?
+			plane.Type = (int)GetVectorAxis(plane.Normal);
 
 			sourceBsp.Planes.Add(plane);
 
 			return sourceBsp.Planes.Count - 1;
 		}
 
-		private (int surfEdgeIndex, int numEdges) CreateSurfaceEdges(Vertex[] vertices)
+		private int CreatePrimitive(Vertex[] vertices, int[] indices)
 		{
-			var surfEdgeIndex = -1;
-			var numEdges = vertices.Length;
+			var primitiveIndex = sourceBsp.Primitives.Count;
 
-			for (var i = 0; i < vertices.Length; i++)
+			var data = new byte[Primitive.GetStructLength(sourceBsp.MapType)];
+			var primitive = new Primitive(data, sourceBsp.Primitives);
+
+			primitive.Type = Primitive.PrimitiveType.PRIM_TRILIST;
+
+			primitive.FirstVertex = CreatePrimitiveVertices(vertices);
+			primitive.VertexCount = vertices.Length;
+
+			primitive.FirstIndex = CreatePrimitiveIndices(indices, primitive.FirstVertex);
+			primitive.IndexCount = indices.Length;
+
+			sourceBsp.Primitives.Add(primitive);
+
+			return primitiveIndex;
+		}
+
+		private int CreatePrimitiveIndices(int[] indices, int firstVertex)
+		{
+			var firstPrimIndex = sourceBsp.PrimitiveIndices.Count;
+
+			foreach (var index in indices)
+				sourceBsp.PrimitiveIndices.Add(index + firstVertex);
+
+			return firstPrimIndex;
+		}
+
+		private int CreatePrimitiveVertices(Vertex[] vertices)
+		{
+			var firstPrimVertex = sourceBsp.PrimitiveVertices.Count;
+
+			foreach (var vertex in vertices)
+				sourceBsp.PrimitiveVertices.Add(vertex.position);
+
+			return firstPrimVertex;
+		}
+
+		private (int surfEdgeIndex, int numEdges) CreateSurfaceEdges(Vertex[] vertices, int[] indices)
+		{
+			var surfEdgeIndex = sourceBsp.FaceEdges.Count;
+			var numEdges = indices.Length;
+
+			//var vertList = vertices.ToList();
+			//var bounds = new UnityEngine.Bounds();
+			//foreach (var vert in vertList)
+			//	bounds.Encapsulate(vert.position);
+
+			////bounds.max -= Vector3.one * 0.01f;
+			////bounds.min += Vector3.one * 0.01f;
+
+			//foreach (var vert in vertList)
+			//{
+			//	if (bounds.Contains(vert.position))
+			//	{
+			//		vertList.Remove(vert);
+			//		UnityEngine.Debug.Log("removed vert");
+			//		break;
+			//	}
+			//	//if (vert.position.x > bounds.min.x && vert.position.x < bounds.max.x &&
+			//	//	vert.position.y > bounds.min.y && vert.position.y < bounds.max.y)
+			//	//	//vert.position.z > bounds.min.z && vert.position.z < bounds.max.z)
+			//	//{
+			//	//	vertList.Remove(vert);
+			//	//	break;
+			//	//}
+			//}
+
+			//vertices = vertList.ToArray();
+			//var numEdges = vertices.Length;
+
+			// Note: Edges are continuous, so treating them as triangles will cause issues
+			for (var i = 0; i < indices.Length; i += 3)
 			{
-				var nextIndex = (i + 1) % vertices.Length;
-				var edgeIndex = CreateEdge(vertices[nextIndex], vertices[i]);
+				var v1 = vertices[indices[i]];
+				var v2 = vertices[indices[i + 1]];
+				var v3 = vertices[indices[i + 2]];
 
-				sourceBsp.FaceEdges.Add(edgeIndex);
+				var e1 = CreateEdge(v2, v1);
+				var e2 = CreateEdge(v3, v2);
+				var e3 = CreateEdge(v1, v3);
 
-				if (i == 0)
-					surfEdgeIndex = sourceBsp.FaceEdges.Count - 1;
+				sourceBsp.FaceEdges.Add(e1);
+				sourceBsp.FaceEdges.Add(e2);
+				sourceBsp.FaceEdges.Add(e3);
 			}
+
+			//for (var i = 0; i < vertices.Length; i++)
+			//{
+			//	var nextIndex = (i + 1) % vertices.Length;
+			//	var edgeIndex = CreateEdge(vertices[nextIndex], vertices[i]);
+
+			//	sourceBsp.FaceEdges.Add(edgeIndex);
+			//}
 
 			return (surfEdgeIndex, numEdges);
 		}
@@ -463,6 +575,29 @@ namespace BSPConversionLib
 		private void ConvertVisData()
 		{
 			sourceBsp.Visibility.Data = new byte[0];
+		}
+
+		private void ConvertMiscLumps()
+		{
+			var cubemaps = sourceBsp.Cubemaps;
+			var dispTris = sourceBsp.DisplacementTriangles;
+			var dispVerts = sourceBsp.DisplacementVertices;
+			var dispInfo = sourceBsp.Displacements;
+			var gameLump = sourceBsp.GameLump;
+			var lightmaps = sourceBsp.Lightmaps;
+			var primitives = sourceBsp.Primitives;
+			var primVerts = sourceBsp.PrimitiveVertices;
+			var primIndices = sourceBsp.PrimitiveIndices;
+
+			SetLumpVersionNumber(Lightmaps.GetIndexForLump(sourceBsp.MapType), 1);
+			SetLumpVersionNumber(9, 2); // Occlusion data
+		}
+
+		private void SetLumpVersionNumber(int lumpIndex, int lumpVersion)
+		{
+			var lumpInfo = sourceBsp[lumpIndex];
+			lumpInfo.version = lumpVersion;
+			sourceBsp[lumpIndex] = lumpInfo;
 		}
 
 		private void WriteBSP()
