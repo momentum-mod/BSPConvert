@@ -8,8 +8,14 @@
 
   <ItemGroup>
     <Reference Include="libBSP">
-      <HintPath>..\..\..\..\Git\LibBSP\LibBSP\bin\Release\libBSP.dll</HintPath>
+      <HintPath>Dependencies\libBSP.dll</HintPath>
     </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="VTFCmd.exe">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
 </Project>

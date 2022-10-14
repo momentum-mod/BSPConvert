@@ -10,6 +10,7 @@ using System;
 using System.IO;
 using System.Collections.Generic;
 using System.Linq;
+using System.IO.Compression;
 
 namespace BSPConversionLib
 {
@@ -39,27 +40,54 @@ namespace BSPConversionLib
 	using Color = System.Drawing.Color;
 #endif
 
-	public class BSPConverter
+	public class BSPConverter : IDisposable
 	{
 		private BSP quakeBsp;
 		private BSP sourceBsp;
-		private string outputPath;
+		private string outputDir;
+		private string pk3Dir;
 
 		private const int CONTENTS_SOLID = 1; // TODO: Add contents enum
 
-		public BSPConverter(string quakeBspPath, string sourceBspPath, string outputPath)
+		public BSPConverter(string quakeFilePath, string sourceBspPath, string outputDir)
 		{
-			quakeBsp = new BSP(new FileInfo(quakeBspPath));
+			quakeBsp = LoadQuakeBsp(quakeFilePath);
 			sourceBsp = new BSP(new FileInfo(sourceBspPath));
 
 			// TODO: Add missing lumps before creating a BSP from scratch (LUMP_OCCLUSION)
 			//sourceBsp = new BSP(Path.GetFileName(outputPath), MapType.Source20);
 
-			this.outputPath = outputPath;
+			this.outputDir = outputDir;
+		}
+
+		private BSP LoadQuakeBsp(string quakeFilePath)
+		{
+			if (Path.GetExtension(quakeFilePath) == ".bsp")
+				new BSP(new FileInfo(quakeFilePath));
+
+			pk3Dir = ExtractPk3(quakeFilePath);
+
+			// Find extracted BSP
+			var pk3Bsp = Directory.GetFiles(pk3Dir, "*.bsp", SearchOption.AllDirectories).First();
+
+			return new BSP(new FileInfo(pk3Bsp));
+		}
+
+		// Extract pk3 into temp directory
+		private string ExtractPk3(string pk3FilePath)
+		{
+			var fileName = Path.GetFileName(pk3FilePath);
+			var pk3Dir = Path.Combine(Path.GetTempPath(), fileName);
+
+			ZipFile.ExtractToDirectory(pk3FilePath, pk3Dir);
+
+			return pk3Dir;
 		}
 
 		public void Convert()
 		{
+			ConvertImageTextures();
+
 			ConvertEntities();
 			ConvertTextures();
 			ConvertPlanes();
@@ -75,6 +103,15 @@ namespace BSPConversionLib
 			//ConvertMiscLumps();
 
 			WriteBSP();
+		}
+
+		private void ConvertImageTextures()
+		{
+			if (!string.IsNullOrEmpty(pk3Dir))
+			{
+				var textureConverter = new TextureConverter(pk3Dir, outputDir);
+				textureConverter.Convert();
+			}
 		}
 
 		private void ConvertEntities()
@@ -603,11 +640,17 @@ namespace BSPConversionLib
 		private void WriteBSP()
 		{
 			var writer = new BSPWriter(sourceBsp);
-			writer.WriteBSP(outputPath);
+			writer.WriteBSP(outputDir);
 
 #if UNITY
-			UnityEngine.Debug.Log($"Converted BSP: {outputPath}");
+			UnityEngine.Debug.Log($"Converted BSP: {outputDir}");
 #endif
+		}
+
+		public void Dispose()
+		{
+			if (!string.IsNullOrEmpty(pk3Dir))
+				Directory.Delete(pk3Dir);
 		}
 	}
 }
