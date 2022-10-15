@@ -10,50 +10,81 @@ namespace BSPConversionLib
 {
 	public class TextureConverter
 	{
-		private string pk3Dir;
+		private string textureDir;
 		private string outputDir;
+		private ILogger logger;
 
-		private HashSet<string> validExtensions = new HashSet<string>()
+		public TextureConverter(string pk3Dir, string outputDir, ILogger logger)
 		{
-			".bmp",
-			".dds",
-			".gif",
-			".jpg",
-			".png",
-			".tga"
-		};
-
-		public TextureConverter(string pk3Dir, string outputDir)
-		{
-			this.pk3Dir = pk3Dir;
+			textureDir = Path.Combine(pk3Dir, "textures");
 			this.outputDir = outputDir;
+			this.logger = logger;
 		}
 
 		public void Convert()
 		{
-			var textures = FindTextures();
-			var sb = new StringBuilder();
-			foreach (var texture in textures)
-				sb.Append($"-file \"{texture}\" ");
-
 			var startInfo = new ProcessStartInfo();
-			startInfo.FileName = "VTFCmd.exe";
-			startInfo.Arguments = $"{sb} -output {outputDir}";
+			startInfo.FileName = "Dependencies\\VTFCmd.exe";
+			startInfo.Arguments = $"-folder {textureDir}\\*.* -recurse -silent";
 
-			Process.Start(startInfo);
+			var process = Process.Start(startInfo);
+			process.EnableRaisingEvents = true;
+			process.Exited += (x, y) => OnFinishedConvertingTextures();
+			
+			process.WaitForExit();
 		}
 
-		private List<string> FindTextures()
+		private void OnFinishedConvertingTextures()
 		{
-			var textures = new List<string>();
+			// TODO: Add an option to pack vtfs/vmts into bsp file
 
-			foreach (var file in Directory.EnumerateFiles(pk3Dir))
+			// Move vtf files into output directory and generate vmts
+			var vtfFiles = Directory.GetFiles(textureDir, "*.vtf", SearchOption.AllDirectories);
+			foreach (var vtfFile in vtfFiles)
 			{
-				if (validExtensions.Contains(file))
-					textures.Add(file);
-			}
+				var materialDir = Path.Combine(outputDir, "materials");
+				var destPath = vtfFile.Replace(textureDir, materialDir);
+				ConvertVTFFile(vtfFile, destPath);
 
-			return textures;
+				var vmtPath = Path.ChangeExtension(destPath, ".vmt");
+				ConvertVMTFile(vmtPath);
+			}
+		}
+
+		private void ConvertVTFFile(string vtfFile, string destPath)
+		{
+			var vtfDir = Path.GetDirectoryName(destPath);
+			if (!Directory.Exists(vtfDir))
+				Directory.CreateDirectory(vtfDir);
+
+			// Delete existing file if it exists
+			if (File.Exists(destPath))
+				File.Delete(destPath);
+			
+			File.Move(vtfFile, destPath);
+
+			logger.Log("Converted VTF file: " + destPath);
+		}
+
+		private void ConvertVMTFile(string vmtPath)
+		{
+			var vmtFile = File.CreateText(vmtPath);
+			vmtFile.WriteLine("LightmappedGeneric");
+			vmtFile.WriteLine("{");
+
+			var relativePath = GetRelativePath(vmtPath);
+			vmtFile.WriteLine($"\t\"$basetexture\" \"{relativePath}\"");
+
+			vmtFile.WriteLine("}");
+			vmtFile.Close();
+
+			logger.Log("Converted VMT file: " + vmtPath);
+		}
+
+		private string GetRelativePath(string vmtPath)
+		{
+			var materialFolder = "materials" + Path.DirectorySeparatorChar;
+			return vmtPath.Substring(vmtPath.LastIndexOf(materialFolder) + materialFolder.Length);
 		}
 	}
 }

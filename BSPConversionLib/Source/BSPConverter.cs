@@ -40,24 +40,59 @@ namespace BSPConversionLib
 	using Color = System.Drawing.Color;
 #endif
 
-	public class BSPConverter : IDisposable
+	public class BSPConverter
 	{
+		private string quakeFilePath;
+		private string sourceBspPath;
+		private string outputDir;
+		private ILogger logger;
+
 		private BSP quakeBsp;
 		private BSP sourceBsp;
-		private string outputDir;
 		private string pk3Dir;
 
 		private const int CONTENTS_SOLID = 1; // TODO: Add contents enum
 
-		public BSPConverter(string quakeFilePath, string sourceBspPath, string outputDir)
+		public BSPConverter(string quakeFilePath, string sourceBspPath, string outputDir, ILogger logger)
 		{
-			quakeBsp = LoadQuakeBsp(quakeFilePath);
-			sourceBsp = new BSP(new FileInfo(sourceBspPath));
+			this.quakeFilePath = quakeFilePath;
+			this.sourceBspPath = sourceBspPath;
+			this.outputDir = outputDir;
+			this.logger = logger;
 
 			// TODO: Add missing lumps before creating a BSP from scratch (LUMP_OCCLUSION)
 			//sourceBsp = new BSP(Path.GetFileName(outputPath), MapType.Source20);
+		}
 
-			this.outputDir = outputDir;
+		public void Convert()
+		{
+			LoadBSPs();
+
+			ConvertTextureFiles();
+
+			ConvertEntities();
+			ConvertTextures();
+			ConvertPlanes();
+			ConvertNodes();
+			ConvertLeaves();
+			ConvertLeafFaces();
+			ConvertLeafBrushes();
+			ConvertModels();
+			ConvertBrushes();
+			ConvertBrushSides();
+			ConvertFaces();
+			ConvertVisData();
+			//ConvertMiscLumps();
+
+			WriteBSP();
+
+			DeletePk3Directory();
+		}
+
+		private void LoadBSPs()
+		{
+			quakeBsp = LoadQuakeBsp(quakeFilePath);
+			sourceBsp = new BSP(new FileInfo(sourceBspPath));
 		}
 
 		private BSP LoadQuakeBsp(string quakeFilePath)
@@ -76,40 +111,23 @@ namespace BSPConversionLib
 		// Extract pk3 into temp directory
 		private string ExtractPk3(string pk3FilePath)
 		{
-			var fileName = Path.GetFileName(pk3FilePath);
+			var fileName = Path.GetFileNameWithoutExtension(pk3FilePath);
 			var pk3Dir = Path.Combine(Path.GetTempPath(), fileName);
+
+			// Delete any pre-existing pk3 contents
+			if (Directory.Exists(pk3Dir))
+				Directory.Delete(pk3Dir, true);
 
 			ZipFile.ExtractToDirectory(pk3FilePath, pk3Dir);
 
 			return pk3Dir;
 		}
 
-		public void Convert()
-		{
-			ConvertImageTextures();
-
-			ConvertEntities();
-			ConvertTextures();
-			ConvertPlanes();
-			ConvertNodes();
-			ConvertLeaves();
-			ConvertLeafFaces();
-			ConvertLeafBrushes();
-			ConvertModels();
-			ConvertBrushes();
-			ConvertBrushSides();
-			ConvertFaces();
-			ConvertVisData();
-			//ConvertMiscLumps();
-
-			WriteBSP();
-		}
-
-		private void ConvertImageTextures()
+		private void ConvertTextureFiles()
 		{
 			if (!string.IsNullOrEmpty(pk3Dir))
 			{
-				var textureConverter = new TextureConverter(pk3Dir, outputDir);
+				var textureConverter = new TextureConverter(pk3Dir, outputDir, logger);
 				textureConverter.Convert();
 			}
 		}
@@ -294,12 +312,18 @@ namespace BSPConversionLib
 				var data = new byte[Model.GetStructLength(sourceBsp.MapType)];
 				var sModel = new Model(data, sourceBsp.Models);
 
-				//var mins = qModel.Minimums;
-				//var maxs = qModel.Maximums;
-				//var minExtents = -16384;
-				//var maxExtents = 16384;
+				var mins = qModel.Minimums;
+				var maxs = qModel.Maximums;
+				var minExtents = -16384;
+				var maxExtents = 16384;
 				//sModel.Minimums = new Vector3(Math.Clamp(mins.X(), minExtents, maxExtents), Math.Clamp(mins.Y(), minExtents, maxExtents), Math.Clamp(mins.Z(), minExtents, maxExtents));
 				//sModel.Maximums = new Vector3(Math.Clamp(maxs.X(), minExtents, maxExtents), Math.Clamp(maxs.Y(), minExtents, maxExtents), Math.Clamp(maxs.Z(), minExtents, maxExtents));
+				if (mins.X() < minExtents || mins.Y() < minExtents || mins.Z() < minExtents)
+					logger.Log("Exceeded min extents: " + mins);
+
+				if (maxs.X() > maxExtents || maxs.Y() > maxExtents || maxs.Z() > maxExtents)
+					logger.Log("Exceeded max extents: " + maxs);
+
 				sModel.Minimums = qModel.Minimums;
 				sModel.Maximums = qModel.Maximums;
 				sModel.HeadNodeIndex = 0; // TODO: Find head node from leaf brushes?
@@ -639,18 +663,22 @@ namespace BSPConversionLib
 
 		private void WriteBSP()
 		{
-			var writer = new BSPWriter(sourceBsp);
-			writer.WriteBSP(outputDir);
+			var mapsDir = Path.Combine(outputDir, "maps");
+			if (!Directory.Exists(mapsDir))
+				Directory.CreateDirectory(mapsDir);
 
-#if UNITY
-			UnityEngine.Debug.Log($"Converted BSP: {outputDir}");
-#endif
+			var writer = new BSPWriter(sourceBsp);
+			var bspPath = Path.Combine(mapsDir, quakeBsp.MapName + ".bsp");
+			writer.WriteBSP(bspPath);
+			
+			logger.Log($"Converted BSP: {bspPath}");
 		}
 
-		public void Dispose()
+		// Delete temp pk3 directory if it exists
+		private void DeletePk3Directory()
 		{
 			if (!string.IsNullOrEmpty(pk3Dir))
-				Directory.Delete(pk3Dir);
+				Directory.Delete(pk3Dir, true);
 		}
 	}
 }
