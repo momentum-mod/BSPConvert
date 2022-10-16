@@ -17,8 +17,8 @@ namespace BSPConversionCmd
 				return;
 			}
 
-			using (var converter = new BSPConverter(args[0], args[1], args[2], new ConsoleLogger()))
-				converter.Convert();
+			var converter = new BSPConverter(args[0], args[1], args[2], new ConsoleLogger());
+			converter.Convert();
 		}
 	}
 }
