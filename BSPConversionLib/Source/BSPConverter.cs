@@ -43,7 +43,6 @@ namespace BSPConversionLib
 	public class BSPConverter
 	{
 		private string quakeFilePath;
-		private string sourceBspPath;
 		private string outputDir;
 		private ILogger logger;
 
@@ -53,15 +52,11 @@ namespace BSPConversionLib
 
 		private const int CONTENTS_SOLID = 1; // TODO: Add contents enum
 
-		public BSPConverter(string quakeFilePath, string sourceBspPath, string outputDir, ILogger logger)
+		public BSPConverter(string quakeFilePath, string outputDir, ILogger logger)
 		{
 			this.quakeFilePath = quakeFilePath;
-			this.sourceBspPath = sourceBspPath;
 			this.outputDir = outputDir;
 			this.logger = logger;
-
-			// TODO: Add missing lumps before creating a BSP from scratch (LUMP_OCCLUSION)
-			//sourceBsp = new BSP(Path.GetFileName(outputPath), MapType.Source20);
 		}
 
 		public void Convert()
@@ -81,8 +76,10 @@ namespace BSPConversionLib
 			ConvertBrushes();
 			ConvertBrushSides();
 			ConvertFaces();
+			ConvertLightmaps();
 			ConvertVisData();
-			//ConvertMiscLumps();
+
+			AddRequiredLumpData();
 
 			WriteBSP();
 
@@ -92,13 +89,13 @@ namespace BSPConversionLib
 		private void LoadBSPs()
 		{
 			quakeBsp = LoadQuakeBsp(quakeFilePath);
-			sourceBsp = new BSP(new FileInfo(sourceBspPath));
+			sourceBsp = new BSP(Path.GetFileName(outputDir), MapType.Source20);
 		}
 
 		private BSP LoadQuakeBsp(string quakeFilePath)
 		{
 			if (Path.GetExtension(quakeFilePath) == ".bsp")
-				new BSP(new FileInfo(quakeFilePath));
+				return new BSP(new FileInfo(quakeFilePath));
 
 			pk3Dir = ExtractPk3(quakeFilePath);
 
@@ -633,25 +630,49 @@ namespace BSPConversionLib
 			return sourceBsp.Textures.GetTextureAtOffset((uint)textureDataStringTableOffset);
 		}
 
+		private void ConvertLightmaps()
+		{
+			SetLumpVersionNumber(Lightmaps.GetIndexForLump(sourceBsp.MapType), 1);
+
+			// TODO: Convert lightmap data
+			
+		}
+
 		private void ConvertVisData()
 		{
 			sourceBsp.Visibility.Data = new byte[0];
 		}
 
-		private void ConvertMiscLumps()
+		// Lump data that does not exist in the Quake BSP but must be added in order for the map to load in Source
+		private void AddRequiredLumpData()
 		{
-			var cubemaps = sourceBsp.Cubemaps;
-			var dispTris = sourceBsp.DisplacementTriangles;
-			var dispVerts = sourceBsp.DisplacementVertices;
-			var dispInfo = sourceBsp.Displacements;
-			var gameLump = sourceBsp.GameLump;
-			var lightmaps = sourceBsp.Lightmaps;
-			var primitives = sourceBsp.Primitives;
-			var primVerts = sourceBsp.PrimitiveVertices;
-			var primIndices = sourceBsp.PrimitiveIndices;
+			AddAreas();
+			AddAreaPortal();
+		}
 
-			SetLumpVersionNumber(Lightmaps.GetIndexForLump(sourceBsp.MapType), 1);
-			SetLumpVersionNumber(9, 2); // Occlusion data
+		private void AddAreas()
+		{
+			// At least two areas are required for the map to load
+			var area1 = CreateArea();
+			sourceBsp.Areas.Add(area1);
+
+			var area2 = CreateArea();
+			area2.FirstAreaPortal = 1;
+			sourceBsp.Areas.Add(area2);
+		}
+
+		private Area CreateArea()
+		{
+			var areaBytes = new byte[Area.GetStructLength(sourceBsp.MapType)];
+			return new Area(areaBytes, sourceBsp.Areas);
+		}
+
+		private void AddAreaPortal()
+		{
+			// At least one area portal is required for the map to load
+			var areaPortalBytes = new byte[AreaPortal.GetStructLength(sourceBsp.MapType)];
+			var areaPortal = new AreaPortal(areaPortalBytes, sourceBsp.AreaPortals);
+			sourceBsp.AreaPortals.Add(areaPortal);
 		}
 
 		private void SetLumpVersionNumber(int lumpIndex, int lumpVersion)
@@ -670,7 +691,7 @@ namespace BSPConversionLib
 			var writer = new BSPWriter(sourceBsp);
 			var bspPath = Path.Combine(mapsDir, quakeBsp.MapName + ".bsp");
 			writer.WriteBSP(bspPath);
-			
+
 			logger.Log($"Converted BSP: {bspPath}");
 		}
 
