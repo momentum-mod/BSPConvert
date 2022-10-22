@@ -44,18 +44,23 @@ namespace BSPConversionLib
 	{
 		private string quakeFilePath;
 		private string outputDir;
+		private bool momentumConvert;
 		private ILogger logger;
 
 		private BSP quakeBsp;
 		private BSP sourceBsp;
 		private string pk3Dir;
 
-		private const int CONTENTS_SOLID = 1; // TODO: Add contents enum
+		private int currentCheckpointIndex = 2;
 
-		public BSPConverter(string quakeFilePath, string outputDir, ILogger logger)
+		private const int CONTENTS_SOLID = 1; // TODO: Add contents enum
+		private const string MOMENTUM_START_ENTITY = "_momentum_player_start_";
+
+		public BSPConverter(string quakeFilePath, string outputDir, bool momentumConvert, ILogger logger)
 		{
 			this.quakeFilePath = quakeFilePath;
 			this.outputDir = outputDir;
+			this.momentumConvert = momentumConvert;
 			this.logger = logger;
 		}
 
@@ -131,18 +136,87 @@ namespace BSPConversionLib
 
 		private void ConvertEntities()
 		{
-			sourceBsp.Entities.Clear();
+			if (momentumConvert)
+				ConvertEntitiesMomentum();
+			else
+				ConvertEntitiesDefault();
+		}
 
+		private void ConvertEntitiesDefault()
+		{
 			foreach (var entity in quakeBsp.Entities)
 				sourceBsp.Entities.Add(entity);
 		}
 
+		private void ConvertEntitiesMomentum()
+		{
+			var entityDict = new Dictionary<string, Entity>(); // Used to lookup entities by targetname
+			foreach (var entity in quakeBsp.Entities)
+			{
+				if (!entityDict.ContainsKey(entity.Name))
+					entityDict.Add(entity.Name, entity);
+			}
+
+			foreach (var entity in quakeBsp.Entities)
+			{
+				switch (entity.ClassName)
+				{
+					case "info_player_start":
+						entity.Name = MOMENTUM_START_ENTITY;
+						sourceBsp.Entities.Add(entity);
+						break;
+					case "trigger_multiple":
+						ConvertTriggerMultiple(entity, entityDict);
+						sourceBsp.Entities.Add(entity);
+						break;
+					// Ignore Defrag timer entities
+					case "target_startTimer":
+					case "target_stopTimer":
+					case "target_checkpoint":
+						break;
+					default:
+						sourceBsp.Entities.Add(entity);
+						break;
+				}
+			}
+		}
+
+		private void ConvertTriggerMultiple(Entity entity, Dictionary<string, Entity> entityDict)
+		{
+			if (!entity.TryGetValue("target", out var target))
+				return;
+
+			var targetEntity = entityDict[target];
+			switch (targetEntity.ClassName)
+			{
+				case "target_startTimer":
+					ConvertTimerTrigger(entity, "trigger_momentum_timer_start", 1);
+					entity["teleport_destination"] = MOMENTUM_START_ENTITY;
+					//entity["start_on_jump"] = "0";
+					//entity["speed_limit"] = "999999";
+					break;
+				case "target_stopTimer":
+					ConvertTimerTrigger(entity, "trigger_momentum_timer_stop", 0);
+					break;
+				case "target_checkpoint":
+					ConvertTimerTrigger(entity, "trigger_momentum_timer_checkpoint", currentCheckpointIndex);
+					currentCheckpointIndex++;
+					break;
+			}
+		}
+
+		private static void ConvertTimerTrigger(Entity entity, string className, int zoneNumber)
+		{
+			entity.ClassName = className;
+			//entity["track_number"] = "0";
+			entity["zone_number"] = zoneNumber.ToString();
+			//entity["spawnflags"] = "0";
+
+			entity.Remove("target");
+		}
+
 		private void ConvertTextures()
 		{
-			sourceBsp.TextureData.Clear();
-			sourceBsp.TextureTable.Clear();
-			sourceBsp.Textures.Clear();
-
 			foreach (var texture in quakeBsp.Textures)
 				CreateTextureData(texture);
 		}
@@ -184,8 +258,6 @@ namespace BSPConversionLib
 
 		private void ConvertPlanes()
 		{
-			sourceBsp.Planes.Clear();
-
 			foreach (var qPlane in quakeBsp.Planes)
 			{
 				var data = new byte[PlaneBSP.GetStructLength(sourceBsp.MapType)];
@@ -224,8 +296,6 @@ namespace BSPConversionLib
 
 		private void ConvertNodes()
 		{
-			sourceBsp.Nodes.Clear();
-
 			foreach (var qNode in quakeBsp.Nodes)
 			{
 				var data = new byte[Node.GetStructLength(sourceBsp.MapType)];
@@ -250,8 +320,6 @@ namespace BSPConversionLib
 
 		private void ConvertLeaves()
 		{
-			sourceBsp.Leaves.Clear();
-
 			SetLumpVersionNumber(Leaf.GetIndexForLump(sourceBsp.MapType), 1);
 
 			foreach (var qLeaf in quakeBsp.Leaves)
@@ -285,24 +353,18 @@ namespace BSPConversionLib
 
 		private void ConvertLeafFaces()
 		{
-			sourceBsp.LeafFaces.Clear();
-
 			foreach (var qLeafFace in quakeBsp.LeafFaces)
 				sourceBsp.LeafFaces.Add(qLeafFace);
 		}
 
 		private void ConvertLeafBrushes()
 		{
-			sourceBsp.LeafBrushes.Clear();
-
 			foreach (var qLeafBrush in quakeBsp.LeafBrushes)
 				sourceBsp.LeafBrushes.Add(qLeafBrush);
 		}
 
 		private void ConvertModels()
 		{
-			sourceBsp.Models.Clear();
-
 			foreach (var qModel in quakeBsp.Models)
 			{
 				// Modify model 0 on sourceBsp until ready to remove sourceBsp's models? Index 0 handles all world geometry, anything after is for brush entities
@@ -323,7 +385,10 @@ namespace BSPConversionLib
 
 				sModel.Minimums = qModel.Minimums;
 				sModel.Maximums = qModel.Maximums;
-				sModel.HeadNodeIndex = 0; // TODO: Find head node from leaf brushes?
+				if (sourceBsp.Models.Count == 0) // First model always references first node?
+					sModel.HeadNodeIndex = 0;
+				else
+					sModel.HeadNodeIndex = CreateHeadNode(qModel.FirstBrushIndex, mins, maxs);
 				sModel.Origin = new Vector3(0f, 0f, 0f); // Recalculate origin?
 				sModel.FirstFaceIndex = qModel.FirstFaceIndex;
 				sModel.NumFaces = qModel.NumFaces;
@@ -332,10 +397,56 @@ namespace BSPConversionLib
 			}
 		}
 
+		// TODO: Add face references in order for showtriggers_toggle to work?
+		// Creates a head node using the leaf that references the brush index (seems to be required to get trigger collisions working)
+		private int CreateHeadNode(int firstBrushIndex, Vector3 mins, Vector3 maxs)
+		{
+			var leafIndex = FindLeafIndex(firstBrushIndex);
+			if (leafIndex < 0)
+				return 0;
+			
+			var leaf = sourceBsp.Leaves[leafIndex];
+			leaf.Contents = CONTENTS_SOLID;
+			leaf.Visibility = -1; // Cluster index
+			leaf.Area = 0;
+			leaf.Minimums = mins;
+			leaf.Maximums = maxs;
+			
+			var data = new byte[Node.GetStructLength(sourceBsp.MapType)];
+			var node = new Node(data, sourceBsp.Nodes);
+			
+			node.Child1Index = -leafIndex - 1;
+			node.Child2Index = -leafIndex - 1;
+
+			node.PlaneIndex = 0;
+			node.Minimums = mins;
+			node.Maximums = maxs;
+			node.FirstFaceIndex = 0;
+			node.NumFaceIndices = 0;
+			node.AreaIndex = 0;
+
+			sourceBsp.Nodes.Add(node);
+
+			return sourceBsp.Nodes.Count - 1;
+		}
+
+		// Finds a leaf that references the brush index
+		private int FindLeafIndex(int firstBrushIndex)
+		{
+			var leafBrushes = sourceBsp.LeafBrushes;
+
+			for (var i = 0; i < sourceBsp.Leaves.Count; i++)
+			{
+				var leaf = sourceBsp.Leaves[i];
+				if (leafBrushes[leaf.FirstMarkBrushIndex] == firstBrushIndex)
+					return i;
+			}
+
+			return -1;
+		}
+
 		private void ConvertBrushes()
 		{
-			sourceBsp.Brushes.Clear();
-
 			foreach (var qBrush in quakeBsp.Brushes)
 			{
 				var data = new byte[Brush.GetStructLength(sourceBsp.MapType)];
@@ -351,8 +462,6 @@ namespace BSPConversionLib
 
 		private void ConvertBrushSides()
 		{
-			sourceBsp.BrushSides.Clear();
-
 			foreach (var qBrushSide in quakeBsp.BrushSides)
 			{
 				var data = new byte[BrushSide.GetStructLength(sourceBsp.MapType)];
@@ -369,13 +478,6 @@ namespace BSPConversionLib
 
 		private void ConvertFaces()
 		{
-			sourceBsp.Faces.Clear();
-			sourceBsp.FaceEdges.Clear();
-			sourceBsp.Edges.Clear();
-			sourceBsp.Vertices.Clear();
-			sourceBsp.TextureInfo.Clear();
-			sourceBsp.OriginalFaces.Clear();
-
 			SetLumpVersionNumber(Face.GetIndexForLump(sourceBsp.MapType), 1);
 
 			foreach (var qFace in quakeBsp.Faces)
@@ -656,6 +758,7 @@ namespace BSPConversionLib
 			var area1 = CreateArea();
 			sourceBsp.Areas.Add(area1);
 
+			// TODO: Is the second area actually necessary? Try making all leaves reference area 0 to see if that fixes map loading issues
 			var area2 = CreateArea();
 			area2.FirstAreaPortal = 1;
 			sourceBsp.Areas.Add(area2);
@@ -691,7 +794,7 @@ namespace BSPConversionLib
 			var writer = new BSPWriter(sourceBsp);
 			var bspPath = Path.Combine(mapsDir, quakeBsp.MapName + ".bsp");
 			writer.WriteBSP(bspPath);
-
+			
 			logger.Log($"Converted BSP: {bspPath}");
 		}
 
