@@ -84,7 +84,8 @@ namespace BSPConversionLib
 			ConvertLightmaps();
 			ConvertVisData();
 
-			AddRequiredLumpData();
+			ConvertAreas();
+			ConvertAreaPortals();
 
 			WriteBSP();
 
@@ -99,6 +100,9 @@ namespace BSPConversionLib
 
 		private BSP LoadQuakeBsp(string quakeFilePath)
 		{
+			if (!File.Exists(quakeFilePath))
+				throw new FileNotFoundException(quakeFilePath);
+
 			if (Path.GetExtension(quakeFilePath) == ".bsp")
 				return new BSP(new FileInfo(quakeFilePath));
 
@@ -338,7 +342,7 @@ namespace BSPConversionLib
 					leaf.Flags = 2; // Not sure what the flags do, but 2 shows up on all leaves besides the first one
 				}
 				leaf.Visibility = qLeaf.Visibility;
-				leaf.Area = qLeaf.Area + 1; // TODO: Is + 1 necessary?
+				leaf.Area = 0; // TODO: Convert Q3 areas?
 				leaf.Minimums = qLeaf.Minimums;
 				leaf.Maximums = qLeaf.Maximums;
 				leaf.FirstMarkFaceIndex = qLeaf.FirstMarkFaceIndex;
@@ -589,6 +593,7 @@ namespace BSPConversionLib
 		{
 			var surfEdgeIndex = sourceBsp.FaceEdges.Count;
 			var numEdges = indices.Length;
+			//var numEdges = vertices.Length;
 
 			//var vertList = vertices.ToList();
 			//var bounds = new UnityEngine.Bounds();
@@ -614,9 +619,6 @@ namespace BSPConversionLib
 			//	//	break;
 			//	//}
 			//}
-
-			//vertices = vertList.ToArray();
-			//var numEdges = vertices.Length;
 
 			// Note: Edges are continuous, so treating them as triangles will cause issues
 			for (var i = 0; i < indices.Length; i += 3)
@@ -745,34 +747,17 @@ namespace BSPConversionLib
 			sourceBsp.Visibility.Data = new byte[0];
 		}
 
-		// Lump data that does not exist in the Quake BSP but must be added in order for the map to load in Source
-		private void AddRequiredLumpData()
+		private void ConvertAreas()
 		{
-			AddAreas();
-			AddAreaPortal();
-		}
-
-		private void AddAreas()
-		{
-			// At least two areas are required for the map to load
-			var area1 = CreateArea();
-			sourceBsp.Areas.Add(area1);
-
-			// TODO: Is the second area actually necessary? Try making all leaves reference area 0 to see if that fixes map loading issues
-			var area2 = CreateArea();
-			area2.FirstAreaPortal = 1;
-			sourceBsp.Areas.Add(area2);
-		}
-
-		private Area CreateArea()
-		{
+			// Create an area in order to have valid node/leaf area references
 			var areaBytes = new byte[Area.GetStructLength(sourceBsp.MapType)];
-			return new Area(areaBytes, sourceBsp.Areas);
+			var area = new Area(areaBytes, sourceBsp.Areas);
+			sourceBsp.Areas.Add(area);
 		}
 
-		private void AddAreaPortal()
+		private void ConvertAreaPortals()
 		{
-			// At least one area portal is required for the map to load
+			// Create an area portal for the first area
 			var areaPortalBytes = new byte[AreaPortal.GetStructLength(sourceBsp.MapType)];
 			var areaPortal = new AreaPortal(areaPortalBytes, sourceBsp.AreaPortals);
 			sourceBsp.AreaPortals.Add(areaPortal);
