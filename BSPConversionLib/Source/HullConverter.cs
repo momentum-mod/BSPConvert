@@ -24,8 +24,7 @@ namespace BSPConversionLib
 			// Treat face vertices as an arbitrary set of points on a plane and use the gift wrapping alogrithm to generate a convex polygon
 			var hullVerts = new List<Vertex>();
 
-			// TODO: Find initial point on hull
-			var pointOnHull = faceVerts[0];
+			var pointOnHull = GetFurthestPointFromCenter(faceVerts);
 			Vertex endPoint;
 			do
 			{
@@ -42,6 +41,29 @@ namespace BSPConversionLib
 			while (endPoint.position != hullVerts[0].position && hullVerts.Count < faceVerts.Length);
 
 			return hullVerts;
+		}
+
+		private static Vertex GetFurthestPointFromCenter(Vertex[] faceVerts)
+		{
+			var center = new Vector3();
+			foreach (var vert in faceVerts)
+				center += vert.position;
+
+			center /= faceVerts.Length;
+
+			var furthestPoint = new Vertex();
+			var furthestDist = 0f;
+			foreach (var vert in faceVerts)
+			{
+				var distance = Vector3.Distance(vert.position, center);
+				if (distance > furthestDist)
+				{
+					furthestPoint = vert;
+					furthestDist = distance;
+				}
+			}
+
+			return furthestPoint;
 		}
 
 		private static bool IsLeftOfLine(Vertex pointOnHull, Vertex endPoint, Vertex vertex, Vector3 faceNormal)

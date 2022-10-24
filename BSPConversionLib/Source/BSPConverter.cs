@@ -594,8 +594,7 @@ namespace BSPConversionLib
 			var surfEdgeIndex = sourceBsp.FaceEdges.Count;
 			
 			// Convert triangle meshes from Q3 to Source engine's edge loop format
-			// This is necessary since Q3 faces are constructed with triangle meshes
-			// Converting face vertices into a convex hull makes it easier to generate edge loops
+			// Note: Some Q3 faces are concave polygons, so this approach does not always work
 			var hullVerts = HullConverter.ConvertConvexHull(vertices, faceNormal);
 			var numEdges = hullVerts.Count;
 
