@@ -11,6 +11,7 @@ using System.IO;
 using System.Collections.Generic;
 using System.Linq;
 using System.IO.Compression;
+using BSPConversionLib.Source;
 
 namespace BSPConversionLib
 {
@@ -44,23 +45,18 @@ namespace BSPConversionLib
 	{
 		private string quakeFilePath;
 		private string outputDir;
-		private bool momentumConvert;
 		private ILogger logger;
 
 		private BSP quakeBsp;
 		private BSP sourceBsp;
 		private string pk3Dir;
 
-		private int currentCheckpointIndex = 2;
-
 		private const int CONTENTS_SOLID = 1; // TODO: Add contents enum
-		private const string MOMENTUM_START_ENTITY = "_momentum_player_start_";
 
-		public BSPConverter(string quakeFilePath, string outputDir, bool momentumConvert, ILogger logger)
+		public BSPConverter(string quakeFilePath, string outputDir, ILogger logger)
 		{
 			this.quakeFilePath = quakeFilePath;
 			this.outputDir = outputDir;
-			this.momentumConvert = momentumConvert;
 			this.logger = logger;
 		}
 
@@ -140,83 +136,8 @@ namespace BSPConversionLib
 
 		private void ConvertEntities()
 		{
-			if (momentumConvert)
-				ConvertEntitiesMomentum();
-			else
-				ConvertEntitiesDefault();
-		}
-
-		private void ConvertEntitiesDefault()
-		{
-			foreach (var entity in quakeBsp.Entities)
-				sourceBsp.Entities.Add(entity);
-		}
-
-		private void ConvertEntitiesMomentum()
-		{
-			var entityDict = new Dictionary<string, Entity>(); // Used to lookup entities by targetname
-			foreach (var entity in quakeBsp.Entities)
-			{
-				if (!entityDict.ContainsKey(entity.Name))
-					entityDict.Add(entity.Name, entity);
-			}
-
-			foreach (var entity in quakeBsp.Entities)
-			{
-				switch (entity.ClassName)
-				{
-					case "info_player_start":
-						entity.Name = MOMENTUM_START_ENTITY;
-						sourceBsp.Entities.Add(entity);
-						break;
-					case "trigger_multiple":
-						ConvertTriggerMultiple(entity, entityDict);
-						sourceBsp.Entities.Add(entity);
-						break;
-					// Ignore Defrag timer entities
-					case "target_startTimer":
-					case "target_stopTimer":
-					case "target_checkpoint":
-						break;
-					default:
-						sourceBsp.Entities.Add(entity);
-						break;
-				}
-			}
-		}
-
-		private void ConvertTriggerMultiple(Entity entity, Dictionary<string, Entity> entityDict)
-		{
-			if (!entity.TryGetValue("target", out var target))
-				return;
-
-			var targetEntity = entityDict[target];
-			switch (targetEntity.ClassName)
-			{
-				case "target_startTimer":
-					ConvertTimerTrigger(entity, "trigger_momentum_timer_start", 1);
-					entity["teleport_destination"] = MOMENTUM_START_ENTITY;
-					//entity["start_on_jump"] = "0";
-					//entity["speed_limit"] = "999999";
-					break;
-				case "target_stopTimer":
-					ConvertTimerTrigger(entity, "trigger_momentum_timer_stop", 0);
-					break;
-				case "target_checkpoint":
-					ConvertTimerTrigger(entity, "trigger_momentum_timer_checkpoint", currentCheckpointIndex);
-					currentCheckpointIndex++;
-					break;
-			}
-		}
-
-		private static void ConvertTimerTrigger(Entity entity, string className, int zoneNumber)
-		{
-			entity.ClassName = className;
-			//entity["track_number"] = "0";
-			entity["zone_number"] = zoneNumber.ToString();
-			//entity["spawnflags"] = "0";
-
-			entity.Remove("target");
+			var converter = new EntityConverter(quakeBsp.Entities, sourceBsp.Entities);
+			converter.Convert();
 		}
 
 		private void ConvertTextures()
