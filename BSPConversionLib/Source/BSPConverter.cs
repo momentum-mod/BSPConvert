@@ -494,7 +494,7 @@ namespace BSPConversionLib
 				sFace.PlaneSide = true;
 				sFace.IsOnNode = false; // Set to false in order for face to be visible across multiple leaves?
 
-				(var surfEdgeIndex, var numEdges) = CreateSurfaceEdges(qFace.Vertices.ToArray(), qFace.Indices.ToArray());
+				(var surfEdgeIndex, var numEdges) = CreateSurfaceEdges(qFace.Vertices.ToArray(), qFace.Normal);
 				//var usePrims = sourceBsp.Primitives.Count < 6;
 				//if (usePrims)
 				//{
@@ -589,60 +589,39 @@ namespace BSPConversionLib
 			return firstPrimVertex;
 		}
 
-		private (int surfEdgeIndex, int numEdges) CreateSurfaceEdges(Vertex[] vertices, int[] indices)
+		private (int surfEdgeIndex, int numEdges) CreateSurfaceEdges(Vertex[] vertices, Vector3 faceNormal)
 		{
 			var surfEdgeIndex = sourceBsp.FaceEdges.Count;
-			var numEdges = indices.Length;
-			//var numEdges = vertices.Length;
-
-			//var vertList = vertices.ToList();
-			//var bounds = new UnityEngine.Bounds();
-			//foreach (var vert in vertList)
-			//	bounds.Encapsulate(vert.position);
-
-			////bounds.max -= Vector3.one * 0.01f;
-			////bounds.min += Vector3.one * 0.01f;
-
-			//foreach (var vert in vertList)
-			//{
-			//	if (bounds.Contains(vert.position))
-			//	{
-			//		vertList.Remove(vert);
-			//		UnityEngine.Debug.Log("removed vert");
-			//		break;
-			//	}
-			//	//if (vert.position.x > bounds.min.x && vert.position.x < bounds.max.x &&
-			//	//	vert.position.y > bounds.min.y && vert.position.y < bounds.max.y)
-			//	//	//vert.position.z > bounds.min.z && vert.position.z < bounds.max.z)
-			//	//{
-			//	//	vertList.Remove(vert);
-			//	//	break;
-			//	//}
-			//}
+			
+			// Convert triangle meshes from Q3 to Source engine's edge loop format
+			// This is necessary since Q3 faces are constructed with triangle meshes
+			// Converting face vertices into a convex hull makes it easier to generate edge loops
+			var hullVerts = HullConverter.ConvertConvexHull(vertices, faceNormal);
+			var numEdges = hullVerts.Count;
 
 			// Note: Edges are continuous, so treating them as triangles will cause issues
-			for (var i = 0; i < indices.Length; i += 3)
-			{
-				var v1 = vertices[indices[i]];
-				var v2 = vertices[indices[i + 1]];
-				var v3 = vertices[indices[i + 2]];
-
-				var e1 = CreateEdge(v2, v1);
-				var e2 = CreateEdge(v3, v2);
-				var e3 = CreateEdge(v1, v3);
-
-				sourceBsp.FaceEdges.Add(e1);
-				sourceBsp.FaceEdges.Add(e2);
-				sourceBsp.FaceEdges.Add(e3);
-			}
-
-			//for (var i = 0; i < vertices.Length; i++)
+			//for (var i = 0; i < indices.Length; i += 3)
 			//{
-			//	var nextIndex = (i + 1) % vertices.Length;
-			//	var edgeIndex = CreateEdge(vertices[nextIndex], vertices[i]);
+			//	var v1 = vertices[indices[i]];
+			//	var v2 = vertices[indices[i + 1]];
+			//	var v3 = vertices[indices[i + 2]];
 
-			//	sourceBsp.FaceEdges.Add(edgeIndex);
+			//	var e1 = CreateEdge(v2, v1);
+			//	var e2 = CreateEdge(v3, v2);
+			//	var e3 = CreateEdge(v1, v3);
+
+			//	sourceBsp.FaceEdges.Add(e1);
+			//	sourceBsp.FaceEdges.Add(e2);
+			//	sourceBsp.FaceEdges.Add(e3);
 			//}
+
+			for (var i = 0; i < hullVerts.Count; i++)
+			{
+				var nextIndex = (i + 1) % hullVerts.Count;
+				var edgeIndex = CreateEdge(hullVerts[nextIndex], hullVerts[i]);
+
+				sourceBsp.FaceEdges.Add(edgeIndex);
+			}
 
 			return (surfEdgeIndex, numEdges);
 		}
