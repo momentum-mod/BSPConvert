@@ -51,7 +51,9 @@ namespace BSPConversionLib
 		private BSP sourceBsp;
 		private string pk3Dir;
 
-		private const int CONTENTS_SOLID = 1; // TODO: Add contents enum
+		private const int CONTENTS_EMPTY = 0;
+		private const int CONTENTS_SOLID = 0x1;
+		private const int CONTENTS_STRUCTURAL = 0x10000000;
 
 		public BSPConverter(string quakeFilePath, string outputDir, ILogger logger)
 		{
@@ -379,10 +381,20 @@ namespace BSPConversionLib
 
 				sBrush.FirstSideIndex = qBrush.FirstSideIndex;
 				sBrush.NumSides = qBrush.NumSides;
-				sBrush.Contents = CONTENTS_SOLID; // TODO: Figure out how to get content flags from quake brush? This is important for water brushes
+				sBrush.Contents = GetBrushContents(qBrush.Texture);
 
 				sourceBsp.Brushes.Add(sBrush);
 			}
+		}
+
+		private int GetBrushContents(Texture texture)
+		{
+			// TODO: Handle other texture contents flags
+			// TODO: Remove tool brushes instead?
+			if ((texture.Contents & CONTENTS_STRUCTURAL) == CONTENTS_STRUCTURAL)
+				return CONTENTS_EMPTY;
+
+			return CONTENTS_SOLID;
 		}
 
 		private void ConvertBrushSides()
@@ -591,13 +603,13 @@ namespace BSPConversionLib
 			{
 				case PlaneBSP.AxisType.PlaneX:
 				case PlaneBSP.AxisType.PlaneAnyX:
-					return (new Vector3(0f, 4f, 0f), new Vector3(0f, 0f, -4f));
+					return (new Vector3(0f, 2f, 0f), new Vector3(0f, 0f, -2f));
 				case PlaneBSP.AxisType.PlaneY:
 				case PlaneBSP.AxisType.PlaneAnyY:
-					return (new Vector3(4f, 0f, 0f), new Vector3(0f, 0f, -4f));
+					return (new Vector3(2f, 0f, 0f), new Vector3(0f, 0f, -2f));
 				case PlaneBSP.AxisType.PlaneZ:
 				case PlaneBSP.AxisType.PlaneAnyZ:
-					return (new Vector3(4f, 0f, 0f), new Vector3(0f, -4f, 0f));
+					return (new Vector3(2f, 0f, 0f), new Vector3(0f, -2f, 0f));
 				default:
 					return (new Vector3(0f, 0f, 0f), new Vector3(0f, 0f, 0f));
 			}
