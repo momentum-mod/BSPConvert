@@ -55,6 +55,24 @@ namespace BSPConversionLib.Source
 					case "target_position":
 						entity.ClassName = "info_target";
 						break;
+					case "weapon_machinegun":
+						ConvertWeapon(entity, 2);
+						break;
+					case "weapon_gauntlet":
+						ConvertWeapon(entity, 3);
+						break;
+					case "weapon_grenadelauncher":
+						ConvertWeapon(entity, 4);
+						break;
+					case "weapon_rocketlauncher":
+						ConvertWeapon(entity, 5);
+						break;
+					case "weapon_plasmagun":
+						ConvertWeapon(entity, 8);
+						break;
+					case "weapon_bfg":
+						ConvertWeapon(entity, 9);
+						break;
 					// Ignore Defrag timer entities
 					case "target_startTimer":
 					case "target_stopTimer":
@@ -72,8 +90,11 @@ namespace BSPConversionLib.Source
 		{
 			if (sourceEntity.TryGetValue("target", out var target))
 			{
-				targetEntity = entityDict[target];
-				return true;
+				if (entityDict.ContainsKey(target))
+				{
+					targetEntity = entityDict[target];
+					return true;
+				}
 			}
 
 			targetEntity = null;
@@ -131,6 +152,12 @@ namespace BSPConversionLib.Source
 			entity["spawnflags"] = "1";
 			entity["mode"] = "5";
 			entity["setspeed"] = "400";
+		}
+
+		private void ConvertWeapon(Entity entity, int weaponSlot)
+		{
+			entity.ClassName = "momentum_df_weaponspawner";
+			entity["weapon_slot"] = weaponSlot.ToString();
 		}
 	}
 }
