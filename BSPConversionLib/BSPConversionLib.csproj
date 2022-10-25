@@ -7,6 +7,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="SharpCompress" Version="0.32.2" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Reference Include="libBSP">
       <HintPath>Dependencies\libBSP.dll</HintPath>
     </Reference>

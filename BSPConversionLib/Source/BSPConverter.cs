@@ -132,7 +132,7 @@ namespace BSPConversionLib
 		{
 			if (!string.IsNullOrEmpty(pk3Dir))
 			{
-				var textureConverter = new TextureConverter(pk3Dir, outputDir, logger);
+				var textureConverter = new TextureConverter(pk3Dir, sourceBsp, logger);
 				textureConverter.Convert();
 			}
 		}
