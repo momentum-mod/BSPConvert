@@ -50,6 +50,7 @@ namespace BSPConversionLib
 		private BSP quakeBsp;
 		private BSP sourceBsp;
 		private string pk3Dir;
+		private Dictionary<int, int[]> splitFaceDict = new Dictionary<int, int[]>(); // Maps the original face index to the new face indices split by triangles
 
 		private const int CONTENTS_EMPTY = 0;
 		private const int CONTENTS_SOLID = 0x1;
@@ -72,16 +73,16 @@ namespace BSPConversionLib
 			ConvertTextures();
 			ConvertPlanes();
 			ConvertNodes();
-			ConvertLeaves();
-			ConvertLeafFaces();
+			ConvertFaces_SplitFaces();
+			ConvertLeaves_SplitFaces();
+			ConvertLeafFaces_SplitFaces();
 			ConvertLeafBrushes();
 			ConvertModels();
 			ConvertBrushes();
 			ConvertBrushSides();
-			ConvertFaces();
+			//ConvertFaces();
 			ConvertLightmaps();
 			ConvertVisData();
-
 			ConvertAreas();
 			ConvertAreaPortals();
 
@@ -278,10 +279,61 @@ namespace BSPConversionLib
 			}
 		}
 
+		private void ConvertLeaves_SplitFaces()
+		{
+			SetLumpVersionNumber(Leaf.GetIndexForLump(sourceBsp.MapType), 1);
+
+			var currentFaceIndex = 0;
+
+			foreach (var qLeaf in quakeBsp.Leaves)
+			{
+				var data = new byte[Leaf.GetStructLength(sourceBsp.MapType)];
+				var leaf = new Leaf(data, sourceBsp.Leaves);
+
+				if (sourceBsp.Leaves.Count == 0)
+				{
+					leaf.Contents = CONTENTS_SOLID; // First leaf is always solid, otherwise game crashes
+					leaf.Flags = 0;
+				}
+				else
+				{
+					leaf.Contents = qLeaf.Area >= 0 ? 0 : 1; // Set to 0 when inside map, 1 when outside map or overlapping brush
+					leaf.Flags = 2; // Not sure what the flags do, but 2 shows up on all leaves besides the first one
+				}
+				leaf.Visibility = qLeaf.Visibility;
+				leaf.Area = 0; // TODO: Convert Q3 areas?
+				leaf.Minimums = qLeaf.Minimums;
+				leaf.Maximums = qLeaf.Maximums;
+
+				leaf.FirstMarkFaceIndex = currentFaceIndex;
+				var numFaces = 0;
+				for (var i = 0; i < qLeaf.NumMarkFaceIndices; i++)
+					numFaces += splitFaceDict[(int)quakeBsp.LeafFaces[qLeaf.FirstMarkFaceIndex + i]].Length;
+				leaf.NumMarkFaceIndices = numFaces;
+				currentFaceIndex += numFaces;
+				
+				leaf.FirstMarkBrushIndex = qLeaf.FirstMarkBrushIndex;
+				leaf.NumMarkBrushIndices = qLeaf.NumMarkBrushIndices;
+				leaf.LeafWaterDataID = -1;
+
+				sourceBsp.Leaves.Add(leaf);
+			}
+		}
+
 		private void ConvertLeafFaces()
 		{
 			foreach (var qLeafFace in quakeBsp.LeafFaces)
 				sourceBsp.LeafFaces.Add(qLeafFace);
+		}
+
+		private void ConvertLeafFaces_SplitFaces()
+		{
+			foreach (var qLeafFace in quakeBsp.LeafFaces)
+			{
+				var splitFaceIndices = splitFaceDict[(int)qLeafFace];
+				for (var i = 0; i < splitFaceIndices.Length; i++)
+					sourceBsp.LeafFaces.Add(splitFaceIndices[i]);
+			}
 		}
 
 		private void ConvertLeafBrushes()
@@ -464,6 +516,63 @@ namespace BSPConversionLib
 				sFace.SmoothingGroups = 0;
 
 				sourceBsp.Faces.Add(sFace);
+			}
+		}
+
+		private void ConvertFaces_SplitFaces()
+		{
+			SetLumpVersionNumber(Face.GetIndexForLump(sourceBsp.MapType), 1);
+
+			for (var faceIndex = 0; faceIndex < quakeBsp.Faces.Count; faceIndex++)
+			{
+				var qFace = quakeBsp.Faces[faceIndex];
+
+				// Create a face for each triangle
+				var vertices = qFace.Vertices.ToArray();
+				var indices = qFace.Indices.ToArray();
+
+				splitFaceDict[faceIndex] = new int[indices.Length / 3];
+					
+				for (var i = 0; i < indices.Length; i += 3)
+				{
+					var data = new byte[Face.GetStructLength(sourceBsp.MapType)];
+					var sFace = new Face(data, sourceBsp.Faces);
+
+					sFace.PlaneIndex = CreatePlane(qFace); // Quake faces don't have planes, so create one
+					sFace.PlaneSide = true;
+					sFace.IsOnNode = false; // Set to false in order for face to be visible across multiple leaves?
+					sFace.TextureInfoIndex = CreateTextureInfo(qFace);
+					sFace.DisplacementIndex = -1;
+					sFace.SurfaceFogVolumeID = -1;
+					sFace.LightmapStyles = new byte[4];
+					sFace.Lightmap = 0;
+					sFace.Area = 0; // TODO: Check if this needs to be computed
+					sFace.LightmapStart = new Vector2();
+					sFace.LightmapSize = new Vector2(); // TODO: Set to 128x128?
+					sFace.OriginalFaceIndex = -1; // Ignore since Quake 3 maps don't have split faces
+					sFace.FirstPrimitive = 0;
+					sFace.NumPrimitives = 0;
+					sFace.SmoothingGroups = 0;
+
+					sFace.FirstEdgeIndexIndex = sourceBsp.FaceEdges.Count;
+					sFace.NumEdgeIndices = 3;
+
+					var v1 = vertices[indices[i]];
+					var v2 = vertices[indices[i + 1]];
+					var v3 = vertices[indices[i + 2]];
+
+					var e1 = CreateEdge(v2, v1);
+					var e2 = CreateEdge(v3, v2);
+					var e3 = CreateEdge(v1, v3);
+
+					sourceBsp.FaceEdges.Add(e1);
+					sourceBsp.FaceEdges.Add(e2);
+					sourceBsp.FaceEdges.Add(e3);
+
+					sourceBsp.Faces.Add(sFace);
+
+					splitFaceDict[faceIndex][i / 3] = sourceBsp.Faces.Count - 1;
+				}
 			}
 		}
 
