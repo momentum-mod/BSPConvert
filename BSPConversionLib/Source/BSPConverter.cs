@@ -45,42 +45,53 @@ namespace BSPConversionLib
 	{
 		private string quakeFilePath;
 		private string outputDir;
+		private bool noPak;
+		private bool skyFix;
 		private ILogger logger;
 
 		private BSP quakeBsp;
 		private BSP sourceBsp;
 		private string pk3Dir;
+		private Dictionary<string, Shader> shaderDict = new Dictionary<string, Shader>();
+		private Dictionary<int, int> textureInfoHashCodeDict = new Dictionary<int, int>(); // Maps TextureInfo hash codes to TextureInfo indices
+		private Dictionary<string, int> textureInfoLookup = new Dictionary<string, int>();
+		private Dictionary<string, int> textureDataLookup = new Dictionary<string, int>();
 		private Dictionary<int, int[]> splitFaceDict = new Dictionary<int, int[]>(); // Maps the original face index to the new face indices split by triangles
 
 		private const int CONTENTS_EMPTY = 0;
 		private const int CONTENTS_SOLID = 0x1;
 		private const int CONTENTS_STRUCTURAL = 0x10000000;
 
-		public BSPConverter(string quakeFilePath, string outputDir, ILogger logger)
+		public BSPConverter(string quakeFilePath, string outputDir, bool noPak, bool skyFix, ILogger logger)
 		{
 			this.quakeFilePath = quakeFilePath;
 			this.outputDir = outputDir;
+			this.noPak = noPak;
+			this.skyFix = skyFix;
 			this.logger = logger;
 		}
 
 		public void Convert()
 		{
-			LoadBSPs();
+			LoadBSP();
+			LoadShaders();
 
 			ConvertTextureFiles();
 
 			ConvertEntities();
 			ConvertTextures();
 			ConvertPlanes();
-			ConvertNodes();
 			ConvertFaces_SplitFaces();
 			ConvertLeaves_SplitFaces();
 			ConvertLeafFaces_SplitFaces();
+			//ConvertLeaves();
+			//ConvertLeafFaces();
 			ConvertLeafBrushes();
+			ConvertNodes();
 			ConvertModels();
+			//ConvertFaces();
 			ConvertBrushes();
 			ConvertBrushSides();
-			//ConvertFaces();
 			ConvertLightmaps();
 			ConvertVisData();
 			ConvertAreas();
@@ -91,7 +102,7 @@ namespace BSPConversionLib
 			DeletePk3Directory();
 		}
 
-		private void LoadBSPs()
+		private void LoadBSP()
 		{
 			quakeBsp = LoadQuakeBsp(quakeFilePath);
 			sourceBsp = new BSP(Path.GetFileName(outputDir), MapType.Source20);
@@ -128,18 +139,28 @@ namespace BSPConversionLib
 			return pk3Dir;
 		}
 
+		private void LoadShaders()
+		{
+			if (!string.IsNullOrEmpty(pk3Dir))
+			{
+				var shaderConverter = new ShaderConverter(pk3Dir);
+				shaderDict = shaderConverter.Convert();
+			}
+		}
+
 		private void ConvertTextureFiles()
 		{
 			if (!string.IsNullOrEmpty(pk3Dir))
 			{
-				var textureConverter = new TextureConverter(pk3Dir, sourceBsp, logger);
+				var textureConverter = noPak ? new TextureConverter(pk3Dir, outputDir, shaderDict, logger) : 
+					new TextureConverter(pk3Dir, sourceBsp, shaderDict, logger);
 				textureConverter.Convert();
 			}
 		}
 
 		private void ConvertEntities()
 		{
-			var converter = new EntityConverter(quakeBsp.Entities, sourceBsp.Entities);
+			var converter = new EntityConverter(quakeBsp.Entities, sourceBsp.Entities, shaderDict);
 			converter.Convert();
 		}
 
@@ -160,6 +181,8 @@ namespace BSPConversionLib
 			textureData.ViewSize = new Vector2(128, 128);
 
 			sourceBsp.TextureData.Add(textureData);
+
+			textureDataLookup.Add(texture.Name, sourceBsp.TextureData.Count - 1);
 		}
 
 		private int CreateTextureDataStringTableEntry(string textureName)
@@ -173,8 +196,6 @@ namespace BSPConversionLib
 		private int CreateTextureDataStringData(string textureName)
 		{
 			var offset = sourceBsp.Textures.Length;
-
-			textureName = FormatTextureName(textureName);
 
 			var data = System.Text.Encoding.ASCII.GetBytes(textureName);
 			var texture = new Texture(data, sourceBsp.Textures);
@@ -222,6 +243,7 @@ namespace BSPConversionLib
 			return PlaneBSP.AxisType.PlaneAnyZ;
 		}
 
+		// Note: This needs to be called after converting split faces in order to fix skyboxes not rendering
 		private void ConvertNodes()
 		{
 			foreach (var qNode in quakeBsp.Nodes)
@@ -235,8 +257,7 @@ namespace BSPConversionLib
 				node.Minimums = qNode.Minimums;
 				node.Maximums = qNode.Maximums;
 
-				// Note: These are used to specify which faces are used to split the node (the face will have the "onNode" flag set to true)
-				// Not sure if these values are necessary as long as all faces have "onNode" set to false
+				// Note: On Source BSP's, these values are used to specify which faces are used to split the node (the face will have the "onNode" flag set to true)
 				node.FirstFaceIndex = 0;
 				node.NumFaceIndices = 0;
 
@@ -244,6 +265,31 @@ namespace BSPConversionLib
 
 				sourceBsp.Nodes.Add(node);
 			}
+
+			if (skyFix)
+				FixSkyboxRendering();
+		}
+
+		// Configuring all child1 nodes and the first child2 node to render all faces seems to fix skybox rendering
+		// This hack breaks rendering on some maps, so it's disabled by default
+		// TODO: Figure out a better way to do this, or at least only apply this fix for skybox faces. Could move all skybox faces to be at the end of the face array to target them specifically
+		// TODO: Set onNode to true for all skybox faces? onNode is typically only set to true for faces that split visleafs
+		// TODO: Does this need to be done for all model head nodes?
+		private void FixSkyboxRendering()
+		{
+			var rootNode = sourceBsp.Nodes[0];
+			
+			var child2 = sourceBsp.Nodes[rootNode.Child2Index];
+			child2.NumFaceIndices = sourceBsp.Faces.Count;
+
+			FixSkyboxRenderingRecursive(rootNode);
+		}
+
+		private void FixSkyboxRenderingRecursive(Node node)
+		{
+			node.NumFaceIndices = sourceBsp.Faces.Count;
+			if (node.Child1Index > 0)
+				FixSkyboxRenderingRecursive(sourceBsp.Nodes[node.Child1Index]);
 		}
 
 		private void ConvertLeaves()
@@ -457,7 +503,7 @@ namespace BSPConversionLib
 				var sBrushSide = new BrushSide(data, sourceBsp.BrushSides);
 
 				sBrushSide.PlaneIndex = qBrushSide.PlaneIndex;
-				sBrushSide.TextureIndex = 0; // TODO: Get texture info index from matching brush side
+				sBrushSide.TextureIndex = LookupTextureInfoIndex(qBrushSide.Texture.Name);
 				sBrushSide.DisplacementIndex = 0;
 				sBrushSide.IsBevel = false;
 
@@ -477,7 +523,7 @@ namespace BSPConversionLib
 				// TODO: Re-use brush planes?
 				sFace.PlaneIndex = CreatePlane(qFace); // Quake faces don't have planes, so create one
 				sFace.PlaneSide = true;
-				sFace.IsOnNode = false; // Set to false in order for face to be visible across multiple leaves?
+				sFace.IsOnNode = false; // Should this be true for faces that split visleafs?
 
 				(var surfEdgeIndex, var numEdges) = CreateSurfaceEdges(qFace.Vertices.ToArray(), qFace.Normal);
 				//var usePrims = sourceBsp.Primitives.Count < 6;
@@ -532,7 +578,7 @@ namespace BSPConversionLib
 				var indices = qFace.Indices.ToArray();
 
 				splitFaceDict[faceIndex] = new int[indices.Length / 3];
-					
+				
 				for (var i = 0; i < indices.Length; i += 3)
 				{
 					var data = new byte[Face.GetStructLength(sourceBsp.MapType)];
@@ -697,12 +743,29 @@ namespace BSPConversionLib
 			textureInfo.VAxis = vAxis;
 			textureInfo.LightmapUAxis = uAxis / 4f; // TODO: Use lightmap scale
 			textureInfo.LightmapVAxis = vAxis / 4f;
-			textureInfo.Flags = 0;
-			textureInfo.TextureIndex = FindTextureDataIndex(face.Texture.Name);
+			textureInfo.TextureIndex = LookupTextureDataIndex(face.Texture.Name);
+			
+			if (IsSkyTexture(face.Texture.Name))
+				textureInfo.Flags = 132100; // TODO: Find flag definition in Source engine
+			else
+				textureInfo.Flags = 0;
 
-			sourceBsp.TextureInfo.Add(textureInfo);
+			// Avoid adding duplicate texture info
+			var hashCode = BSPUtil.GetHashCode(textureInfo);
+			if (textureInfoHashCodeDict.TryGetValue(hashCode, out var textureInfoIndex))
+				return textureInfoIndex;
+			else
+			{
+				sourceBsp.TextureInfo.Add(textureInfo);
 
-			return sourceBsp.TextureInfo.Count - 1;
+				textureInfoIndex = sourceBsp.TextureInfo.Count - 1;
+				textureInfoHashCodeDict.Add(hashCode, textureInfoIndex);
+				
+				if (!textureInfoLookup.ContainsKey(face.Texture.Name))
+					textureInfoLookup.Add(face.Texture.Name, textureInfoIndex);
+
+				return textureInfoIndex;
+			}
 		}
 
 		private (Vector3 uAxis, Vector3 vAxis) GetTextureVectors(Vector3 faceNormal)
@@ -724,34 +787,28 @@ namespace BSPConversionLib
 			}
 		}
 
-		private int FindTextureDataIndex(string textureName)
+		private bool IsSkyTexture(string textureName)
 		{
-			textureName = FormatTextureName(textureName);
+			if (shaderDict.TryGetValue(textureName, out var shader))
+				return shader.skyParms != null;
 
-			for (var i = 0; i < sourceBsp.TextureData.Count; i++)
-			{
-				var stringTableTexture = GetTextureNameFromStringTable(sourceBsp.TextureData[i]);
-				if (stringTableTexture.ToLower() == textureName.ToLower())
-					return i;
-			}
+			return false;
+		}
+
+		private int LookupTextureInfoIndex(string textureName)
+		{
+			if (textureInfoLookup.TryGetValue(textureName, out var textureInfoIndex))
+				return textureInfoIndex;
 
 			return -1;
 		}
 
-		/// <summary>
-		/// Removed unnecessary prefixes from texture name
-		/// </summary>
-		private string FormatTextureName(string textureName)
+		private int LookupTextureDataIndex(string textureName)
 		{
-			// TEMP? For some reason maps compiled from J.A.C.K. adds textures/ prefix. Not sure if this is typical for all Quake 3 maps
-			return textureName.Replace("textures/", "");
-		}
+			if (textureDataLookup.TryGetValue(textureName, out var textureDataIndex))
+				return textureDataIndex;
 
-		private string GetTextureNameFromStringTable(TextureData textureData)
-		{
-			var nameStringTableId = textureData.TextureStringOffsetIndex;
-			var textureDataStringTableOffset = (int)sourceBsp.TextureTable[nameStringTableId];
-			return sourceBsp.Textures.GetTextureAtOffset((uint)textureDataStringTableOffset);
+			return -1;
 		}
 
 		private void ConvertLightmaps()

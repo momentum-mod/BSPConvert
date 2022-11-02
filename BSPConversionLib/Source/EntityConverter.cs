@@ -11,16 +11,18 @@ namespace BSPConversionLib.Source
 	{
 		private Entities q3Entities;
 		private Entities sourceEntities;
+		private Dictionary<string, Shader> shaderDict;
 		
 		private Dictionary<string, Entity> entityDict = new Dictionary<string, Entity>();
 		private int currentCheckpointIndex = 2;
 
 		private const string MOMENTUM_START_ENTITY = "_momentum_player_start_";
 
-		public EntityConverter(Entities q3Entities, Entities sourceEntities)
+		public EntityConverter(Entities q3Entities, Entities sourceEntities, Dictionary<string, Shader> shaderDict)
 		{
 			this.q3Entities = q3Entities;
 			this.sourceEntities = sourceEntities;
+			this.shaderDict = shaderDict;
 			
 			foreach (var entity in q3Entities)
 			{
@@ -37,6 +39,9 @@ namespace BSPConversionLib.Source
 
 				switch (entity.ClassName)
 				{
+					case "worldspawn":
+						ConvertWorldspawn(entity);
+						break;
 					case "info_player_start":
 						entity.Name = MOMENTUM_START_ENTITY;
 						break;
@@ -86,6 +91,19 @@ namespace BSPConversionLib.Source
 			}
 		}
 
+		private void ConvertWorldspawn(Entity worldspawn)
+		{
+			foreach (var shader in shaderDict.Values)
+			{
+				if (shader.skyParms != null)
+				{
+					var skyName = shader.skyParms.outerBox;
+					if (!string.IsNullOrEmpty(skyName))
+						worldspawn["skyname"] = skyName;
+				}
+			}
+		}
+
 		private bool TryGetTargetEntity(Entity sourceEntity, out Entity targetEntity)
 		{
 			if (sourceEntity.TryGetValue("target", out var target))
@@ -127,9 +145,9 @@ namespace BSPConversionLib.Source
 		private static void ConvertTimerTrigger(Entity trigger, string className, int zoneNumber)
 		{
 			trigger.ClassName = className;
-			//entity["track_number"] = "0";
+			//trigger["track_number"] = "0";
 			trigger["zone_number"] = zoneNumber.ToString();
-			//entity["spawnflags"] = "0";
+			trigger["spawnflags"] = "1";
 
 			trigger.Remove("target");
 		}
@@ -147,7 +165,7 @@ namespace BSPConversionLib.Source
 			trigger.Remove("target");
 		}
 
-		private static void ConvertTriggerTeleport(Entity? entity)
+		private static void ConvertTriggerTeleport(Entity entity)
 		{
 			entity["spawnflags"] = "1";
 			entity["mode"] = "5";

@@ -5,8 +5,14 @@ namespace BSPConversionCmd
 {
 	internal class Program
 	{
-		class Options
+		class ConvertOptions
 		{
+			[Option("nopak", Required = false, HelpText = "Export models/textures into folders instead of embedding them in the BSP.")]
+			public bool NoPak { get; set; }
+
+			[Option("skyfix", Required = false, HelpText = "This is a temporary hack to fix skybox rendering.")]
+			public bool SkyFix { get; set; }
+
 			[Value(0, MetaName = "input file", HelpText = "Input Quake 3 BSP/PK3 to be converted.", Required = true)]
 			public string InputFile { get; set; }
 
@@ -16,14 +22,15 @@ namespace BSPConversionCmd
 
 		static void Main(string[] args)
 		{
-			//args = new string[2];
-			//args[0] = @"c:\users\tyler\documents\tools\source engine\bspconvert\ghost-strafe7.pk3";
+			//args = new string[3];
+			//args[0] = @"c:\users\tyler\documents\tools\source engine\bspconvert\test-skybox.pk3";
 			//args[1] = @"c:\users\tyler\documents\tools\source engine\bspconvert\output";
+			//args[2] = "--nopak";
 
-			Parser.Default.ParseArguments<Options>(args)
+			Parser.Default.ParseArguments<ConvertOptions>(args)
 				.WithParsed(options =>
 				{
-					var converter = new BSPConverter(options.InputFile, options.OutputDirectory, new ConsoleLogger());
+					var converter = new BSPConverter(options.InputFile, options.OutputDirectory, options.NoPak, options.SkyFix, new ConsoleLogger());
 					converter.Convert();
 				});
 		}

@@ -8,127 +8,151 @@ using System.Threading.Tasks;
 using System.Threading.Tasks.Dataflow;
 using LibBSP;
 using SharpCompress.Archives.Zip;
+using BSPConversionLib.Source;
+using SharpCompress.Archives;
 
 namespace BSPConversionLib
 {
+	// TODO: Add support for shader conversion
 	public class TextureConverter
 	{
-		private string textureDir;
+		private string pk3Dir;
 		private BSP bsp;
 		private string outputDir;
+		private MaterialConverter materialConverter;
 		private ILogger logger;
 
-		public TextureConverter(string pk3Dir, BSP bsp, ILogger logger)
+		public TextureConverter(string pk3Dir, BSP bsp, Dictionary<string, Shader> shaderDict, ILogger logger)
 		{
-			textureDir = Path.Combine(pk3Dir, "textures");
+			this.pk3Dir = pk3Dir;
 			this.bsp = bsp;
+			materialConverter = new MaterialConverter(pk3Dir, shaderDict);
 			this.logger = logger;
 		}
 
-		public TextureConverter(string pk3Dir, string outputDir, ILogger logger)
+		public TextureConverter(string pk3Dir, string outputDir, Dictionary<string, Shader> shaderDict, ILogger logger)
 		{
-			textureDir = Path.Combine(pk3Dir, "textures");
+			this.pk3Dir = pk3Dir;
 			this.outputDir = outputDir;
+			materialConverter = new MaterialConverter(pk3Dir, shaderDict);
 			this.logger = logger;
 		}
 
 		public void Convert()
 		{
-			if (!Directory.Exists(textureDir))
-			{
-				logger.Log("No textures directory found, skipping texture conversion.");
-				return;
-			}
-
 			var startInfo = new ProcessStartInfo();
 			startInfo.FileName = "Dependencies\\VTFCmd.exe";
-			startInfo.Arguments = $"-folder {textureDir}\\*.* -recurse -silent";
+			startInfo.Arguments = $"-folder {pk3Dir}\\*.* -recurse -silent";
 
 			var process = Process.Start(startInfo);
 			process.EnableRaisingEvents = true;
 			process.Exited += (x, y) => OnFinishedConvertingTextures();
-			
+
 			process.WaitForExit();
 		}
 
 		private void OnFinishedConvertingTextures()
 		{
-			var vtfFiles = Directory.GetFiles(textureDir, "*.vtf", SearchOption.AllDirectories);
+			// TODO: Skip skies textures, and only use the textures referenced by the skybox shader
+
+			// Move env textures into skybox folder since Source engine only loads skybox textures from there
+			// TODO: Are skybox textures always in the env folder?
+			MoveEnvTexturesToSkyboxFolder();
+
+			var vtfFiles = Directory.GetFiles(pk3Dir, "*.vtf", SearchOption.AllDirectories);
+			var vmtFiles = ConvertVMTFiles(vtfFiles);
 
 			if (bsp != null)
+				EmbedFiles(vtfFiles, vmtFiles);
+			else
+				MoveFilesToOutputDir(vtfFiles, vmtFiles);
+		}
+
+		private void MoveEnvTexturesToSkyboxFolder()
+		{
+			var envDir = Path.Combine(pk3Dir, "env");
+			if (!Directory.Exists(envDir))
+				return;
+			
+			var skyboxDir = Path.Combine(pk3Dir, "skybox", "env");
+			foreach (var file in Directory.GetFiles(envDir, "*.vtf", SearchOption.AllDirectories))
 			{
-				var archive = ZipArchive.Create();
+				var newPath = file.Replace(envDir, skyboxDir);
+				var destFile = newPath.Remove(newPath.LastIndexOf('_'), 1); // Remove underscore from skybox suffix
 
-				// Generate vtf/vmt files in BSP pak lump
-				foreach (var vtfFile in vtfFiles)
+				Directory.CreateDirectory(Path.GetDirectoryName(destFile));
+
+				File.Move(file, destFile);
+			}
+		}
+
+		private string[] ConvertVMTFiles(string[] vtfFiles)
+		{
+			var vmtFiles = new string[vtfFiles.Length];
+			for (var i = 0; i < vtfFiles.Length; i++)
+			{
+				var vtfFile = vtfFiles[i];
+
+				var vmtPath = Path.ChangeExtension(vtfFile, ".vmt");
+				var vmt = materialConverter.ConvertVMT(vtfFile);
+				File.WriteAllText(vmtPath, vmt);
+
+				vmtFiles[i] = vmtPath;
+			}
+
+			return vmtFiles;
+		}
+
+		// Embed vtf/vmt files into BSP pak lump
+		private void EmbedFiles(string[] vtfFiles, string[] vmtFiles)
+		{
+			// TODO: Only create a zip archive if one doesn't exist
+			using (var archive = ZipArchive.Create())
+			{
+				for (var i = 0; i < vtfFiles.Length; i++)
 				{
-					var pakVtfPath = vtfFile.Replace(textureDir, "materials");
-					archive.AddEntry(pakVtfPath, File.OpenRead(vtfFile));
+					var vtfFile = vtfFiles[i];
+					var vmtFile = vmtFiles[i];
 
-					var pakVmtPath = pakVtfPath.Replace(".vtf", ".vmt");
-					var vmt = GenerateVMT(pakVtfPath);
-					var vmtBytes = Encoding.UTF8.GetBytes(vmt);
-					archive.AddEntry(pakVmtPath, new MemoryStream(vmtBytes));
+					var pakVtfPath = vtfFile.Replace(pk3Dir, "materials");
+					archive.AddEntry(pakVtfPath, new FileInfo(vtfFile));
+
+					var pakVmtPath = vmtFile.Replace(pk3Dir, "materials");
+					archive.AddEntry(pakVmtPath, new FileInfo(vmtFile));
 				}
 
 				bsp.PakFile.SetZipArchive(archive, true);
 			}
-			else
-			{
-				// Move vtf files into output directory and generate vmts
-				foreach (var vtfFile in vtfFiles)
-				{
-					var materialDir = Path.Combine(outputDir, "materials");
-					var destPath = vtfFile.Replace(textureDir, materialDir);
-					ConvertVTFFile(vtfFile, destPath);
+		}
 
-					var vmtPath = Path.ChangeExtension(destPath, ".vmt");
-					ConvertVMTFile(vmtPath);
-				}
+		// Move vtf/vmt files into output directory
+		private void MoveFilesToOutputDir(string[] vtfFiles, string[] vmtFiles)
+		{
+			for (var i = 0; i < vtfFiles.Length; i++)
+			{
+				var vtfFile = vtfFiles[i];
+				var vmtFile = vmtFiles[i];
+
+				var materialDir = Path.Combine(outputDir, "materials");
+
+				var destVtfFile = vtfFile.Replace(pk3Dir, materialDir);
+				MoveFile(vtfFile, destVtfFile);
+
+				var destVmtFile = vmtFile.Replace(pk3Dir, materialDir);
+				MoveFile(vmtFile, destVmtFile);
 			}
 		}
 
-		private void ConvertVTFFile(string vtfFile, string destPath)
+		private void MoveFile(string sourceFileName, string destFileName)
 		{
-			var vtfDir = Path.GetDirectoryName(destPath);
-			if (!Directory.Exists(vtfDir))
-				Directory.CreateDirectory(vtfDir);
+			// Create directory if it doesn't exist
+			Directory.CreateDirectory(Path.GetDirectoryName(destFileName));
 
-			// Delete existing file if it exists
-			if (File.Exists(destPath))
-				File.Delete(destPath);
+			// Delete file if it already exists
+			if (File.Exists(destFileName))
+				File.Delete(destFileName);
 			
-			File.Move(vtfFile, destPath);
-
-			logger.Log("Converted VTF file: " + destPath);
-		}
-
-		private void ConvertVMTFile(string vmtPath)
-		{
-			var vmt = GenerateVMT(vmtPath);
-			File.WriteAllText(vmtPath, vmt);
-
-			logger.Log("Converted VMT file: " + vmtPath);
-		}
-
-		private string GenerateVMT(string vmtPath)
-		{
-			var sb = new StringBuilder();
-			sb.AppendLine("LightmappedGeneric");
-			sb.AppendLine("{");
-
-			var relativePath = GetRelativePath(vmtPath);
-			sb.AppendLine($"\t\"$basetexture\" \"{relativePath}\"");
-
-			sb.AppendLine("}");
-
-			return sb.ToString();
-		}
-
-		private string GetRelativePath(string vmtPath)
-		{
-			var materialFolder = "materials" + Path.DirectorySeparatorChar;
-			return vmtPath.Substring(vmtPath.LastIndexOf(materialFolder) + materialFolder.Length);
+			File.Move(sourceFileName, destFileName);
 		}
 	}
 }
