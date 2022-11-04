@@ -41,17 +41,24 @@ namespace BSPConversionLib
 	using Color = System.Drawing.Color;
 #endif
 
+	public class BSPConverterOptions
+	{
+		public bool noPak;
+		public bool skyFix;
+		public string inputFile;
+		public string outputDir;
+	}
+
 	public class BSPConverter
 	{
-		private string quakeFilePath;
-		private string outputDir;
-		private bool noPak;
-		private bool skyFix;
+		private BSPConverterOptions options;
 		private ILogger logger;
 
 		private BSP quakeBsp;
 		private BSP sourceBsp;
-		private string pk3Dir;
+
+		private ContentManager contentManager;
+		
 		private Dictionary<string, Shader> shaderDict = new Dictionary<string, Shader>();
 		private Dictionary<int, int> textureInfoHashCodeDict = new Dictionary<int, int>(); // Maps TextureInfo hash codes to TextureInfo indices
 		private Dictionary<string, int> textureInfoLookup = new Dictionary<string, int>();
@@ -62,17 +69,16 @@ namespace BSPConversionLib
 		private const int CONTENTS_SOLID = 0x1;
 		private const int CONTENTS_STRUCTURAL = 0x10000000;
 
-		public BSPConverter(string quakeFilePath, string outputDir, bool noPak, bool skyFix, ILogger logger)
+		public BSPConverter(BSPConverterOptions options, ILogger logger)
 		{
-			this.quakeFilePath = quakeFilePath;
-			this.outputDir = outputDir;
-			this.noPak = noPak;
-			this.skyFix = skyFix;
+			this.options = options;
 			this.logger = logger;
 		}
 
 		public void Convert()
 		{
+			contentManager = new ContentManager(options.inputFile);
+			
 			LoadBSP();
 			LoadShaders();
 
@@ -98,64 +104,30 @@ namespace BSPConversionLib
 			ConvertAreaPortals();
 
 			WriteBSP();
-
-			DeletePk3Directory();
+			
+			contentManager.Dispose();
 		}
 
 		private void LoadBSP()
 		{
-			quakeBsp = LoadQuakeBsp(quakeFilePath);
-			sourceBsp = new BSP(Path.GetFileName(outputDir), MapType.Source20);
-		}
-
-		private BSP LoadQuakeBsp(string quakeFilePath)
-		{
-			if (!File.Exists(quakeFilePath))
-				throw new FileNotFoundException(quakeFilePath);
-
-			if (Path.GetExtension(quakeFilePath) == ".bsp")
-				return new BSP(new FileInfo(quakeFilePath));
-
-			pk3Dir = ExtractPk3(quakeFilePath);
-
-			// Find extracted BSP
-			var pk3Bsp = Directory.GetFiles(pk3Dir, "*.bsp", SearchOption.AllDirectories).First();
-
-			return new BSP(new FileInfo(pk3Bsp));
-		}
-
-		// Extract pk3 into temp directory
-		private string ExtractPk3(string pk3FilePath)
-		{
-			var fileName = Path.GetFileNameWithoutExtension(pk3FilePath);
-			var pk3Dir = Path.Combine(Path.GetTempPath(), fileName);
-
-			// Delete any pre-existing pk3 contents
-			if (Directory.Exists(pk3Dir))
-				Directory.Delete(pk3Dir, true);
-
-			ZipFile.ExtractToDirectory(pk3FilePath, pk3Dir);
-
-			return pk3Dir;
+			// TODO: Support converting multiple bsp's (some pk3's contain multiple bsp's)
+			quakeBsp = contentManager.BSPFiles.First();
+			sourceBsp = new BSP(Path.GetFileName(options.inputFile), MapType.Source20);
 		}
 
 		private void LoadShaders()
 		{
-			if (!string.IsNullOrEmpty(pk3Dir))
-			{
-				var shaderConverter = new ShaderConverter(pk3Dir);
-				shaderDict = shaderConverter.Convert();
-			}
+			// TODO: Load shaders from base Q3 content
+			var shaderConverter = new ShaderConverter(contentManager.ContentDir);
+			shaderDict = shaderConverter.Convert();
 		}
 
 		private void ConvertTextureFiles()
 		{
-			if (!string.IsNullOrEmpty(pk3Dir))
-			{
-				var textureConverter = noPak ? new TextureConverter(pk3Dir, outputDir, shaderDict, logger) : 
-					new TextureConverter(pk3Dir, sourceBsp, shaderDict, logger);
-				textureConverter.Convert();
-			}
+			var textureConverter = options.noPak ?
+				new TextureConverter(contentManager.ContentDir, options.outputDir, shaderDict, logger) :
+				new TextureConverter(contentManager.ContentDir, sourceBsp, shaderDict, logger);
+			textureConverter.Convert();
 		}
 
 		private void ConvertEntities()
@@ -182,7 +154,8 @@ namespace BSPConversionLib
 
 			sourceBsp.TextureData.Add(textureData);
 
-			textureDataLookup.Add(texture.Name, sourceBsp.TextureData.Count - 1);
+			if (!textureDataLookup.ContainsKey(texture.Name))
+				textureDataLookup.Add(texture.Name, sourceBsp.TextureData.Count - 1);
 		}
 
 		private int CreateTextureDataStringTableEntry(string textureName)
@@ -266,7 +239,7 @@ namespace BSPConversionLib
 				sourceBsp.Nodes.Add(node);
 			}
 
-			if (skyFix)
+			if (options.skyFix)
 				FixSkyboxRendering();
 		}
 
@@ -849,7 +822,7 @@ namespace BSPConversionLib
 
 		private void WriteBSP()
 		{
-			var mapsDir = Path.Combine(outputDir, "maps");
+			var mapsDir = Path.Combine(options.outputDir, "maps");
 			if (!Directory.Exists(mapsDir))
 				Directory.CreateDirectory(mapsDir);
 
@@ -858,13 +831,6 @@ namespace BSPConversionLib
 			writer.WriteBSP(bspPath);
 			
 			logger.Log($"Converted BSP: {bspPath}");
-		}
-
-		// Delete temp pk3 directory if it exists
-		private void DeletePk3Directory()
-		{
-			if (!string.IsNullOrEmpty(pk3Dir))
-				Directory.Delete(pk3Dir, true);
 		}
 	}
 }

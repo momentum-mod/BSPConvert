@@ -25,7 +25,10 @@ namespace BSPConversionLib
 				var shaderParser = new ShaderParser(shader);
 				var newShaderDict = shaderParser.ParseShaders();
 				foreach (var kv in newShaderDict)
-					shaderDict.Add(kv.Key, kv.Value);
+				{
+					if (!shaderDict.ContainsKey(kv.Key))
+						shaderDict.Add(kv.Key, kv.Value);
+				}
 			}
 
 			return shaderDict;

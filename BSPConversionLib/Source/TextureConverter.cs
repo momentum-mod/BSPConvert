@@ -59,6 +59,7 @@ namespace BSPConversionLib
 			// TODO: Are skybox textures always in the env folder?
 			MoveEnvTexturesToSkyboxFolder();
 
+			// TODO: Find textures using shader texture paths
 			var vtfFiles = Directory.GetFiles(pk3Dir, "*.vtf", SearchOption.AllDirectories);
 			var vmtFiles = ConvertVMTFiles(vtfFiles);
 

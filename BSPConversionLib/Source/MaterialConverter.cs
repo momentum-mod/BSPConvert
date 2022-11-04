@@ -92,7 +92,7 @@ namespace BSPConversionLib.Source
 		private string GetRelativePath(string vtfPath)
 		{
 			return vtfPath.Replace(pk3Dir + Path.DirectorySeparatorChar, "")
-				.Replace('\\', '/').Replace(".vtf", "");
+				.Replace(Path.DirectorySeparatorChar, '/').Replace(".vtf", "");
 		}
 	}
 }

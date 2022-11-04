@@ -5,7 +5,7 @@ namespace BSPConversionCmd
 {
 	internal class Program
 	{
-		class ConvertOptions
+		class Options
 		{
 			[Option("nopak", Required = false, HelpText = "Export models/textures into folders instead of embedding them in the BSP.")]
 			public bool NoPak { get; set; }
@@ -27,10 +27,17 @@ namespace BSPConversionCmd
 			//args[1] = @"c:\users\tyler\documents\tools\source engine\bspconvert\output";
 			//args[2] = "--nopak";
 
-			Parser.Default.ParseArguments<ConvertOptions>(args)
+			Parser.Default.ParseArguments<Options>(args)
 				.WithParsed(options =>
 				{
-					var converter = new BSPConverter(options.InputFile, options.OutputDirectory, options.NoPak, options.SkyFix, new ConsoleLogger());
+					var converterOptions = new BSPConverterOptions()
+					{
+						noPak = options.NoPak,
+						skyFix = options.SkyFix,
+						inputFile = options.InputFile,
+						outputDir = options.OutputDirectory
+					};
+					var converter = new BSPConverter(converterOptions, new ConsoleLogger());
 					converter.Convert();
 				});
 		}
