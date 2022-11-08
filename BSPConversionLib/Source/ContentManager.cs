@@ -49,16 +49,21 @@ namespace BSPConversionLib
 
 		private void LoadBSPFiles(string inputFile)
 		{
-			if (Path.GetExtension(inputFile) == ".bsp")
+			var ext = Path.GetExtension(inputFile);
+			if (ext == ".bsp")
 				bspFiles = new BSP[] { new BSP(new FileInfo(inputFile)) };
+			else if (ext == ".pk3")
+			{
+				// Extract bsp's from pk3 archive
+				ZipFile.ExtractToDirectory(inputFile, contentDir);
 
-			// Extract bsp's from pk3 archive
-			ZipFile.ExtractToDirectory(inputFile, contentDir);
-
-			var files = Directory.GetFiles(ContentDir, "*.bsp", SearchOption.AllDirectories);
-			bspFiles = new BSP[files.Length];
-			for (var i = 0; i < files.Length; i++)
-				bspFiles[i] = new BSP(new FileInfo(files[i]));
+				var files = Directory.GetFiles(ContentDir, "*.bsp", SearchOption.AllDirectories);
+				bspFiles = new BSP[files.Length];
+				for (var i = 0; i < files.Length; i++)
+					bspFiles[i] = new BSP(new FileInfo(files[i]));
+			}
+			else
+				throw new Exception("Invalid input file extension: " + ext);
 		}
 
 		// Copies content from base Q3 content into temp content directory
@@ -103,7 +108,7 @@ namespace BSPConversionLib
 
 						Directory.CreateDirectory(Path.GetDirectoryName(newPath));
 
-						File.Copy(texturePath, newPath);
+						File.Copy(texturePath, newPath, true);
 					}
 				}
 			}
