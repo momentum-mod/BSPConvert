@@ -73,6 +73,10 @@ namespace BSPConversionLib
 		private Dictionary<string, int> textureDataLookup = new Dictionary<string, int>();
 		private Dictionary<int, int[]> splitFaceDict = new Dictionary<int, int[]>(); // Maps the original face index to the new face indices split by triangles
 
+		// This is much more efficient than adding to NumList directly
+		// TODO: Update LibBSP's NumList so that adding new elements doesn't kill performance
+		private List<ushort> dispTriangles = new List<ushort>(); 
+
 		private const int CONTENTS_EMPTY = 0;
 		private const int CONTENTS_SOLID = 0x1;
 		private const int CONTENTS_STRUCTURAL = 0x10000000;
@@ -568,6 +572,9 @@ namespace BSPConversionLib
 						break;
 				}
 			}
+
+			// Update displacement triangles
+			sourceBsp.DisplacementTriangles = BSPUtil.CreateNumList(dispTriangles.ToArray(), NumList.DataType.UInt16, sourceBsp);
 		}
 
 		private void ConvertPolygon_SplitFaces(Face qFace, int faceIndex)
@@ -675,8 +682,8 @@ namespace BSPConversionLib
 			face.PlaneIndex = CreatePlane(normal, dist);
 
 			// TODO: Improve UV mapping
-			var uAxis = (faceVerts[1].position - faceVerts[0].position).GetNormalized() * 4f;
-			var vAxis = (faceVerts[3].position - faceVerts[0].position).GetNormalized() * 4f;
+			var uAxis = (faceVerts[1].position - faceVerts[0].position).GetNormalized() * 2f;
+			var vAxis = (faceVerts[3].position - faceVerts[0].position).GetNormalized() * 2f;
 			face.TextureInfoIndex = CreateTextureInfo(textureName, uAxis, vAxis);
 
 			// Create face edges
@@ -784,7 +791,7 @@ namespace BSPConversionLib
 
 			var numTriangles = (1 << (power)) * (1 << (power)) * 2;
 			for (var i = 0; i < numTriangles; i++)
-				sourceBsp.DisplacementTriangles.Add(0); // TODO: Set displacement flags?
+				dispTriangles.Add(0); // TODO: Set displacement flags?
 
 			return firstTriangle;
 		}
