@@ -13,6 +13,9 @@ namespace BSPConversionCmd
 			[Option("skyfix", Required = false, HelpText = "This is a temporary hack to fix skybox rendering.")]
 			public bool SkyFix { get; set; }
 
+			[Option("subdiv", Required = false, Default = 4, HelpText = "Displacement subdivisions [2-4].")]
+			public int DisplacementPower { get; set; }
+
 			[Value(0, MetaName = "input file", HelpText = "Input Quake 3 BSP/PK3 to be converted.", Required = true)]
 			public string InputFile { get; set; }
 
@@ -23,17 +26,21 @@ namespace BSPConversionCmd
 		static void Main(string[] args)
 		{
 			//args = new string[3];
-			//args[0] = @"c:\users\tyler\documents\tools\source engine\bspconvert\test-skybox.pk3";
+			//args[0] = @"c:\users\tyler\documents\tools\source engine\bspconvert\room-curve.bsp";
 			//args[1] = @"c:\users\tyler\documents\tools\source engine\bspconvert\output";
 			//args[2] = "--nopak";
 
 			Parser.Default.ParseArguments<Options>(args)
 				.WithParsed(options =>
 				{
+					if (options.DisplacementPower < 2 || options.DisplacementPower > 4)
+						throw new ArgumentOutOfRangeException("Displacement power must be between 2 and 4.");
+
 					var converterOptions = new BSPConverterOptions()
 					{
 						noPak = options.NoPak,
 						skyFix = options.SkyFix,
+						DisplacementPower = options.DisplacementPower,
 						inputFile = options.InputFile,
 						outputDir = options.OutputDirectory
 					};
