@@ -549,6 +549,7 @@ namespace BSPConversionLib
 				{
 					case FaceType.Polygon:
 					case FaceType.Mesh: // Used for Q3 models
+					case FaceType.Billboard:
 						ConvertPolygon_SplitFaces(qFace, faceIndex);
 						break;
 					case FaceType.Patch:
