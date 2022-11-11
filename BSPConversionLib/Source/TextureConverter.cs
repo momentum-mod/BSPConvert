@@ -42,7 +42,7 @@ namespace BSPConversionLib
 		{
 			var startInfo = new ProcessStartInfo();
 			startInfo.FileName = "Dependencies\\VTFCmd.exe";
-			startInfo.Arguments = $"-folder {pk3Dir}\\*.* -recurse -silent";
+			startInfo.Arguments = $"-folder {pk3Dir}\\*.* -resize -recurse -silent";
 
 			var process = Process.Start(startInfo);
 			process.EnableRaisingEvents = true;
