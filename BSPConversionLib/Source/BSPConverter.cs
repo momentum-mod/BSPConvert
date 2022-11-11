@@ -81,6 +81,8 @@ namespace BSPConversionLib
 		private const int CONTENTS_SOLID = 0x1;
 		private const int CONTENTS_STRUCTURAL = 0x10000000;
 
+		private const int Q3_LIGHTMAP_SIZE = 128;
+
 		public BSPConverter(BSPConverterOptions options, ILogger logger)
 		{
 			this.options = options;
@@ -502,13 +504,12 @@ namespace BSPConversionLib
 
 			foreach (var qFace in quakeBsp.Faces)
 			{
-				var data = new byte[Face.GetStructLength(sourceBsp.MapType)];
-				var sFace = new Face(data, sourceBsp.Faces);
+				var sFace = CreateFace();
 
 				// TODO: Re-use brush planes?
 				sFace.PlaneIndex = CreatePlane(qFace); // Quake faces don't have planes, so create one
-				sFace.PlaneSide = true;
-				sFace.IsOnNode = false; // Should this be true for faces that split visleafs?
+				sFace.TextureInfoIndex = CreateTextureInfo(qFace);
+				sFace.DisplacementIndex = -1;
 
 				(var surfEdgeIndex, var numEdges) = CreateSurfaceEdges(qFace.Vertices.ToArray(), qFace.Normal);
 				//var usePrims = sourceBsp.Primitives.Count < 6;
@@ -523,16 +524,6 @@ namespace BSPConversionLib
 					sFace.NumEdgeIndices = numEdges;
 				}
 
-				sFace.TextureInfoIndex = CreateTextureInfo(qFace);
-				sFace.DisplacementIndex = -1;
-				sFace.SurfaceFogVolumeID = -1;
-				sFace.LightmapStyles = new byte[4];
-				sFace.Lightmap = 0;
-				sFace.Area = 0; // TODO: Check if this needs to be computed
-				sFace.LightmapStart = new Vector2();
-				sFace.LightmapSize = new Vector2(); // TODO: Set to 128x128?
-				sFace.OriginalFaceIndex = -1; // Ignore since Quake 3 maps don't have split faces
-
 				//if (usePrims)
 				//{
 				//	sFace.FirstPrimitive = CreatePrimitive(qFace.Vertices.ToArray(), qFace.Indices.ToArray());
@@ -543,10 +534,6 @@ namespace BSPConversionLib
 					sFace.FirstPrimitive = 0;
 					sFace.NumPrimitives = 0;
 				}
-				
-				sFace.SmoothingGroups = 0;
-
-				sourceBsp.Faces.Add(sFace);
 			}
 		}
 
@@ -615,7 +602,13 @@ namespace BSPConversionLib
 			sFace.PlaneSide = true;
 			sFace.IsOnNode = false; // Set to false in order for face to be visible across multiple leaves?
 			sFace.SurfaceFogVolumeID = -1;
-			sFace.LightmapStyles = new byte[4];
+			sFace.LightmapStyles = new byte[4]
+			{
+				0,
+				255,
+				255,
+				255
+			};
 			sFace.Lightmap = 0;
 			sFace.Area = 0; // TODO: Check if this needs to be computed
 			sFace.LightmapStart = new Vector2();
@@ -924,8 +917,8 @@ namespace BSPConversionLib
 			// TODO: Get UV data from face vertices
 			textureInfo.UAxis = uAxis;
 			textureInfo.VAxis = vAxis;
-			textureInfo.LightmapUAxis = uAxis / 4f; // TODO: Use lightmap scale
-			textureInfo.LightmapVAxis = vAxis / 4f;
+			textureInfo.LightmapUAxis = uAxis / 32f;
+			textureInfo.LightmapVAxis = vAxis / 32f;
 			textureInfo.TextureIndex = LookupTextureDataIndex(textureName);
 
 			if (IsSkyTexture(textureName))
@@ -998,8 +991,117 @@ namespace BSPConversionLib
 		{
 			SetLumpVersionNumber(Lightmaps.GetIndexForLump(sourceBsp.MapType), 1);
 
-			// TODO: Convert lightmap data
+			var qLightmapData = quakeBsp.Lightmaps.Data;
+			var lmColors = new List<ColorRGBExp32>();
 			
+			for (var faceIndex = 0; faceIndex < quakeBsp.Faces.Count; faceIndex++)
+			{
+				var qFace = quakeBsp.Faces[faceIndex];
+				var lmIndex = qFace.Lightmap;
+				if (lmIndex < 0)
+					continue;
+
+				(var lmStart, var lmEnd) = GetLightmapExtents(qFace);
+				var lmSize = lmEnd - lmStart;
+
+				// TODO: Faces need to be split since Source lightmaps only go up to 35x35 luxels whereas Q3 goes up to 128x128
+				if (lmSize.X - 1 > 35 || lmSize.Y - 1 > 35)
+					continue;
+
+				var q3LightmapSize = Q3_LIGHTMAP_SIZE * Q3_LIGHTMAP_SIZE * 3;
+				var q3LightmapOffset = lmIndex * q3LightmapSize;
+
+				var sourceLightmapOffset = lmColors.Count * 4;
+
+				// Add lightmap colors
+				for (var y = (int)lmStart.Y; y < lmEnd.Y; y++)
+				{
+					for (var x = (int)lmStart.X; x < lmEnd.X; x++)
+					{
+						var color = new ColorRGBExp32();
+
+						var index = x + y * Q3_LIGHTMAP_SIZE;
+						color.r = qLightmapData[q3LightmapOffset + index * 3 + 0];
+						color.g = qLightmapData[q3LightmapOffset + index * 3 + 1];
+						color.b = qLightmapData[q3LightmapOffset + index * 3 + 2];
+						color.exponent = 0;
+
+						lmColors.Add(color);
+					}
+				}
+
+				// Update face lightmap info
+				foreach (var splitFaceIndex in splitFaceDict[faceIndex])
+				{
+					var sFace = sourceBsp.Faces[splitFaceIndex];
+					sFace.Lightmap = sourceLightmapOffset;
+					sFace.LightmapStart = GetLightmapStart(sFace);
+					sFace.LightmapSize = new Vector2(lmSize.X - 1, lmSize.Y - 1);
+				}
+			}
+
+			// Copy colors into lightmap data
+			var data = new byte[lmColors.Count * 4];
+			for (var i = 0; i < lmColors.Count; i++)
+			{
+				var color = lmColors[i];
+				var dataIndex = i * 4;
+				data[dataIndex + 0] = color.r;
+				data[dataIndex + 1] = color.g;
+				data[dataIndex + 2] = color.b;
+				data[dataIndex + 3] = (byte)color.exponent;
+			}
+
+			sourceBsp.Lightmaps.Data = data;
+		}
+
+		private (Vector2, Vector2) GetLightmapExtents(Face face)
+		{
+			var uvMin = new Vector2(1f, 1f);
+			var uvMax = new Vector2(0f, 0f);
+			foreach (var vert in face.Vertices)
+			{
+				if (vert.uv1.X < uvMin.X)
+					uvMin.X = vert.uv1.X;
+				if (vert.uv1.Y < uvMin.Y)
+					uvMin.Y = vert.uv1.Y;
+				
+				if (vert.uv1.X > uvMax.X)
+					uvMax.X = vert.uv1.X;
+				if (vert.uv1.Y > uvMax.Y)
+					uvMax.Y = vert.uv1.Y;
+			}
+
+			var lmStart = new Vector2((int)Math.Floor(uvMin.X * Q3_LIGHTMAP_SIZE), (int)Math.Floor(uvMin.Y * Q3_LIGHTMAP_SIZE));
+			var lmEnd = new Vector2((int)Math.Ceiling(uvMax.X * Q3_LIGHTMAP_SIZE), (int)Math.Ceiling(uvMax.Y * Q3_LIGHTMAP_SIZE));
+
+			return (lmStart, lmEnd);
+		}
+
+		// TODO: Use lightmap vecs from source face and vertices from quake 3 face (should be more efficient)
+		private Vector2 GetLightmapStart(Face face)
+		{
+			var lightmapStart = new Vector2(float.MaxValue, float.MaxValue);
+			var texInfo = face.TextureInfo;
+			var lightmapUAxis = texInfo.LightmapUAxis;
+			var lightmapVAxis = texInfo.LightmapVAxis;
+
+			// Find the minimum values for world space uv offsets
+			foreach (var edgeIndex in face.EdgeIndices)
+			{
+				var edge = sourceBsp.Edges[edgeIndex];
+				var vertex = edge.FirstVertex.position;
+
+				var uOffset = Vector3.Dot(vertex, lightmapUAxis);
+				if (uOffset < lightmapStart.X)
+					lightmapStart.X = uOffset;
+
+				var vOffset = Vector3.Dot(vertex, lightmapVAxis);
+				if (vOffset < lightmapStart.Y)
+					lightmapStart.Y = vOffset;
+			}
+
+			return lightmapStart;
 		}
 
 		private void ConvertVisData()
