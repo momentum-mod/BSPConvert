@@ -45,6 +45,10 @@ namespace BSPConversionLib.Source
 					case "info_player_start":
 						entity.Name = MOMENTUM_START_ENTITY;
 						break;
+					case "info_player_deathmatch":
+						entity.ClassName = "info_player_start";
+						entity.Name = MOMENTUM_START_ENTITY;
+						break;
 					case "trigger_multiple":
 						ConvertTriggerMultiple(entity);
 						break;
