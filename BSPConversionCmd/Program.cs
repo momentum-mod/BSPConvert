@@ -16,6 +16,9 @@ namespace BSPConversionCmd
 			[Option("subdiv", Required = false, Default = 4, HelpText = "Displacement subdivisions [2-4].")]
 			public int DisplacementPower { get; set; }
 
+			[Option("newbsp", Required = false, HelpText = "Use BSP version 25 (Momentum Mod).")]
+			public bool NewBSP { get; set; }
+
 			[Value(0, MetaName = "input file", HelpText = "Input Quake 3 BSP/PK3 to be converted.", Required = true)]
 			public string InputFile { get; set; }
 
@@ -26,7 +29,7 @@ namespace BSPConversionCmd
 		static void Main(string[] args)
 		{
 			//args = new string[3];
-			//args[0] = @"c:\users\tyler\documents\tools\source engine\bspconvert\room-curve.bsp";
+			//args[0] = @"c:\users\tyler\documents\tools\source engine\bspconvert\pornstar-sleeprun.pk3";
 			//args[1] = @"c:\users\tyler\documents\tools\source engine\bspconvert\output";
 			//args[2] = "--nopak";
 
@@ -41,6 +44,7 @@ namespace BSPConversionCmd
 						noPak = options.NoPak,
 						skyFix = options.SkyFix,
 						DisplacementPower = options.DisplacementPower,
+						newBSP = options.NewBSP,
 						inputFile = options.InputFile,
 						outputDir = options.OutputDirectory
 					};

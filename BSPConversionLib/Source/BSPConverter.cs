@@ -53,6 +53,7 @@ namespace BSPConversionLib
 			get { return displacementPower; }
 			set { displacementPower = Math.Clamp(value, 2, 4); }
 		}
+		public bool newBSP;
 		public string inputFile;
 		public string outputDir;
 	}
@@ -126,7 +127,9 @@ namespace BSPConversionLib
 		{
 			// TODO: Support converting multiple bsp's (some pk3's contain multiple bsp's)
 			quakeBsp = contentManager.BSPFiles.First();
-			sourceBsp = new BSP(Path.GetFileName(options.inputFile), MapType.Source20);
+			
+			var mapType = options.newBSP ? MapType.Source25 : MapType.Source20;
+			sourceBsp = new BSP(Path.GetFileName(options.inputFile), mapType);
 		}
 
 		private void LoadShaders()
@@ -233,6 +236,9 @@ namespace BSPConversionLib
 		// Note: This needs to be called after converting split faces in order to fix skyboxes not rendering
 		private void ConvertNodes()
 		{
+			if (options.newBSP)
+				SetLumpVersionNumber(Node.GetIndexForLump(sourceBsp.MapType), 1);
+
 			foreach (var qNode in quakeBsp.Nodes)
 			{
 				var data = new byte[Node.GetStructLength(sourceBsp.MapType)];
@@ -281,7 +287,8 @@ namespace BSPConversionLib
 
 		private void ConvertLeaves()
 		{
-			SetLumpVersionNumber(Leaf.GetIndexForLump(sourceBsp.MapType), 1);
+			var version = options.newBSP ? 2 : 1;
+			SetLumpVersionNumber(Leaf.GetIndexForLump(sourceBsp.MapType), version);
 
 			foreach (var qLeaf in quakeBsp.Leaves)
 			{
@@ -314,7 +321,8 @@ namespace BSPConversionLib
 
 		private void ConvertLeaves_SplitFaces()
 		{
-			SetLumpVersionNumber(Leaf.GetIndexForLump(sourceBsp.MapType), 1);
+			var version = options.newBSP ? 2 : 1;
+			SetLumpVersionNumber(Leaf.GetIndexForLump(sourceBsp.MapType), version);
 
 			var currentFaceIndex = 0;
 
@@ -355,12 +363,18 @@ namespace BSPConversionLib
 
 		private void ConvertLeafFaces()
 		{
+			if (options.newBSP)
+				SetLumpVersionNumber(NumList.GetIndexForLeafFacesLump(sourceBsp.MapType, out _), 1);
+
 			foreach (var qLeafFace in quakeBsp.LeafFaces)
 				sourceBsp.LeafFaces.Add(qLeafFace);
 		}
 
 		private void ConvertLeafFaces_SplitFaces()
 		{
+			if (options.newBSP)
+				SetLumpVersionNumber(NumList.GetIndexForLeafFacesLump(sourceBsp.MapType, out _), 1);
+
 			foreach (var qLeafFace in quakeBsp.LeafFaces)
 			{
 				var splitFaceIndices = splitFaceDict[(int)qLeafFace];
@@ -371,6 +385,9 @@ namespace BSPConversionLib
 
 		private void ConvertLeafBrushes()
 		{
+			if (options.newBSP)
+				SetLumpVersionNumber(NumList.GetIndexForLeafBrushesLump(sourceBsp.MapType, out _), 1);
+
 			foreach (var qLeafBrush in quakeBsp.LeafBrushes)
 				sourceBsp.LeafBrushes.Add(qLeafBrush);
 		}
@@ -484,6 +501,9 @@ namespace BSPConversionLib
 
 		private void ConvertBrushSides()
 		{
+			if (options.newBSP)
+				SetLumpVersionNumber(BrushSide.GetIndexForLump(sourceBsp.MapType), 1);
+
 			foreach (var qBrushSide in quakeBsp.BrushSides)
 			{
 				var data = new byte[BrushSide.GetStructLength(sourceBsp.MapType)];
@@ -500,18 +520,29 @@ namespace BSPConversionLib
 
 		private void ConvertFaces()
 		{
-			SetLumpVersionNumber(Face.GetIndexForLump(sourceBsp.MapType), 1);
-
-			foreach (var qFace in quakeBsp.Faces)
+			if (options.newBSP)
 			{
-				var sFace = CreateFace();
+				SetLumpVersionNumber(Face.GetIndexForLump(sourceBsp.MapType), 2);
+				SetLumpVersionNumber(Displacement.GetIndexForLump(sourceBsp.MapType), 1);
+				SetLumpVersionNumber(Edge.GetIndexForLump(sourceBsp.MapType), 1);
+				SetLumpVersionNumber(NumList.GetIndexForIndicesLump(sourceBsp.MapType, out _), 1);
+			}
+			else
+				SetLumpVersionNumber(Face.GetIndexForLump(sourceBsp.MapType), 1);
 
+			for (var faceIndex = 0; faceIndex < quakeBsp.Faces.Count; faceIndex++)
+			{
+				var qFace = quakeBsp.Faces[faceIndex];
+
+				sourceBsp.Normals.Add(qFace.Normal);
+
+				var sFace = CreateFace();
 				// TODO: Re-use brush planes?
 				sFace.PlaneIndex = CreatePlane(qFace); // Quake faces don't have planes, so create one
 				sFace.TextureInfoIndex = CreateTextureInfo(qFace);
 				sFace.DisplacementIndex = -1;
 
-				(var surfEdgeIndex, var numEdges) = CreateSurfaceEdges(qFace.Vertices.ToArray(), qFace.Normal);
+				(var surfEdgeIndex, var numEdges) = CreateSurfaceEdges(faceIndex);
 				//var usePrims = sourceBsp.Primitives.Count < 6;
 				//if (usePrims)
 				//{
@@ -539,21 +570,31 @@ namespace BSPConversionLib
 
 		private void ConvertFaces_SplitFaces()
 		{
-			SetLumpVersionNumber(Face.GetIndexForLump(sourceBsp.MapType), 1);
+			if (options.newBSP)
+			{
+				SetLumpVersionNumber(Face.GetIndexForLump(sourceBsp.MapType), 2);
+				SetLumpVersionNumber(Displacement.GetIndexForLump(sourceBsp.MapType), 1);
+				SetLumpVersionNumber(Edge.GetIndexForLump(sourceBsp.MapType), 1);
+				SetLumpVersionNumber(NumList.GetIndexForIndicesLump(sourceBsp.MapType, out _), 1);
+			}
+			else
+				SetLumpVersionNumber(Face.GetIndexForLump(sourceBsp.MapType), 1);
 
 			for (var faceIndex = 0; faceIndex < quakeBsp.Faces.Count; faceIndex++)
 			{
 				var qFace = quakeBsp.Faces[faceIndex];
+
+				sourceBsp.Normals.Add(qFace.Normal);
 
 				switch (qFace.Type)
 				{
 					case FaceType.Polygon:
 					case FaceType.Mesh: // Used for Q3 models
 					case FaceType.Billboard:
-						ConvertPolygon_SplitFaces(qFace, faceIndex);
+						ConvertPolygon_SplitFaces(faceIndex);
 						break;
 					case FaceType.Patch:
-						ConvertPatch_SplitFaces(qFace, faceIndex);
+						ConvertPatch_SplitFaces(faceIndex);
 						break;
 					default:
 						logger.Log("Unsupported face type: " + qFace.Type);
@@ -565,9 +606,10 @@ namespace BSPConversionLib
 			sourceBsp.DisplacementTriangles = BSPUtil.CreateNumList(dispTriangles.ToArray(), NumList.DataType.UInt16, sourceBsp);
 		}
 
-		private void ConvertPolygon_SplitFaces(Face qFace, int faceIndex)
+		private void ConvertPolygon_SplitFaces(int faceIndex)
 		{
 			// Create a face for each triangle
+			var qFace = quakeBsp.Faces[faceIndex];
 			var vertices = qFace.Vertices.ToArray();
 			var indices = qFace.Indices.ToArray();
 
@@ -587,9 +629,9 @@ namespace BSPConversionLib
 				var v2 = vertices[indices[i + 1]];
 				var v3 = vertices[indices[i + 2]];
 
-				CreateEdge(v2, v1);
-				CreateEdge(v3, v2);
-				CreateEdge(v1, v3);
+				CreateEdge(v2, v1, faceIndex);
+				CreateEdge(v3, v2, faceIndex);
+				CreateEdge(v1, v3, faceIndex);
 
 				splitFaceDict[faceIndex][i / 3] = sourceBsp.Faces.Count - 1;
 			}
@@ -598,34 +640,35 @@ namespace BSPConversionLib
 		private Face CreateFace()
 		{
 			var data = new byte[Face.GetStructLength(sourceBsp.MapType)];
-			var sFace = new Face(data, sourceBsp.Faces);
+			var face = new Face(data, sourceBsp.Faces);
 
-			sFace.PlaneSide = true;
-			sFace.IsOnNode = false; // Set to false in order for face to be visible across multiple leaves?
-			sFace.SurfaceFogVolumeID = -1;
-			sFace.LightmapStyles = new byte[4]
+			face.PlaneSide = true;
+			face.IsOnNode = false; // Set to false in order for face to be visible across multiple leaves?
+			face.SurfaceFogVolumeID = -1;
+			face.LightmapStyles = new byte[4]
 			{
 				0,
 				255,
 				255,
 				255
 			};
-			sFace.Lightmap = 0;
-			sFace.Area = 0; // TODO: Check if this needs to be computed
-			sFace.LightmapStart = new Vector2();
-			sFace.LightmapSize = new Vector2(); // TODO: Set to 128x128?
-			sFace.OriginalFaceIndex = -1; // Ignore since Quake 3 maps don't have split faces
-			sFace.FirstPrimitive = 0;
-			sFace.NumPrimitives = 0;
-			sFace.SmoothingGroups = 0;
+			face.Lightmap = 0;
+			face.Area = 0; // TODO: Check if this needs to be computed
+			face.LightmapStart = new Vector2();
+			face.LightmapSize = new Vector2(); // TODO: Set to 128x128?
+			face.OriginalFaceIndex = -1; // Ignore since Quake 3 maps don't have split faces
+			face.FirstPrimitive = 0;
+			face.NumPrimitives = 0;
+			face.SmoothingGroups = 0;
 
-			sourceBsp.Faces.Add(sFace);
+			sourceBsp.Faces.Add(face);
 			
-			return sFace;
+			return face;
 		}
 
-		private void ConvertPatch_SplitFaces(Face qFace, int faceIndex)
+		private void ConvertPatch_SplitFaces(int faceIndex)
 		{
+			var qFace = quakeBsp.Faces[faceIndex];
 			var numPatchesWidth = ((int)qFace.PatchSize.X - 1) / 2;
 			var numPatchesHeight = ((int)qFace.PatchSize.Y - 1) / 2;
 			splitFaceDict[faceIndex] = new int[numPatchesWidth * numPatchesHeight];
@@ -636,7 +679,7 @@ namespace BSPConversionLib
 				for (var x = 0; x < qFace.PatchSize.X - 1; x += 2)
 				{
 					var patchStartVertex = qFace.FirstVertexIndex + x + y * (int)qFace.PatchSize.X;
-					var patchFaceIndex = CreatePatch(qFace, patchStartVertex);
+					var patchFaceIndex = CreatePatch(faceIndex, patchStartVertex);
 
 					splitFaceDict[faceIndex][currentPatch] = patchFaceIndex;
 					currentPatch++;
@@ -644,8 +687,9 @@ namespace BSPConversionLib
 			}
 		}
 
-		private int CreatePatch(Face qFace, int patchStartVertex)
+		private int CreatePatch(int qFaceIndex, int patchStartVertex)
 		{
+			var qFace = quakeBsp.Faces[qFaceIndex];
 			var patchWidth = (int)qFace.PatchSize.X;
 			var faceVerts = new Vertex[]
 			{
@@ -655,39 +699,41 @@ namespace BSPConversionLib
 				quakeBsp.Vertices[patchStartVertex + 2 * patchWidth]
 			};
 
-			var faceIndex = CreatePatchFace(faceVerts, qFace.Texture.Name);
-			CreatePatchDisplacement(faceIndex, faceVerts, patchWidth, patchStartVertex);
+			var sFaceIndex = CreatePatchFace(faceVerts, qFaceIndex);
+			CreatePatchDisplacement(sFaceIndex, faceVerts, patchWidth, patchStartVertex);
 
-			return faceIndex;
+			return sFaceIndex;
 		}
 
-		private int CreatePatchFace(Vertex[] faceVerts, string textureName)
+		private int CreatePatchFace(Vertex[] faceVerts, int faceIndex)
 		{
-			var face = CreateFace();
+			var sFace = CreateFace();
 			
 			var dispIndex = sourceBsp.Displacements.Count;
-			face.DisplacementIndex = dispIndex;
+			sFace.DisplacementIndex = dispIndex;
 
 			// Create face plane
 			var v1 = faceVerts[0].position - faceVerts[1].position;
 			var v2 = faceVerts[0].position - faceVerts[2].position;
 			var normal = Vector3.Cross(v1, v2).GetNormalized();
 			var dist = Vector3.Dot(faceVerts[0].position, normal);
-			face.PlaneIndex = CreatePlane(normal, dist);
+			sFace.PlaneIndex = CreatePlane(normal, dist);
 
 			// TODO: Improve UV mapping
 			var uAxis = (faceVerts[1].position - faceVerts[0].position).GetNormalized() * 2f;
 			var vAxis = (faceVerts[3].position - faceVerts[0].position).GetNormalized() * 2f;
-			face.TextureInfoIndex = CreateTextureInfo(textureName, uAxis, vAxis);
+
+			var qFace = quakeBsp.Faces[faceIndex];
+			sFace.TextureInfoIndex = CreateTextureInfo(qFace.Texture.Name, uAxis, vAxis);
 
 			// Create face edges
-			face.FirstEdgeIndexIndex = sourceBsp.FaceEdges.Count;
-			face.NumEdgeIndices = 4;
+			sFace.FirstEdgeIndexIndex = sourceBsp.FaceEdges.Count;
+			sFace.NumEdgeIndices = 4;
 
-			CreateEdge(faceVerts[3], faceVerts[2]);
-			CreateEdge(faceVerts[2], faceVerts[1]);
-			CreateEdge(faceVerts[1], faceVerts[0]);
-			CreateEdge(faceVerts[0], faceVerts[3]);
+			CreateEdge(faceVerts[3], faceVerts[2], faceIndex);
+			CreateEdge(faceVerts[2], faceVerts[1], faceIndex);
+			CreateEdge(faceVerts[1], faceVerts[0], faceIndex);
+			CreateEdge(faceVerts[0], faceVerts[3], faceIndex);
 
 			return sourceBsp.Faces.Count - 1;
 		}
@@ -851,13 +897,16 @@ namespace BSPConversionLib
 			return firstPrimVertex;
 		}
 
-		private (int surfEdgeIndex, int numEdges) CreateSurfaceEdges(Vertex[] vertices, Vector3 faceNormal)
+		private (int surfEdgeIndex, int numEdges) CreateSurfaceEdges(int faceIndex)
 		{
 			var surfEdgeIndex = sourceBsp.FaceEdges.Count;
-			
+
+			var qFace = quakeBsp.Faces[faceIndex];
+			var vertices = qFace.Vertices.ToArray();
+
 			// Convert triangle meshes from Q3 to Source engine's edge loop format
 			// Note: Some Q3 faces are concave polygons, so this approach does not always work
-			var hullVerts = HullConverter.ConvertConvexHull(vertices, faceNormal);
+			var hullVerts = HullConverter.ConvertConvexHull(vertices, qFace.Normal);
 			var numEdges = hullVerts.Count;
 
 			// Note: Edges are continuous, so treating them as triangles will cause issues
@@ -879,26 +928,28 @@ namespace BSPConversionLib
 			for (var i = 0; i < hullVerts.Count; i++)
 			{
 				var nextIndex = (i + 1) % hullVerts.Count;
-				CreateEdge(hullVerts[nextIndex], hullVerts[i]);
+				CreateEdge(hullVerts[nextIndex], hullVerts[i], faceIndex);
 			}
 
 			return (surfEdgeIndex, numEdges);
 		}
 
-		private void CreateEdge(Vertex firstVertex, Vertex secondVertex)
+		private void CreateEdge(Vertex firstVertex, Vertex secondVertex, int faceIndex)
 		{
 			// TODO: Prevent adding duplicate edges?
 			var data = new byte[Edge.GetStructLength(sourceBsp.MapType)];
 			var edge = new Edge(data, sourceBsp.Edges);
-			edge.FirstVertexIndex = CreateVertex(firstVertex);
-			edge.SecondVertexIndex = CreateVertex(secondVertex);
+			edge.FirstVertexIndex = CreateVertex(firstVertex, faceIndex);
+			edge.SecondVertexIndex = CreateVertex(secondVertex, faceIndex);
 
 			sourceBsp.Edges.Add(edge);
 			sourceBsp.FaceEdges.Add(sourceBsp.Edges.Count - 1);
 		}
 
-		private int CreateVertex(Vertex vertex)
+		private int CreateVertex(Vertex vertex, int faceIndex)
 		{
+			sourceBsp.Indices.Add(faceIndex);
+
 			// TODO: Prevent adding duplicate vertices
 			sourceBsp.Vertices.Add(vertex);
 			return sourceBsp.Vertices.Count - 1;
@@ -1120,6 +1171,9 @@ namespace BSPConversionLib
 
 		private void ConvertAreaPortals()
 		{
+			if (options.newBSP)
+				SetLumpVersionNumber(AreaPortal.GetIndexForLump(sourceBsp.MapType), 1);
+
 			// Create an area portal for the first area
 			var areaPortalBytes = new byte[AreaPortal.GetStructLength(sourceBsp.MapType)];
 			var areaPortal = new AreaPortal(areaPortalBytes, sourceBsp.AreaPortals);
