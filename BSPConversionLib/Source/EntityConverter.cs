@@ -5,7 +5,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace BSPConversionLib.Source
+namespace BSPConversionLib
 {
 	public class EntityConverter
 	{

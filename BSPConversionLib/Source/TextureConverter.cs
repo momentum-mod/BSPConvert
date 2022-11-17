@@ -4,38 +4,28 @@ using System.Diagnostics;
 using System.Linq;
 using System.Text;
 using System.IO;
-using System.Threading.Tasks;
-using System.Threading.Tasks.Dataflow;
 using LibBSP;
 using SharpCompress.Archives.Zip;
-using BSPConversionLib.Source;
 using SharpCompress.Archives;
 
 namespace BSPConversionLib
 {
-	// TODO: Add support for shader conversion
 	public class TextureConverter
 	{
 		private string pk3Dir;
 		private BSP bsp;
 		private string outputDir;
-		private MaterialConverter materialConverter;
-		private ILogger logger;
 
-		public TextureConverter(string pk3Dir, BSP bsp, Dictionary<string, Shader> shaderDict, ILogger logger)
+		public TextureConverter(string pk3Dir, BSP bsp)
 		{
 			this.pk3Dir = pk3Dir;
 			this.bsp = bsp;
-			materialConverter = new MaterialConverter(pk3Dir, shaderDict);
-			this.logger = logger;
 		}
 
-		public TextureConverter(string pk3Dir, string outputDir, Dictionary<string, Shader> shaderDict, ILogger logger)
+		public TextureConverter(string pk3Dir, string outputDir)
 		{
 			this.pk3Dir = pk3Dir;
 			this.outputDir = outputDir;
-			materialConverter = new MaterialConverter(pk3Dir, shaderDict);
-			this.logger = logger;
 		}
 
 		public void Convert()
@@ -53,73 +43,27 @@ namespace BSPConversionLib
 
 		private void OnFinishedConvertingTextures()
 		{
-			// TODO: Skip skies textures, and only use the textures referenced by the skybox shader
-
-			// Move env textures into skybox folder since Source engine only loads skybox textures from there
-			// TODO: Are skybox textures always in the env folder?
-			MoveEnvTexturesToSkyboxFolder();
-
 			// TODO: Find textures using shader texture paths
 			var vtfFiles = Directory.GetFiles(pk3Dir, "*.vtf", SearchOption.AllDirectories);
-			var vmtFiles = ConvertVMTFiles(vtfFiles);
+			var vmtFiles = Directory.GetFiles(pk3Dir, "*.vmt", SearchOption.AllDirectories);
+			var textureFiles = vtfFiles.Concat(vmtFiles);
 
 			if (bsp != null)
-				EmbedFiles(vtfFiles, vmtFiles);
+				EmbedFiles(textureFiles);
 			else
-				MoveFilesToOutputDir(vtfFiles, vmtFiles);
-		}
-
-		private void MoveEnvTexturesToSkyboxFolder()
-		{
-			var envDir = Path.Combine(pk3Dir, "env");
-			if (!Directory.Exists(envDir))
-				return;
-			
-			var skyboxDir = Path.Combine(pk3Dir, "skybox", "env");
-			foreach (var file in Directory.GetFiles(envDir, "*.vtf", SearchOption.AllDirectories))
-			{
-				var newPath = file.Replace(envDir, skyboxDir);
-				var destFile = newPath.Remove(newPath.LastIndexOf('_'), 1); // Remove underscore from skybox suffix
-
-				Directory.CreateDirectory(Path.GetDirectoryName(destFile));
-
-				File.Move(file, destFile);
-			}
-		}
-
-		private string[] ConvertVMTFiles(string[] vtfFiles)
-		{
-			var vmtFiles = new string[vtfFiles.Length];
-			for (var i = 0; i < vtfFiles.Length; i++)
-			{
-				var vtfFile = vtfFiles[i];
-
-				var vmtPath = Path.ChangeExtension(vtfFile, ".vmt");
-				var vmt = materialConverter.ConvertVMT(vtfFile);
-				File.WriteAllText(vmtPath, vmt);
-
-				vmtFiles[i] = vmtPath;
-			}
-
-			return vmtFiles;
+				MoveFilesToOutputDir(textureFiles);
 		}
 
 		// Embed vtf/vmt files into BSP pak lump
-		private void EmbedFiles(string[] vtfFiles, string[] vmtFiles)
+		private void EmbedFiles(IEnumerable<string> textureFiles)
 		{
 			// TODO: Only create a zip archive if one doesn't exist
 			using (var archive = ZipArchive.Create())
 			{
-				for (var i = 0; i < vtfFiles.Length; i++)
+				foreach (var file in textureFiles)
 				{
-					var vtfFile = vtfFiles[i];
-					var vmtFile = vmtFiles[i];
-
-					var pakVtfPath = vtfFile.Replace(pk3Dir, "materials");
-					archive.AddEntry(pakVtfPath, new FileInfo(vtfFile));
-
-					var pakVmtPath = vmtFile.Replace(pk3Dir, "materials");
-					archive.AddEntry(pakVmtPath, new FileInfo(vmtFile));
+					var newPath = file.Replace(pk3Dir, "materials");
+					archive.AddEntry(newPath, new FileInfo(file));
 				}
 
 				bsp.PakFile.SetZipArchive(archive, true);
@@ -127,33 +71,14 @@ namespace BSPConversionLib
 		}
 
 		// Move vtf/vmt files into output directory
-		private void MoveFilesToOutputDir(string[] vtfFiles, string[] vmtFiles)
+		private void MoveFilesToOutputDir(IEnumerable<string> textureFiles)
 		{
-			for (var i = 0; i < vtfFiles.Length; i++)
+			foreach (var file in textureFiles)
 			{
-				var vtfFile = vtfFiles[i];
-				var vmtFile = vmtFiles[i];
-
 				var materialDir = Path.Combine(outputDir, "materials");
-
-				var destVtfFile = vtfFile.Replace(pk3Dir, materialDir);
-				MoveFile(vtfFile, destVtfFile);
-
-				var destVmtFile = vmtFile.Replace(pk3Dir, materialDir);
-				MoveFile(vmtFile, destVmtFile);
+				var newPath = file.Replace(pk3Dir, materialDir);
+				FileUtil.MoveFile(file, newPath);
 			}
-		}
-
-		private void MoveFile(string sourceFileName, string destFileName)
-		{
-			// Create directory if it doesn't exist
-			Directory.CreateDirectory(Path.GetDirectoryName(destFileName));
-
-			// Delete file if it already exists
-			if (File.Exists(destFileName))
-				File.Delete(destFileName);
-			
-			File.Move(sourceFileName, destFileName);
 		}
 	}
 }

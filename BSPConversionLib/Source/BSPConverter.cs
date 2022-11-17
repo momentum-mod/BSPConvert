@@ -11,7 +11,6 @@ using System.IO;
 using System.Collections.Generic;
 using System.Linq;
 using System.IO.Compression;
-using BSPConversionLib.Source;
 using System.Diagnostics;
 using System.Collections;
 
@@ -95,8 +94,8 @@ namespace BSPConversionLib
 			contentManager = new ContentManager(options.inputFile);
 			
 			LoadBSP();
-			LoadShaders();
-
+			
+			ConvertShaders();
 			ConvertTextureFiles();
 
 			ConvertEntities();
@@ -132,18 +131,30 @@ namespace BSPConversionLib
 			sourceBsp = new BSP(Path.GetFileName(options.inputFile), mapType);
 		}
 
-		private void LoadShaders()
+		private void ConvertShaders()
 		{
-			// TODO: Load shaders from base Q3 content
-			var shaderConverter = new ShaderConverter(contentManager.ContentDir);
-			shaderDict = shaderConverter.Convert();
+			shaderDict = LoadShaderDictionary();
+			
+			var materialConverter = new MaterialConverter(contentManager.ContentDir, shaderDict);
+			foreach (var texture in quakeBsp.Textures)
+				materialConverter.Convert(texture.Name);
+		}
+
+		private Dictionary<string, Shader> LoadShaderDictionary()
+		{
+			var q3Shaders = Directory.GetFiles(Path.Combine(ContentManager.GetQ3ContentDir(), "scripts"), "*.shader");
+			var pk3Shaders = Directory.GetFiles(Path.Combine(contentManager.ContentDir, "scripts"), "*.shader");
+			var allShaders = q3Shaders.Concat(pk3Shaders);
+
+			var shaderLoader = new ShaderLoader(allShaders);
+			return shaderLoader.LoadShaders();
 		}
 
 		private void ConvertTextureFiles()
 		{
 			var textureConverter = options.noPak ?
-				new TextureConverter(contentManager.ContentDir, options.outputDir, shaderDict, logger) :
-				new TextureConverter(contentManager.ContentDir, sourceBsp, shaderDict, logger);
+				new TextureConverter(contentManager.ContentDir, options.outputDir) :
+				new TextureConverter(contentManager.ContentDir, sourceBsp);
 			textureConverter.Convert();
 		}
 

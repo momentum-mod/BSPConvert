@@ -4,13 +4,14 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace BSPConversionLib.Source
+namespace BSPConversionLib
 {
 	public class MaterialConverter
 	{
 		private string pk3Dir;
 		private Dictionary<string, Shader> shaderDict;
-		private HashSet<string> skyboxTextures;
+		private Dictionary<string, string> pk3ImageDict;
+		private Dictionary<string, string> q3ImageDict;
 
 		private string[] skySuffixes =
 		{
@@ -26,73 +27,150 @@ namespace BSPConversionLib.Source
 		{
 			this.pk3Dir = pk3Dir;
 			this.shaderDict = shaderDict;
-			skyboxTextures = FindSkyboxTextures();
+			pk3ImageDict = GetImageLookupDictionary(pk3Dir);
+			q3ImageDict = GetImageLookupDictionary(ContentManager.GetQ3ContentDir());
 		}
 
-		private HashSet<string> FindSkyboxTextures()
+		// Create a dictionary that maps relative texture paths to the full file paths in the content folder
+		private Dictionary<string, string> GetImageLookupDictionary(string contentDir)
 		{
-			var skyboxTextures = new HashSet<string>();
+			var imageDict = new Dictionary<string, string>();
 
-			foreach (var shader in shaderDict.Values)
+			foreach (var file in Directory.GetFiles(contentDir, "*.*", SearchOption.AllDirectories))
 			{
-				if (shader.skyParms != null && !string.IsNullOrEmpty(shader.skyParms.outerBox))
+				var ext = Path.GetExtension(file);
+				if (ext == ".tga" || ext == ".jpg")
 				{
-					foreach (var suffix in skySuffixes)
-					{
-						var texture = $"skybox/{shader.skyParms.outerBox}{suffix}";
-						skyboxTextures.Add(texture);
-					}
+					var texturePath = file.Replace(contentDir + Path.DirectorySeparatorChar, "")
+						.Replace(Path.DirectorySeparatorChar, '/').Replace(ext, "");
 
-					break;
+					if (!imageDict.ContainsKey(texturePath))
+						imageDict.Add(texturePath, file);
 				}
 			}
 
-			return skyboxTextures;
+			return imageDict;
 		}
 
-		public string ConvertVMT(string vtfFile)
+		public void Convert(string texture)
 		{
-			var relativePath = GetRelativePath(vtfFile);
-			if (skyboxTextures.Contains(relativePath))
-				return GenerateSkyboxVMT(vtfFile);
-
-			return GenerateLitVMT(vtfFile);
+			if (shaderDict.TryGetValue(texture, out var shader))
+				CreateShaderVMT(texture, shader);
+			else
+				CreateDefaultVMT(texture);
 		}
 
-		private string GenerateLitVMT(string vtfFile)
+		private void CreateShaderVMT(string texture, Shader shader)
+		{
+			if (shader.skyParms != null && !string.IsNullOrEmpty(shader.skyParms.outerBox))
+				CreateSkyboxVMT(shader);
+			else if (!string.IsNullOrEmpty(shader.map))
+				CreateBaseShaderVMT(texture, shader);
+		}
+
+		private void CreateSkyboxVMT(Shader shader)
+		{
+			foreach (var suffix in skySuffixes)
+			{
+				var skyTexture = $"{shader.skyParms.outerBox}_{suffix}";
+				if (!PrepareSkyboxImage(skyTexture))
+					continue;
+
+				var baseTexture = $"skybox/{shader.skyParms.outerBox}{suffix}";
+				var skyboxVmt = GenerateSkyboxVMT(baseTexture);
+				WriteVMT(baseTexture, skyboxVmt);
+			}
+		}
+
+		// Try to find the sky image file and move it to skybox folder in order for Source engine to detect it properly
+		private bool PrepareSkyboxImage(string skyTexture)
+		{
+			var skyboxDir = Path.Combine(pk3Dir, "skybox");
+			if (pk3ImageDict.TryGetValue(skyTexture, out var pk3Path))
+			{
+				var newPath = pk3Path.Replace(pk3Dir, skyboxDir);
+				var destFile = newPath.Remove(newPath.LastIndexOf('_'), 1); // Remove underscore from skybox suffix
+				
+				FileUtil.MoveFile(pk3Path, destFile);
+
+				return true;
+			}
+			else if (q3ImageDict.TryGetValue(skyTexture, out var q3Path))
+			{
+				var q3ContentDir = ContentManager.GetQ3ContentDir();
+				var newPath = q3Path.Replace(q3ContentDir, skyboxDir);
+				var destFile = newPath.Remove(newPath.LastIndexOf('_'), 1); // Remove underscore from skybox suffix
+				
+				FileUtil.CopyFile(q3Path, destFile);
+
+				return true;
+			}
+
+			return false; // No sky image found
+		}
+
+		private void CreateBaseShaderVMT(string texture, Shader shader)
+		{
+			var baseTexture = Path.ChangeExtension(shader.map, null);
+			TryCopyQ3Content(baseTexture);
+
+			var shaderVmt = GenerateLitVMT(baseTexture);
+			WriteVMT(texture, shaderVmt);
+		}
+
+		private void CreateDefaultVMT(string texture)
+		{
+			TryCopyQ3Content(texture);
+
+			var vmt = GenerateLitVMT(texture);
+			WriteVMT(texture, vmt);
+		}
+
+		private void WriteVMT(string texture, string vmt)
+		{
+			var vmtPath = Path.Combine(pk3Dir, $"{texture}.vmt");
+			Directory.CreateDirectory(Path.GetDirectoryName(vmtPath));
+
+			File.WriteAllText(vmtPath, vmt);
+		}
+
+		// Copies content from the Q3Content folder if it's referenced by this shader
+		private void TryCopyQ3Content(string shaderTexturePath)
+		{
+			if (q3ImageDict.TryGetValue(shaderTexturePath, out var q3TexturePath))
+			{
+				var q3ContentDir = ContentManager.GetQ3ContentDir();
+				var newPath = q3TexturePath.Replace(q3ContentDir, pk3Dir);
+				FileUtil.CopyFile(q3TexturePath, newPath);
+			}
+		}
+
+		private string GenerateLitVMT(string baseTexture)
 		{
 			var sb = new StringBuilder();
 			sb.AppendLine("LightmappedGeneric");
 			sb.AppendLine("{");
 
-			var relativePath = GetRelativePath(vtfFile);
-			sb.AppendLine($"\t\"$basetexture\" \"{relativePath}\"");
+			sb.AppendLine($"\t\"$basetexture\" \"{baseTexture}\"");
 
 			sb.AppendLine("}");
 
 			return sb.ToString();
 		}
 
-		private string GenerateSkyboxVMT(string vtfFile)
+		private string GenerateSkyboxVMT(string baseTexture)
 		{
 			var sb = new StringBuilder();
 			sb.AppendLine("UnlitGeneric");
 			sb.AppendLine("{");
 
-			var relativePath = GetRelativePath(vtfFile);
-			sb.AppendLine($"\t\"$basetexture\" \"{relativePath}\"");
+			sb.AppendLine($"\t\"$basetexture\" \"{baseTexture}\"");
 			sb.AppendLine("\t\"$nofog\" 1");
 			sb.AppendLine("\t\"$ignorez\" 1");
 
 			sb.AppendLine("}");
 
 			return sb.ToString();
-		}
-
-		private string GetRelativePath(string vtfPath)
-		{
-			return vtfPath.Replace(pk3Dir + Path.DirectorySeparatorChar, "")
-				.Replace(Path.DirectorySeparatorChar, '/').Replace(".vtf", "");
 		}
 	}
 }

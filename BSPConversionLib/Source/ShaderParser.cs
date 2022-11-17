@@ -15,23 +15,24 @@ namespace BSPConversionLib
 			public string innerBox;
 		}
 
+		public string map; // Path to image file
 		public SkyParms skyParms;
 	}
 
 	public class ShaderParser
 	{
-		private string shaderPath;
+		private string shaderFile;
 
-		public ShaderParser(string shaderPath)
+		public ShaderParser(string shaderFile)
 		{
-			this.shaderPath = shaderPath;
+			this.shaderFile = shaderFile;
 		}
 
 		public Dictionary<string, Shader> ParseShaders()
 		{
 			var shaderDict = new Dictionary<string, Shader>();
 
-			var fileEnumerator = File.ReadLines(shaderPath).GetEnumerator();
+			var fileEnumerator = File.ReadLines(shaderFile).GetEnumerator();
 			while (fileEnumerator.MoveNext())
 			{
 				var line = TrimLine(fileEnumerator.Current);
@@ -76,6 +77,10 @@ namespace BSPConversionLib
 				var split = line.Split(' ');
 				switch (split[0])
 				{
+					case "map":
+						if (!split[1].StartsWith('$') && string.IsNullOrEmpty(shader.map))
+							shader.map = split[1];
+						break;
 					case "skyparms":
 						shader.skyParms = new Shader.SkyParms()
 						{

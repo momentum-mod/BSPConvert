@@ -6,23 +6,22 @@ using System.Threading.Tasks;
 
 namespace BSPConversionLib
 {
-	public class ShaderConverter
+	public class ShaderLoader
 	{
-		private string pk3Dir;
+		private IEnumerable<string> shaderFiles;
 		
-		public ShaderConverter(string pk3Dir)
+		public ShaderLoader(IEnumerable<string> shaderFiles)
 		{
-			this.pk3Dir = pk3Dir;
+			this.shaderFiles = shaderFiles;
 		}
 
-		public Dictionary<string, Shader> Convert()
+		public Dictionary<string, Shader> LoadShaders()
 		{
 			var shaderDict = new Dictionary<string, Shader>();
 
-			var shaders = Directory.GetFiles(pk3Dir, "*.shader", SearchOption.AllDirectories);
-			foreach (var shader in shaders)
+			foreach (var file in shaderFiles)
 			{
-				var shaderParser = new ShaderParser(shader);
+				var shaderParser = new ShaderParser(file);
 				var newShaderDict = shaderParser.ParseShaders();
 				foreach (var kv in newShaderDict)
 				{
