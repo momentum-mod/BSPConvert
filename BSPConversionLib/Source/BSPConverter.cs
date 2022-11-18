@@ -142,11 +142,13 @@ namespace BSPConversionLib
 
 		private Dictionary<string, Shader> LoadShaderDictionary()
 		{
-			var q3Shaders = Directory.GetFiles(Path.Combine(ContentManager.GetQ3ContentDir(), "scripts"), "*.shader");
-			var pk3Shaders = Directory.GetFiles(Path.Combine(contentManager.ContentDir, "scripts"), "*.shader");
-			var allShaders = q3Shaders.Concat(pk3Shaders);
+			var shaders = Directory.GetFiles(Path.Combine(ContentManager.GetQ3ContentDir(), "scripts"), "*.shader");
 
-			var shaderLoader = new ShaderLoader(allShaders);
+			var pk3ScriptsDir = Path.Combine(contentManager.ContentDir, "scripts");
+			if (Directory.Exists(pk3ScriptsDir))
+				shaders.Concat(Directory.GetFiles(pk3ScriptsDir, "*.shader"));
+
+			var shaderLoader = new ShaderLoader(shaders);
 			return shaderLoader.LoadShaders();
 		}
 
