@@ -968,7 +968,7 @@ namespace BSPConversionLib
 
 		private int CreateTextureInfo(Face face)
 		{
-			(var uAxis, var vAxis) = GetTextureVectors(face.Normal);
+			(var uAxis, var vAxis) = GetTextureVectors(face);
 			return CreateTextureInfo(face.Texture.Name, uAxis, vAxis);
 		}
 
@@ -1007,23 +1007,26 @@ namespace BSPConversionLib
 			}
 		}
 
-		private (Vector3 uAxis, Vector3 vAxis) GetTextureVectors(Vector3 faceNormal)
+		private (Vector3 uAxis, Vector3 vAxis) GetTextureVectors(Face face)
 		{
-			var axis = GetVectorAxis(faceNormal);
-			switch (axis)
-			{
-				case PlaneBSP.AxisType.PlaneX:
-				case PlaneBSP.AxisType.PlaneAnyX:
-					return (new Vector3(0f, 2f, 0f), new Vector3(0f, 0f, -2f));
-				case PlaneBSP.AxisType.PlaneY:
-				case PlaneBSP.AxisType.PlaneAnyY:
-					return (new Vector3(2f, 0f, 0f), new Vector3(0f, 0f, -2f));
-				case PlaneBSP.AxisType.PlaneZ:
-				case PlaneBSP.AxisType.PlaneAnyZ:
-					return (new Vector3(2f, 0f, 0f), new Vector3(0f, -2f, 0f));
-				default:
-					return (new Vector3(0f, 0f, 0f), new Vector3(0f, 0f, 0f));
-			}
+			var vertices = face.Vertices.ToArray();
+			var indices = face.Indices.ToArray();
+
+			var v0 = vertices[indices[0]];
+			var v1 = vertices[indices[1]];
+			var v2 = vertices[indices[2]];
+
+			var deltaPos1 = v1.position - v0.position;
+			var deltaPos2 = v2.position - v0.position;
+
+			var deltaUV1 = v1.uv0 - v0.uv0;
+			var deltaUV2 = v2.uv0 - v0.uv0;
+
+			var r = 1f / (deltaUV1.X * deltaUV2.Y - deltaUV1.Y * deltaUV2.X);
+			var tangent = (deltaPos1 * deltaUV2.Y - deltaPos2 * deltaUV1.Y) * r / 32f;
+			var binormal = (deltaPos2 * deltaUV1.X - deltaPos1 * deltaUV2.X) * r / 32f;
+
+			return (tangent, binormal);
 		}
 
 		private bool IsSkyTexture(string textureName)
