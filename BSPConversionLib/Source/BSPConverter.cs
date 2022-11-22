@@ -1211,7 +1211,52 @@ namespace BSPConversionLib
 
 		private void ConvertVisData()
 		{
-			sourceBsp.Visibility.Data = new byte[0];
+			if (quakeBsp.Visibility.Data.Length == 0) // No VisData
+			{
+				sourceBsp.Visibility.Data = new byte[0];
+				return;
+			}
+
+			var visDataList = new List<byte>();
+
+			var numClusters = quakeBsp.Visibility.NumClusters;
+			var clusterSize = quakeBsp.Visibility.ClusterSize;
+			var numClusterBytes = (numClusters + 7) >> 3; // Number of bytes to store each cluster bit
+
+			var byteOffsets = new int[numClusters][];
+			var visDataStartLength = 4 + numClusters * 8; // Byte length of numClusters and byteOffsets
+			var currentOffset = visDataStartLength;
+
+			// Get byte offsets and vis data
+			for (var i = 0; i < numClusters; i++)
+			{
+				byteOffsets[i] = new int[2];
+				byteOffsets[i][0] = currentOffset; // PVS offset
+				byteOffsets[i][1] = currentOffset; // PAS offset (PVS and PAS share the same data for now since the Quake BSP does not have any info on sound detection)
+
+				var vecOffset = 8 + i * clusterSize;
+				var uncompressed = new byte[numClusterBytes]; // Note: Use numClusterBytes instead of clusterSize since Source engine expects the length of the vis data to not exceed the number of cluster bits
+				Buffer.BlockCopy(quakeBsp.Visibility.Data, vecOffset, uncompressed, 0, numClusterBytes);
+				var compressed = Visibility.Compress(uncompressed); // This will compress Q3 vis data into something compatible for Source engine
+
+				visDataList.AddRange(compressed);
+
+				currentOffset += compressed.Length;
+			}
+
+			// Copy numClusters and byteOffsets to visData buffer
+			var visData = new byte[visDataStartLength + visDataList.Count];
+			BitConverter.GetBytes(numClusters).CopyTo(visData, 0);
+			for (var i = 0; i < numClusters; i++)
+			{
+				BitConverter.GetBytes(byteOffsets[i][0]).CopyTo(visData, 4 + i * 8);
+				BitConverter.GetBytes(byteOffsets[i][1]).CopyTo(visData, 8 + i * 8);
+			}
+
+			// Copy visData
+			visDataList.CopyTo(visData, visDataStartLength);
+
+			sourceBsp.Visibility.Data = visData;
 		}
 
 		private void ConvertAreas()
