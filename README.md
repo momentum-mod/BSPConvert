@@ -1,4 +1,4 @@
-# BSPConversionLib
+# BSPConvert
 C# library for converting BSP files between engine versions without decompilation. This approach has the following advantages:
 - Lightmaps can be preserved across engine versions (lighting information is lost when decompiling Quake BSP's)
 - Fewer steps to port maps
