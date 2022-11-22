@@ -142,14 +142,27 @@ namespace BSPConversionLib
 
 		private Dictionary<string, Shader> LoadShaderDictionary()
 		{
-			var shaders = Directory.GetFiles(Path.Combine(ContentManager.GetQ3ContentDir(), "scripts"), "*.shader");
+			var q3Shaders = GetQ3Shaders();
+			var pk3Shaders = GetPK3Shaders();
+			var allShaders = q3Shaders.Concat(pk3Shaders);
 
+			var shaderLoader = new ShaderLoader(allShaders);
+			return shaderLoader.LoadShaders();
+		}
+
+		private string[] GetQ3Shaders()
+		{
+			var q3ScriptsDir = Path.Combine(ContentManager.GetQ3ContentDir(), "scripts");
+			return Directory.GetFiles(q3ScriptsDir, "*.shader");
+		}
+
+		private string[] GetPK3Shaders()
+		{
 			var pk3ScriptsDir = Path.Combine(contentManager.ContentDir, "scripts");
 			if (Directory.Exists(pk3ScriptsDir))
-				shaders.Concat(Directory.GetFiles(pk3ScriptsDir, "*.shader"));
+				return Directory.GetFiles(pk3ScriptsDir, "*.shader");
 
-			var shaderLoader = new ShaderLoader(shaders);
-			return shaderLoader.LoadShaders();
+			return new string[0];
 		}
 
 		private void ConvertTextureFiles()
