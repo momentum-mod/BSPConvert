@@ -114,7 +114,7 @@ namespace BSPConversionLib
 			var baseTexture = Path.ChangeExtension(shader.map, null);
 			TryCopyQ3Content(baseTexture);
 
-			var shaderVmt = GenerateLitVMT(baseTexture);
+			var shaderVmt = GenerateLitVMT(baseTexture, shader);
 			WriteVMT(texture, shaderVmt);
 		}
 
@@ -122,7 +122,7 @@ namespace BSPConversionLib
 		{
 			TryCopyQ3Content(texture);
 
-			var vmt = GenerateLitVMT(texture);
+			var vmt = GenerateLitVMT(texture, null);
 			WriteVMT(texture, vmt);
 		}
 
@@ -145,13 +145,23 @@ namespace BSPConversionLib
 			}
 		}
 
-		private string GenerateLitVMT(string baseTexture)
+		private string GenerateLitVMT(string baseTexture, Shader shader)
 		{
 			var sb = new StringBuilder();
 			sb.AppendLine("LightmappedGeneric");
 			sb.AppendLine("{");
 
-			sb.AppendLine($"\t\"$basetexture\" \"{baseTexture}\"");
+			sb.AppendLine($"\t$basetexture \"{baseTexture}\"");
+			if (shader != null)
+			{
+				if (shader.alphaFunc == Shader.AlphaFunc.GLS_ATEST_GE_80)
+				{
+					sb.AppendLine("\t$alphatest 1");
+					sb.AppendLine("\t$alphatestreference 0.5");
+				}
+				else if (shader.contents.HasFlag(Shader.ContentsFlags.CONTENTS_TRANSLUCENT))
+					sb.AppendLine("\t$translucent 1");
+			}
 
 			sb.AppendLine("}");
 

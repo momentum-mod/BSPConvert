@@ -8,6 +8,19 @@ namespace BSPConversionLib
 {
 	public class Shader
 	{
+		[Flags]
+		public enum ContentsFlags
+		{
+			CONTENTS_TRANSLUCENT = 0x20000000
+		}
+
+		public enum AlphaFunc
+		{
+			GLS_ATEST_GT_0 = 0x10000000,
+			GLS_ATEST_LT_80 = 0x20000000,
+			GLS_ATEST_GE_80 = 0x40000000
+		}
+
 		public class SkyParms
 		{
 			public string outerBox;
@@ -17,6 +30,10 @@ namespace BSPConversionLib
 
 		public string map; // Path to image file
 		public SkyParms skyParms;
+		public ContentsFlags contents;
+
+		// Shader stage parameters (TODO: Needs to be moved to separate class for handling stages)
+		public AlphaFunc alphaFunc;
 	}
 
 	public class ShaderParser
@@ -75,24 +92,66 @@ namespace BSPConversionLib
 
 				// Parse shader parameter
 				var split = line.Split(' ');
-				switch (split[0])
+				switch (split[0].ToLower())
 				{
 					case "map":
-						if (!split[1].StartsWith('$') && string.IsNullOrEmpty(shader.map))
-							shader.map = split[1];
+						ParseMap(shader, split);
+						break;
+					case "surfaceparm":
+						ParseSurfaceParm(shader, split);
 						break;
 					case "skyparms":
-						shader.skyParms = new Shader.SkyParms()
-						{
-							outerBox = split[1],
-							cloudHeight = split[2],
-							innerBox = split[3]
-						};
+						ParseSkyParms(shader, split);
+						break;
+					case "alphafunc":
+						ParseAlphaFunc(shader, split);
 						break;
 				}
 			}
 
 			return shader;
+		}
+
+		private static void ParseMap(Shader shader, string[] split)
+		{
+			if (!split[1].StartsWith('$') && string.IsNullOrEmpty(shader.map))
+				shader.map = split[1];
+		}
+
+		private void ParseSurfaceParm(Shader shader, string[] split)
+		{
+			switch (split[1])
+			{
+				case "trans":
+					shader.contents |= Shader.ContentsFlags.CONTENTS_TRANSLUCENT;
+					break;
+			}
+		}
+
+		private void ParseSkyParms(Shader shader, string[] split)
+		{
+			shader.skyParms = new Shader.SkyParms()
+			{
+				outerBox = split[1],
+				cloudHeight = split[2],
+				innerBox = split[3]
+			};
+		}
+
+		private void ParseAlphaFunc(Shader shader, string[] split)
+		{
+			switch (split[1].ToLower())
+			{
+				case "gt0":
+					shader.alphaFunc = Shader.AlphaFunc.GLS_ATEST_GT_0;
+					break;
+				case "lt128":
+					shader.alphaFunc = Shader.AlphaFunc.GLS_ATEST_LT_80;
+					break;
+				case "ge128":
+					shader.alphaFunc = Shader.AlphaFunc.GLS_ATEST_GE_80;
+					break;
+			}
 		}
 
 		private string TrimLine(string line)
