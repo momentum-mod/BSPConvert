@@ -180,7 +180,7 @@ namespace BSPConversionLib
 			trigger.Remove("target");
 		}
 
-		// TODO: Convert target_give for spawn entities
+		// TODO: Convert target_give for player spawn entities
 		private void ConvertGiveTrigger(Entity trigger, Entity targetGive)
 		{
 			if (!TryGetTargetEntities(targetGive, out var targetEnts))
