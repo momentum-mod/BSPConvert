@@ -73,10 +73,6 @@ namespace BSPConversionLib
 		private Dictionary<string, int> textureDataLookup = new Dictionary<string, int>();
 		private Dictionary<int, int[]> splitFaceDict = new Dictionary<int, int[]>(); // Maps the original face index to the new face indices split by triangles
 
-		// This is much more efficient than adding to NumList directly
-		// TODO: Update LibBSP's NumList so that adding new elements doesn't kill performance
-		private List<ushort> dispTriangles = new List<ushort>(); 
-
 		private const int CONTENTS_EMPTY = 0;
 		private const int CONTENTS_SOLID = 0x1;
 		private const int CONTENTS_STRUCTURAL = 0x10000000;
@@ -627,9 +623,6 @@ namespace BSPConversionLib
 						break;
 				}
 			}
-
-			// Update displacement triangles
-			sourceBsp.DisplacementTriangles = BSPUtil.CreateNumList(dispTriangles.ToArray(), NumList.DataType.UInt16, sourceBsp);
 		}
 
 		private void ConvertPolygon_SplitFaces(int faceIndex)
@@ -857,7 +850,7 @@ namespace BSPConversionLib
 
 			var numTriangles = (1 << (power)) * (1 << (power)) * 2;
 			for (var i = 0; i < numTriangles; i++)
-				dispTriangles.Add(0); // TODO: Set displacement flags?
+				sourceBsp.DisplacementTriangles.Add(0); // TODO: Set displacement flags?
 
 			return firstTriangle;
 		}
@@ -981,10 +974,10 @@ namespace BSPConversionLib
 			return sourceBsp.Vertices.Count - 1;
 		}
 
-		private int CreateTextureInfo(Face face)
+		private int CreateTextureInfo(Face qFace)
 		{
-			(var uAxis, var vAxis) = GetTextureVectors(face);
-			return CreateTextureInfo(face.Texture.Name, uAxis, vAxis);
+			(var uAxis, var vAxis) = GetTextureVectors(qFace);
+			return CreateTextureInfo(qFace.Texture.Name, uAxis, vAxis);
 		}
 
 		private int CreateTextureInfo(string textureName, Vector3 uAxis, Vector3 vAxis)
@@ -1022,14 +1015,18 @@ namespace BSPConversionLib
 			}
 		}
 
-		private (Vector3 uAxis, Vector3 vAxis) GetTextureVectors(Face face)
+		private (Vector3 uAxis, Vector3 vAxis) GetTextureVectors(Face qFace)
 		{
-			var vertices = face.Vertices.ToArray();
-			var indices = face.Indices.ToArray();
+			var vertices = quakeBsp.Vertices;
+			var indices = quakeBsp.Indices;
 
-			var v0 = vertices[indices[0]];
-			var v1 = vertices[indices[1]];
-			var v2 = vertices[indices[2]];
+			var i0 = (int)indices[qFace.FirstIndexIndex];
+			var i1 = (int)indices[qFace.FirstIndexIndex + 1];
+			var i2 = (int)indices[qFace.FirstIndexIndex + 2];
+
+			var v0 = vertices[qFace.FirstVertexIndex + i0];
+			var v1 = vertices[qFace.FirstVertexIndex + i1];
+			var v2 = vertices[qFace.FirstVertexIndex + i2];
 
 			var deltaPos1 = v1.position - v0.position;
 			var deltaPos2 = v2.position - v0.position;
@@ -1039,7 +1036,7 @@ namespace BSPConversionLib
 
 			var den = deltaUV1.X * deltaUV2.Y - deltaUV1.Y * deltaUV2.X;
 			if (den < 0.01f)
-				return GetTextureVectors_Old(face.Normal);
+				return GetTextureVectors_Old(qFace.Normal);
 			
 			var r = 1f / den;
 			var tangent = (deltaPos1 * deltaUV2.Y - deltaPos2 * deltaUV1.Y) * r / 32f;
