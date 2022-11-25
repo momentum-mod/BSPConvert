@@ -13,7 +13,8 @@ namespace BSPConversionLib
 		private Entities sourceEntities;
 		private Dictionary<string, Shader> shaderDict;
 		
-		private Dictionary<string, Entity> entityDict = new Dictionary<string, Entity>();
+		private Dictionary<string, List<Entity>> entityDict = new Dictionary<string, List<Entity>>();
+		private List<Entity> removeEntities = new List<Entity>(); // Entities to remove after conversion (ex: remove weapons after converting a trigger_multiple that references target_give). TODO: It might be better to convert entities by priority, such as trigger_multiples first so that target_give weapons can be ignored after
 		private int currentCheckpointIndex = 2;
 
 		private const string MOMENTUM_START_ENTITY = "_momentum_player_start_";
@@ -27,7 +28,9 @@ namespace BSPConversionLib
 			foreach (var entity in q3Entities)
 			{
 				if (!entityDict.ContainsKey(entity.Name))
-					entityDict.Add(entity.Name, entity);
+					entityDict.Add(entity.Name, new List<Entity>() { entity });
+				else
+					entityDict[entity.Name].Add(entity);
 			}
 		}
 
@@ -82,10 +85,11 @@ namespace BSPConversionLib
 					case "weapon_bfg":
 						ConvertWeapon(entity, 9);
 						break;
-					// Ignore Defrag timer entities
+					// Ignore these entities since they have no use in Source engine
 					case "target_startTimer":
 					case "target_stopTimer":
 					case "target_checkpoint":
+					case "target_give":
 						ignoreEntity = true;
 						break;
 				}
@@ -93,6 +97,9 @@ namespace BSPConversionLib
 				if (!ignoreEntity)
 					sourceEntities.Add(entity);
 			}
+
+			foreach (var entity in removeEntities)
+				sourceEntities.Remove(entity);
 		}
 
 		private void ConvertWorldspawn(Entity worldspawn)
@@ -108,27 +115,28 @@ namespace BSPConversionLib
 			}
 		}
 
-		private bool TryGetTargetEntity(Entity sourceEntity, out Entity targetEntity)
+		private bool TryGetTargetEntities(Entity sourceEntity, out List<Entity> targetEntities)
 		{
 			if (sourceEntity.TryGetValue("target", out var target))
 			{
 				if (entityDict.ContainsKey(target))
 				{
-					targetEntity = entityDict[target];
+					targetEntities = entityDict[target];
 					return true;
 				}
 			}
 
-			targetEntity = null;
+			targetEntities = new List<Entity>();
 			return false;
 		}
 
 		private void ConvertTriggerMultiple(Entity trigger)
 		{
-			if (!TryGetTargetEntity(trigger, out var target))
+			if (!TryGetTargetEntities(trigger, out var targetEnts))
 				return;
 
-			switch (target.ClassName)
+			var targetEnt = targetEnts.First();
+			switch (targetEnt.ClassName)
 			{
 				case "target_startTimer":
 					ConvertTimerTrigger(trigger, "trigger_momentum_timer_start", 1);
@@ -142,6 +150,9 @@ namespace BSPConversionLib
 				case "target_checkpoint":
 					ConvertTimerTrigger(trigger, "trigger_momentum_timer_checkpoint", currentCheckpointIndex);
 					currentCheckpointIndex++;
+					break;
+				case "target_give":
+					ConvertGiveTrigger(trigger, targetEnt);
 					break;
 			}
 		}
@@ -158,15 +169,80 @@ namespace BSPConversionLib
 
 		private void ConvertTriggerPush(Entity trigger)
 		{
-			if (!TryGetTargetEntity(trigger, out var target))
+			if (!TryGetTargetEntities(trigger, out var targetEnts))
 				return;
 
 			trigger.ClassName = "trigger_catapult";
-			trigger["launchtarget"] = target.Name;
+			trigger["launchtarget"] = targetEnts.First().Name;
 			trigger["spawnflags"] = "1";
 			trigger["playerspeed"] = "450";
 
 			trigger.Remove("target");
+		}
+
+		// TODO: Convert target_give for spawn entities
+		private void ConvertGiveTrigger(Entity trigger, Entity targetGive)
+		{
+			if (!TryGetTargetEntities(targetGive, out var targetEnts))
+				return;
+			
+			// TODO: Support more entities (ammo, health, armor, etc.)
+			foreach (var target in targetEnts)
+			{
+				switch (target.ClassName)
+				{
+					case "item_haste":
+						GiveHasteOnStartTouch(trigger);
+						break;
+					case "item_enviro": // TODO: Not supported yet
+						break;
+					case "item_flight": // TODO: Not supported yet
+						break;
+					case "item_quad": // TODO: Not supported yet
+						break;
+					default:
+						if (target.ClassName.StartsWith("weapon_"))
+							GiveWeaponOnStartTouch(trigger, target);
+						break;
+				}
+
+				removeEntities.Add(target);
+			}
+			trigger["spawnflags"] = "1";
+
+			trigger.Remove("target");
+		}
+
+		private void GiveHasteOnStartTouch(Entity trigger)
+		{
+			var connection = new Entity.EntityConnection()
+			{
+				name = "OnStartTouch",
+				target = "!activator",
+				action = "SetHaste",
+				param = "30", // TODO: Figure out how to get buff duration
+				delay = 0f,
+				fireOnce = -1
+			};
+			trigger.connections.Add(connection);
+		}
+
+		private void GiveWeaponOnStartTouch(Entity trigger, Entity target)
+		{
+			var weaponIndex = GetWeaponIndex(target.ClassName);
+			if (weaponIndex == -1)
+				return;
+			
+			var connection = new Entity.EntityConnection()
+			{
+				name = "OnStartTouch",
+				target = "!activator",
+				action = "GiveDFWeapon",
+				param = weaponIndex.ToString(),
+				delay = 0f,
+				fireOnce = -1
+			};
+			trigger.connections.Add(connection);
 		}
 
 		private static void ConvertTriggerTeleport(Entity entity)
@@ -180,6 +256,27 @@ namespace BSPConversionLib
 		{
 			entity.ClassName = "momentum_df_weaponspawner";
 			entity["weapon_slot"] = weaponSlot.ToString();
+		}
+
+		private int GetWeaponIndex(string weaponName)
+		{
+			switch (weaponName)
+			{
+				case "weapon_machinegun":
+					return 2;
+				case "weapon_gauntlet":
+					return 3;
+				case "weapon_grenadelauncher":
+					return 4;
+				case "weapon_rocketlauncher":
+					return 5;
+				case "weapon_plasmagun":
+					return 8;
+				case "weapon_bfg":
+					return 9;
+				default:
+					return -1;
+			}
 		}
 	}
 }
