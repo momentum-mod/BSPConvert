@@ -62,6 +62,7 @@ namespace BSPConversionLib
 						ConvertTriggerTeleport(entity);
 						break;
 					case "misc_teleporter_dest":
+					case "target_teleporter": // TODO: Handle target_teleporter entities that reference misc_teleporter_dest
 						entity.ClassName = "info_teleport_destination";
 						break;
 					case "target_position":
