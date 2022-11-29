@@ -416,6 +416,8 @@ namespace BSPConversionLib
 
 		private void ConvertModels()
 		{
+			var exceededMaxExtents = false;
+
 			foreach (var qModel in quakeBsp.Models)
 			{
 				// Modify model 0 on sourceBsp until ready to remove sourceBsp's models? Index 0 handles all world geometry, anything after is for brush entities
@@ -424,15 +426,17 @@ namespace BSPConversionLib
 
 				var mins = qModel.Minimums;
 				var maxs = qModel.Maximums;
-				var minExtents = -16384;
-				var maxExtents = 16384;
+				var minExtents = options.newBSP ? -65536 : -16384;
+				var maxExtents = options.newBSP ? 65536 : 16384;
 				//sModel.Minimums = new Vector3(Math.Clamp(mins.X(), minExtents, maxExtents), Math.Clamp(mins.Y(), minExtents, maxExtents), Math.Clamp(mins.Z(), minExtents, maxExtents));
 				//sModel.Maximums = new Vector3(Math.Clamp(maxs.X(), minExtents, maxExtents), Math.Clamp(maxs.Y(), minExtents, maxExtents), Math.Clamp(maxs.Z(), minExtents, maxExtents));
-				if (mins.X() < minExtents || mins.Y() < minExtents || mins.Z() < minExtents)
-					logger.Log("Exceeded min extents: " + mins);
 
-				if (maxs.X() > maxExtents || maxs.Y() > maxExtents || maxs.Z() > maxExtents)
-					logger.Log("Exceeded max extents: " + maxs);
+				if (mins.X() < minExtents || mins.Y() < minExtents || mins.Z() < minExtents ||
+					maxs.X() > maxExtents || maxs.Y() > maxExtents || maxs.Z() > maxExtents)
+				{
+					exceededMaxExtents = true;
+					logger.Log("Exceeded max extents: " + mins);
+				}
 
 				sModel.Minimums = qModel.Minimums;
 				sModel.Maximums = qModel.Maximums;
@@ -446,6 +450,9 @@ namespace BSPConversionLib
 
 				sourceBsp.Models.Add(sModel);
 			}
+
+			if (exceededMaxExtents)
+				throw new Exception("Failed to convert BSP, exceeded max extents");
 		}
 
 		// TODO: Add face references in order for showtriggers_toggle to work?
