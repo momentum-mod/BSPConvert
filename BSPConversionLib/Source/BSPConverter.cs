@@ -756,10 +756,10 @@ namespace BSPConversionLib
 			sFace.FirstEdgeIndexIndex = sourceBsp.FaceEdges.Count;
 			sFace.NumEdgeIndices = 4;
 
+			CreateEdge(faceVerts[0], faceVerts[3], faceIndex);
 			CreateEdge(faceVerts[3], faceVerts[2], faceIndex);
 			CreateEdge(faceVerts[2], faceVerts[1], faceIndex);
 			CreateEdge(faceVerts[1], faceVerts[0], faceIndex);
-			CreateEdge(faceVerts[0], faceVerts[3], faceIndex);
 
 			return sourceBsp.Faces.Count - 1;
 		}
