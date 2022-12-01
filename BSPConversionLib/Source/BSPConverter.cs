@@ -1166,8 +1166,8 @@ namespace BSPConversionLib
 
 		private (Vector2, Vector2) GetLightmapExtents(Face face)
 		{
-			var uvMin = new Vector2(1f, 1f);
-			var uvMax = new Vector2(0f, 0f);
+			var uvMin = new Vector2(float.MaxValue, float.MaxValue);
+			var uvMax = new Vector2(float.MinValue, float.MinValue);
 			foreach (var vert in face.Vertices)
 			{
 				if (vert.uv1.X < uvMin.X)
