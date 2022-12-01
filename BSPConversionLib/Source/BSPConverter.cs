@@ -74,10 +74,6 @@ namespace BSPConversionLib
 		private Dictionary<string, int> textureDataLookup = new Dictionary<string, int>();
 		private Dictionary<int, int[]> splitFaceDict = new Dictionary<int, int[]>(); // Maps the original face index to the new face indices split by triangles
 
-		private const int CONTENTS_EMPTY = 0;
-		private const int CONTENTS_SOLID = 0x1;
-		private const int CONTENTS_STRUCTURAL = 0x10000000;
-
 		private const int Q3_LIGHTMAP_SIZE = 128;
 
 		public BSPConverter(BSPConverterOptions options, ILogger logger)
@@ -320,7 +316,7 @@ namespace BSPConversionLib
 
 				if (sourceBsp.Leaves.Count == 0)
 				{
-					leaf.Contents = CONTENTS_SOLID; // First leaf is always solid, otherwise game crashes
+					leaf.Contents = (int)SourceContentsFlags.CONTENTS_SOLID; // First leaf is always solid, otherwise game crashes
 					leaf.Flags = 0;
 				}
 				else
@@ -356,7 +352,7 @@ namespace BSPConversionLib
 
 				if (sourceBsp.Leaves.Count == 0)
 				{
-					leaf.Contents = CONTENTS_SOLID; // First leaf is always solid, otherwise game crashes
+					leaf.Contents = (int)SourceContentsFlags.CONTENTS_SOLID; // First leaf is always solid, otherwise game crashes
 					leaf.Flags = 0;
 				}
 				else
@@ -465,7 +461,7 @@ namespace BSPConversionLib
 				return 0;
 			
 			var leaf = sourceBsp.Leaves[leafIndex];
-			leaf.Contents = CONTENTS_SOLID;
+			leaf.Contents = (int)SourceContentsFlags.CONTENTS_SOLID;
 			leaf.Visibility = -1; // Cluster index
 			leaf.Area = 0;
 			leaf.Minimums = mins;
@@ -522,11 +518,23 @@ namespace BSPConversionLib
 		private int GetBrushContents(Texture texture)
 		{
 			// TODO: Handle other texture contents flags
-			// TODO: Remove tool brushes instead?
-			if ((texture.Contents & CONTENTS_STRUCTURAL) == CONTENTS_STRUCTURAL)
-				return CONTENTS_EMPTY;
+			var contents = (Q3ContentsFlags)texture.Contents;
+			var flags = (SurfaceFlags)texture.Flags;
+			if (contents == 0 ||
+				contents.HasFlag(Q3ContentsFlags.CONTENTS_FOG) ||
+				contents.HasFlag(Q3ContentsFlags.CONTENTS_STRUCTURAL) ||
+				flags.HasFlag(SurfaceFlags.SURF_NONSOLID))
+			{
+				return (int)SourceContentsFlags.CONTENTS_EMPTY;
+			}
 
-			return CONTENTS_SOLID;
+			if (contents.HasFlag(Q3ContentsFlags.CONTENTS_LAVA) ||
+				contents.HasFlag(Q3ContentsFlags.CONTENTS_WATER))
+			{
+				return (int)SourceContentsFlags.CONTENTS_WATER;
+			}
+
+			return (int)SourceContentsFlags.CONTENTS_SOLID;
 		}
 
 		private void ConvertBrushSides()

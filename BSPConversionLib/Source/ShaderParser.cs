@@ -8,19 +8,6 @@ namespace BSPConversionLib
 {
 	public class Shader
 	{
-		[Flags]
-		public enum ContentsFlags
-		{
-			CONTENTS_TRANSLUCENT = 0x20000000
-		}
-
-		public enum AlphaFunc
-		{
-			GLS_ATEST_GT_0 = 0x10000000,
-			GLS_ATEST_LT_80 = 0x20000000,
-			GLS_ATEST_GE_80 = 0x40000000
-		}
-
 		public class SkyParms
 		{
 			public string outerBox;
@@ -30,7 +17,8 @@ namespace BSPConversionLib
 
 		public string map; // Path to image file
 		public SkyParms skyParms;
-		public ContentsFlags contents;
+		public SurfaceFlags surfaceFlags;
+		public Q3ContentsFlags contents;
 
 		// Shader stage parameters (TODO: Needs to be moved to separate class for handling stages)
 		public AlphaFunc alphaFunc;
@@ -120,11 +108,14 @@ namespace BSPConversionLib
 
 		private void ParseSurfaceParm(Shader shader, string[] split)
 		{
-			switch (split[1])
+			foreach (var infoParm in Constants.infoParms)
 			{
-				case "trans":
-					shader.contents |= Shader.ContentsFlags.CONTENTS_TRANSLUCENT;
+				if (split[1] == infoParm.name)
+				{
+					shader.surfaceFlags |= infoParm.surfaceFlags;
+					shader.contents |= infoParm.contents;
 					break;
+				}
 			}
 		}
 
@@ -143,13 +134,13 @@ namespace BSPConversionLib
 			switch (split[1].ToLower())
 			{
 				case "gt0":
-					shader.alphaFunc = Shader.AlphaFunc.GLS_ATEST_GT_0;
+					shader.alphaFunc = AlphaFunc.GLS_ATEST_GT_0;
 					break;
 				case "lt128":
-					shader.alphaFunc = Shader.AlphaFunc.GLS_ATEST_LT_80;
+					shader.alphaFunc = AlphaFunc.GLS_ATEST_LT_80;
 					break;
 				case "ge128":
-					shader.alphaFunc = Shader.AlphaFunc.GLS_ATEST_GE_80;
+					shader.alphaFunc = AlphaFunc.GLS_ATEST_GE_80;
 					break;
 			}
 		}

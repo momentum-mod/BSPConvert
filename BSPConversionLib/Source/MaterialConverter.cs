@@ -154,12 +154,12 @@ namespace BSPConversionLib
 			sb.AppendLine($"\t$basetexture \"{baseTexture}\"");
 			if (shader != null)
 			{
-				if (shader.alphaFunc == Shader.AlphaFunc.GLS_ATEST_GE_80)
+				if (shader.alphaFunc == AlphaFunc.GLS_ATEST_GE_80)
 				{
 					sb.AppendLine("\t$alphatest 1");
 					sb.AppendLine("\t$alphatestreference 0.5");
 				}
-				else if (shader.contents.HasFlag(Shader.ContentsFlags.CONTENTS_TRANSLUCENT))
+				else if (shader.contents.HasFlag(Q3ContentsFlags.CONTENTS_TRANSLUCENT))
 					sb.AppendLine("\t$translucent 1");
 			}
 
