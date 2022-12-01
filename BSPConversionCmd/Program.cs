@@ -19,6 +19,9 @@ namespace BSPConversionCmd
 			[Option("newbsp", Required = false, HelpText = "Use BSP version 25 (Momentum Mod).")]
 			public bool NewBSP { get; set; }
 
+			[Option("prefix", Required = false, HelpText = "Prefix for the converted BSP's file name.")]
+			public string Prefix { get; set; }
+
 			[Value(0, MetaName = "input file", HelpText = "Input Quake 3 BSP/PK3 to be converted.", Required = true)]
 			public string InputFile { get; set; }
 
@@ -29,7 +32,7 @@ namespace BSPConversionCmd
 		static void Main(string[] args)
 		{
 			//args = new string[3];
-			//args[0] = @"c:\users\tyler\documents\tools\source engine\bspconvert\pornstar-sleeprun.pk3";
+			//args[0] = @"c:\users\tyler\documents\tools\source engine\bspconvert\ghost-linear.pk3";
 			//args[1] = @"c:\users\tyler\documents\tools\source engine\bspconvert\output";
 			//args[2] = "--nopak";
 
@@ -45,6 +48,7 @@ namespace BSPConversionCmd
 						skyFix = options.SkyFix,
 						DisplacementPower = options.DisplacementPower,
 						newBSP = options.NewBSP,
+						prefix = options.Prefix,
 						inputFile = options.InputFile,
 						outputDir = options.OutputDirectory
 					};

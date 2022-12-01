@@ -53,6 +53,7 @@ namespace BSPConversionLib
 			set { displacementPower = Math.Clamp(value, 2, 4); }
 		}
 		public bool newBSP;
+		public string prefix;
 		public string inputFile;
 		public string outputDir;
 	}
@@ -1296,7 +1297,7 @@ namespace BSPConversionLib
 				Directory.CreateDirectory(mapsDir);
 
 			var writer = new BSPWriter(sourceBsp);
-			var bspPath = Path.Combine(mapsDir, quakeBsp.MapName + ".bsp");
+			var bspPath = Path.Combine(mapsDir, $"{options.prefix}{quakeBsp.MapName}.bsp");
 			writer.WriteBSP(bspPath);
 			
 			logger.Log($"Converted BSP: {bspPath}");
