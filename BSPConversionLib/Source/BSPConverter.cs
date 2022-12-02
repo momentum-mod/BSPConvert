@@ -435,8 +435,8 @@ namespace BSPConversionLib
 					logger.Log("Exceeded max extents: " + mins);
 				}
 
-				sModel.Minimums = qModel.Minimums;
-				sModel.Maximums = qModel.Maximums;
+				sModel.Minimums = mins;
+				sModel.Maximums = maxs;
 				if (sourceBsp.Models.Count == 0) // First model always references first node?
 					sModel.HeadNodeIndex = 0;
 				else

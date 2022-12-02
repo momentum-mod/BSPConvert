@@ -62,7 +62,6 @@ namespace BSPConversionLib
 						ConvertTriggerTeleport(entity);
 						break;
 					case "misc_teleporter_dest":
-					case "target_teleporter": // TODO: Handle target_teleporter entities that reference misc_teleporter_dest
 						entity.ClassName = "info_teleport_destination";
 						break;
 					case "target_position":
@@ -136,26 +135,33 @@ namespace BSPConversionLib
 			if (!TryGetTargetEntities(trigger, out var targetEnts))
 				return;
 
-			var targetEnt = targetEnts.First();
-			switch (targetEnt.ClassName)
+			foreach (var targetEnt in targetEnts)
 			{
-				case "target_startTimer":
-					ConvertTimerTrigger(trigger, "trigger_momentum_timer_start", 1);
-					trigger["teleport_destination"] = MOMENTUM_START_ENTITY;
-					//entity["start_on_jump"] = "0";
-					//entity["speed_limit"] = "999999";
-					break;
-				case "target_stopTimer":
-					ConvertTimerTrigger(trigger, "trigger_momentum_timer_stop", 0);
-					break;
-				case "target_checkpoint":
-					ConvertTimerTrigger(trigger, "trigger_momentum_timer_checkpoint", currentCheckpointIndex);
-					currentCheckpointIndex++;
-					break;
-				case "target_give":
-					ConvertGiveTrigger(trigger, targetEnt);
-					break;
+				switch (targetEnt.ClassName)
+				{
+					case "target_startTimer":
+						ConvertTimerTrigger(trigger, "trigger_momentum_timer_start", 1);
+						trigger["teleport_destination"] = MOMENTUM_START_ENTITY;
+						//entity["start_on_jump"] = "0";
+						//entity["speed_limit"] = "999999";
+						break;
+					case "target_stopTimer":
+						ConvertTimerTrigger(trigger, "trigger_momentum_timer_stop", 0);
+						break;
+					case "target_checkpoint":
+						ConvertTimerTrigger(trigger, "trigger_momentum_timer_checkpoint", currentCheckpointIndex);
+						currentCheckpointIndex++;
+						break;
+					case "target_give":
+						ConvertGiveTrigger(trigger, targetEnt);
+						break;
+					case "target_teleporter":
+						ConvertTeleportTrigger(trigger, targetEnt);
+						break;
+				}
 			}
+
+			trigger["spawnflags"] = "1";
 		}
 
 		private static void ConvertTimerTrigger(Entity trigger, string className, int zoneNumber)
@@ -163,20 +169,6 @@ namespace BSPConversionLib
 			trigger.ClassName = className;
 			//trigger["track_number"] = "0";
 			trigger["zone_number"] = zoneNumber.ToString();
-			trigger["spawnflags"] = "1";
-
-			trigger.Remove("target");
-		}
-
-		private void ConvertTriggerPush(Entity trigger)
-		{
-			if (!TryGetTargetEntities(trigger, out var targetEnts))
-				return;
-
-			trigger.ClassName = "trigger_catapult";
-			trigger["launchtarget"] = targetEnts.First().Name;
-			trigger["spawnflags"] = "1";
-			trigger["playerspeed"] = "450";
 
 			trigger.Remove("target");
 		}
@@ -209,7 +201,6 @@ namespace BSPConversionLib
 
 				removeEntities.Add(target);
 			}
-			trigger["spawnflags"] = "1";
 
 			trigger.Remove("target");
 		}
@@ -246,11 +237,47 @@ namespace BSPConversionLib
 			trigger.connections.Add(connection);
 		}
 
-		private static void ConvertTriggerTeleport(Entity entity)
+		private void ConvertTeleportTrigger(Entity trigger, Entity targetTele)
 		{
-			entity["spawnflags"] = "1";
-			entity["mode"] = "5";
-			entity["setspeed"] = "400";
+			if (!TryGetTargetEntities(targetTele, out var targetEnts))
+				return;
+
+			// Set player position to target_teleporter's destination
+			var targetEnt = targetEnts.First();
+			var telePos = targetEnt["origin"];
+			
+			var connection = new Entity.EntityConnection()
+			{
+				name = "OnStartTouch",
+				target = "!activator",
+				action = "SetLocalOrigin",
+				param = telePos,
+				delay = 0f,
+				fireOnce = -1
+			};
+			trigger.connections.Add(connection);
+
+			trigger.Remove("target");
+		}
+
+		private void ConvertTriggerPush(Entity trigger)
+		{
+			if (!TryGetTargetEntities(trigger, out var targetEnts))
+				return;
+
+			trigger.ClassName = "trigger_catapult";
+			trigger["launchtarget"] = targetEnts.First().Name;
+			trigger["spawnflags"] = "1";
+			trigger["playerspeed"] = "450";
+
+			trigger.Remove("target");
+		}
+
+		private static void ConvertTriggerTeleport(Entity trigger)
+		{
+			trigger["spawnflags"] = "1";
+			trigger["mode"] = "5";
+			trigger["setspeed"] = "400";
 		}
 
 		private void ConvertWeapon(Entity entity, int weaponSlot)
