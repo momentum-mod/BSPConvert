@@ -22,10 +22,10 @@ namespace BSPConversionCmd
 			[Option("prefix", Required = false, HelpText = "Prefix for the converted BSP's file name.")]
 			public string Prefix { get; set; }
 
-			[Value(0, MetaName = "input file", HelpText = "Input Quake 3 BSP/PK3 to be converted.", Required = true)]
-			public string InputFile { get; set; }
+			[Option('i', "input", Required = false, HelpText = "Input file(s) and its path to be processed. (i.e. -input \"C:\\path\\to\\file.pk3)\" ", Separator = ',')]
+			public IEnumerable<string> InputFile { get; set; }
 
-			[Value(1, MetaName = "output directory", HelpText = "Output game directory for converted BSP/materials.", Required = true)]
+			[Option('o', "output", Required = false, HelpText = "Output game directory for converted BSP/materials. (i.e. -output \"C:\\path\\to\\output\\folder)\" ")]
 			public string OutputDirectory { get; set; }
 		}
 
@@ -36,24 +36,63 @@ namespace BSPConversionCmd
 			//args[1] = @"c:\users\tyler\documents\tools\source engine\bspconvert\output";
 			//args[2] = "--newbsp";
 
+			var strFullInput = "";
+			List<string> inputEntries = new List<string>();
+			foreach (var entry in args)
+			{
+				if (entry.Equals("-i") || entry.Equals("-input"))
+				{
+					break;
+				}
+				else
+				{
+					if (Path.HasExtension(entry))
+					{
+						inputEntries.Add(entry);
+						strFullInput = (String.Join(",", inputEntries));
+					}
+				}
+			}
+
 			Parser.Default.ParseArguments<Options>(args)
 				.WithParsed(options =>
 				{
-					if (options.DisplacementPower < 2 || options.DisplacementPower > 4)
-						throw new ArgumentOutOfRangeException("Displacement power must be between 2 and 4.");
-
-					var converterOptions = new BSPConverterOptions()
+					try
 					{
-						noPak = options.NoPak,
-						skyFix = options.SkyFix,
-						DisplacementPower = options.DisplacementPower,
-						newBSP = options.NewBSP,
-						prefix = options.Prefix,
-						inputFile = options.InputFile,
-						outputDir = options.OutputDirectory
-					};
-					var converter = new BSPConverter(converterOptions, new ConsoleLogger());
-					converter.Convert();
+						if (options.DisplacementPower < 2 || options.DisplacementPower > 4)
+							throw new ArgumentOutOfRangeException("Displacement power must be between 2 and 4.");
+
+						if (options.InputFile.Count() <= 0)
+							options.InputFile = inputEntries;
+
+						if (options.InputFile.Count() > 0)
+							Console.WriteLine(@"Converting... (may take more than a few seconds)");
+
+						foreach (var inputEntry in options.InputFile)
+						{
+
+							if (options.OutputDirectory == null)
+								options.OutputDirectory = Path.GetDirectoryName(inputEntry);
+
+							var converterOptions = new BSPConverterOptions()
+							{
+								noPak = options.NoPak,
+								skyFix = options.SkyFix,
+								DisplacementPower = options.DisplacementPower,
+								newBSP = options.NewBSP,
+								prefix = options.Prefix,
+								inputFile = inputEntry,
+								outputDir = options.OutputDirectory
+							};
+							var converter = new BSPConverter(converterOptions, new ConsoleLogger());
+							converter.Convert();
+						}
+					}
+					catch (FileNotFoundException ex)
+					{
+						throw new FileNotFoundException("You must put down the input/output destinations.");
+					}
+					Console.ReadKey();
 				});
 		}
 	}
