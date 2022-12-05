@@ -1,0 +1,1 @@
+﻿Extract contents of pak0.pk3 from Quake III Arena installation here.
