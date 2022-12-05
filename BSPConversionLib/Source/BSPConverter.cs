@@ -84,36 +84,43 @@ namespace BSPConversionLib
 
 		public void Convert()
 		{
-			contentManager = new ContentManager(options.inputFile);
-			
-			LoadBSP();
-			
-			ConvertShaders();
-			ConvertTextureFiles();
+            var startInfo = new ProcessStartInfo();
+            startInfo.FileName = "BSPConv.exe";
 
-			ConvertEntities();
-			ConvertTextures();
-			ConvertPlanes();
-			ConvertFaces_SplitFaces();
-			ConvertLeaves_SplitFaces();
-			ConvertLeafFaces_SplitFaces();
-			//ConvertLeaves();
-			//ConvertLeafFaces();
-			ConvertLeafBrushes();
-			ConvertNodes();
-			ConvertModels();
-			//ConvertFaces();
-			ConvertBrushes();
-			ConvertBrushSides();
-			ConvertLightmaps();
-			ConvertVisData();
-			ConvertAreas();
-			ConvertAreaPortals();
+            if (options.outputDir == null || options.outputDir == options.inputFile || Path.HasExtension(options.outputDir))
+                options.outputDir = Path.GetDirectoryName(options.inputFile);
 
-			WriteBSP();
-			
-			contentManager.Dispose();
-		}
+            startInfo.Arguments = (options.inputFile + options.outputDir);
+            contentManager = new ContentManager(options.inputFile);
+
+            LoadBSP();
+
+            ConvertShaders();
+            ConvertTextureFiles();
+
+            ConvertEntities();
+            ConvertTextures();
+            ConvertPlanes();
+            ConvertFaces_SplitFaces();
+            ConvertLeaves_SplitFaces();
+            ConvertLeafFaces_SplitFaces();
+            //ConvertLeaves();
+            //ConvertLeafFaces();
+            ConvertLeafBrushes();
+            ConvertNodes();
+            ConvertModels();
+            //ConvertFaces();
+            ConvertBrushes();
+            ConvertBrushSides();
+            ConvertLightmaps();
+            ConvertVisData();
+            ConvertAreas();
+            ConvertAreaPortals();
+
+            WriteBSP();
+
+            contentManager.Dispose();
+        }
 
 		private void LoadBSP()
 		{
