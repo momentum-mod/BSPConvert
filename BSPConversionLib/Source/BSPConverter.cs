@@ -91,24 +91,24 @@ namespace BSPConversionLib
 			ConvertShaders();
 			ConvertTextureFiles();
 
-			ConvertEntities();
-			ConvertTextures();
-			ConvertPlanes();
-			ConvertFaces_SplitFaces();
-			ConvertLeaves_SplitFaces();
-			ConvertLeafFaces_SplitFaces();
-			//ConvertLeaves();
-			//ConvertLeafFaces();
-			ConvertLeafBrushes();
-			ConvertNodes();
-			ConvertModels();
-			//ConvertFaces();
-			ConvertBrushes();
-			ConvertBrushSides();
-			ConvertLightmaps();
-			ConvertVisData();
-			ConvertAreas();
-			ConvertAreaPortals();
+            ConvertEntities();
+            ConvertTextures();
+            ConvertPlanes();
+            ConvertFaces_SplitFaces();
+            ConvertLeaves_SplitFaces();
+            ConvertLeafFaces_SplitFaces();
+            //ConvertLeaves();
+            //ConvertLeafFaces();
+            ConvertLeafBrushes();
+            ConvertNodes();
+            ConvertModels();
+            //ConvertFaces();
+            ConvertBrushes();
+            ConvertBrushSides();
+            ConvertLightmaps();
+            ConvertVisData();
+            ConvertAreas();
+            ConvertAreaPortals();
 
 			WriteBSP();
 

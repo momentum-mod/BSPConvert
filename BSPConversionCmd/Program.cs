@@ -31,10 +31,10 @@ namespace BSPConversionCmd
 
 		static void Main(string[] args)
 		{
-			//args = new string[3];
-			//args[0] = @"c:\users\tyler\documents\tools\source engine\bspconvert\kopo_fe.pk3";
-			//args[1] = @"c:\users\tyler\documents\tools\source engine\bspconvert\output";
-			//args[2] = "--newbsp";
+            //args = new string[3];
+            //args[0] = @"c:\users\tyler\documents\tools\source engine\bspconvert\kopo_fe.pk3";
+            //args[1] = @"c:\users\tyler\documents\tools\source engine\bspconvert\output";
+            //args[2] = "--newbsp";
 
 			var strFullInput = "";
 			List<string> inputEntries = new List<string>();
