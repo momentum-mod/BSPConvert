@@ -50,40 +50,33 @@ namespace BSPConversionCmd
 			Parser.Default.ParseArguments<Options>(args)
 				.WithParsed(options =>
 				{
-					try
+					if (options.DisplacementPower < 2 || options.DisplacementPower > 4)
+						throw new ArgumentOutOfRangeException("Displacement power must be between 2 and 4.");
+
+					if (options.InputFile.Count() <= 0)
+						options.InputFile = inputEntries;
+
+					if (options.InputFile.Count() > 0)
+						Console.WriteLine(@"Converting... (may take more than a few seconds)");
+
+					foreach (var inputEntry in options.InputFile)
 					{
-						if (options.DisplacementPower < 2 || options.DisplacementPower > 4)
-							throw new ArgumentOutOfRangeException("Displacement power must be between 2 and 4.");
 
-						if (options.InputFile.Count() <= 0)
-							options.InputFile = inputEntries;
+						if (options.OutputDirectory == null)
+							options.OutputDirectory = Path.GetDirectoryName(inputEntry);
 
-						if (options.InputFile.Count() > 0)
-							Console.WriteLine(@"Converting... (may take more than a few seconds)");
-
-						foreach (var inputEntry in options.InputFile)
+						var converterOptions = new BSPConverterOptions()
 						{
-
-							if (options.OutputDirectory == null)
-								options.OutputDirectory = Path.GetDirectoryName(inputEntry);
-
-							var converterOptions = new BSPConverterOptions()
-							{
-								noPak = options.NoPak,
-								skyFix = options.SkyFix,
-								DisplacementPower = options.DisplacementPower,
-								newBSP = options.NewBSP,
-								prefix = options.Prefix,
-								inputFile = inputEntry,
-								outputDir = options.OutputDirectory
-							};
-							var converter = new BSPConverter(converterOptions, new ConsoleLogger());
-							converter.Convert();
-						}
-					}
-					catch (FileNotFoundException ex)
-					{
-						throw new FileNotFoundException("You must put down the correct input/output destinations.");
+							noPak = options.NoPak,
+							skyFix = options.SkyFix,
+							DisplacementPower = options.DisplacementPower,
+							newBSP = options.NewBSP,
+							prefix = options.Prefix,
+							inputFile = inputEntry,
+							outputDir = options.OutputDirectory
+						};
+						var converter = new BSPConverter(converterOptions, new ConsoleLogger());
+						converter.Convert();
 					}
 					// Console.ReadKey();
 				});
