@@ -22,7 +22,7 @@ namespace BSPConversionCmd
 			[Option("prefix", Required = false, HelpText = "Prefix for the converted BSP's file name.")]
 			public string Prefix { get; set; }
 
-			[Option('i', "input", Required = false, HelpText = "Input file(s) and its path to be processed. (i.e. -input \"C:\\path\\to\\file.pk3)\" ", Separator = ',')]
+			[Value(0, MetaName = "input files", Required = true, HelpText = "Input file(s) and its path to be processed. (i.e. \"C:\\path\\to\\file.pk3)\" ")]
 			public IEnumerable<string> InputFile { get; set; }
 
 			[Option('o', "output", Required = false, HelpText = "Output game directory for converted BSP/materials. (i.e. -output \"C:\\path\\to\\output\\folder)\" ")]
@@ -40,17 +40,10 @@ namespace BSPConversionCmd
 			List<string> inputEntries = new List<string>();
 			foreach (var entry in args)
 			{
-				if (entry.Equals("-i") || entry.Equals("-input"))
+				if (Path.HasExtension(entry))
 				{
-					break;
-				}
-				else
-				{
-					if (Path.HasExtension(entry))
-					{
-						inputEntries.Add(entry);
-						strFullInput = (String.Join(",", inputEntries));
-					}
+					inputEntries.Add(entry);
+					strFullInput = (String.Join(",", inputEntries));
 				}
 			}
 
@@ -90,9 +83,9 @@ namespace BSPConversionCmd
 					}
 					catch (FileNotFoundException ex)
 					{
-						throw new FileNotFoundException("You must put down the input/output destinations.");
+						throw new FileNotFoundException("You must put down the correct input/output destinations.");
 					}
-					Console.ReadKey();
+					// Console.ReadKey();
 				});
 		}
 	}
