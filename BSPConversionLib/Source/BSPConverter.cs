@@ -67,7 +67,7 @@ namespace BSPConversionLib
 		private BSP sourceBsp;
 
 		private ContentManager contentManager;
-
+		
 		private Dictionary<string, Shader> shaderDict = new Dictionary<string, Shader>();
 		private Dictionary<int, int> textureInfoHashCodeDict = new Dictionary<int, int>(); // Maps TextureInfo hash codes to TextureInfo indices
 		private Dictionary<string, int> textureInfoLookup = new Dictionary<string, int>();
@@ -85,9 +85,9 @@ namespace BSPConversionLib
 		public void Convert()
 		{
 			contentManager = new ContentManager(options.inputFile);
-
+			
 			LoadBSP();
-
+			
 			ConvertShaders();
 			ConvertTextureFiles();
 
@@ -111,7 +111,7 @@ namespace BSPConversionLib
 			ConvertAreaPortals();
 
 			WriteBSP();
-
+			
 			contentManager.Dispose();
 		}
 
@@ -119,7 +119,7 @@ namespace BSPConversionLib
 		{
 			// TODO: Support converting multiple bsp's (some pk3's contain multiple bsp's)
 			quakeBsp = contentManager.BSPFiles.First();
-
+			
 			var mapType = options.newBSP ? MapType.Source25 : MapType.Source20;
 			sourceBsp = new BSP(Path.GetFileName(options.inputFile), mapType);
 		}
@@ -127,7 +127,7 @@ namespace BSPConversionLib
 		private void ConvertShaders()
 		{
 			shaderDict = LoadShaderDictionary();
-
+			
 			var materialConverter = new MaterialConverter(contentManager.ContentDir, shaderDict);
 			foreach (var texture in quakeBsp.Textures)
 				materialConverter.Convert(texture.Name);
@@ -290,7 +290,7 @@ namespace BSPConversionLib
 		private void FixSkyboxRendering()
 		{
 			var rootNode = sourceBsp.Nodes[0];
-
+			
 			var child2 = sourceBsp.Nodes[rootNode.Child2Index];
 			child2.NumFaceIndices = sourceBsp.Faces.Count;
 
@@ -371,7 +371,7 @@ namespace BSPConversionLib
 					numFaces += splitFaceDict[(int)quakeBsp.LeafFaces[qLeaf.FirstMarkFaceIndex + i]].Length;
 				leaf.NumMarkFaceIndices = numFaces;
 				currentFaceIndex += numFaces;
-
+				
 				leaf.FirstMarkBrushIndex = qLeaf.FirstMarkBrushIndex;
 				leaf.NumMarkBrushIndices = qLeaf.NumMarkBrushIndices;
 				leaf.LeafWaterDataID = -1;
@@ -459,17 +459,17 @@ namespace BSPConversionLib
 			var leafIndex = FindLeafIndex(firstBrushIndex);
 			if (leafIndex < 0)
 				return 0;
-
+			
 			var leaf = sourceBsp.Leaves[leafIndex];
 			leaf.Contents = (int)SourceContentsFlags.CONTENTS_SOLID;
 			leaf.Visibility = -1; // Cluster index
 			leaf.Area = 0;
 			leaf.Minimums = mins;
 			leaf.Maximums = maxs;
-
+			
 			var data = new byte[Node.GetStructLength(sourceBsp.MapType)];
 			var node = new Node(data, sourceBsp.Nodes);
-
+			
 			node.Child1Index = -leafIndex - 1;
 			node.Child2Index = -leafIndex - 1;
 
@@ -697,7 +697,7 @@ namespace BSPConversionLib
 			face.SmoothingGroups = 0;
 
 			sourceBsp.Faces.Add(face);
-
+			
 			return face;
 		}
 
@@ -743,7 +743,7 @@ namespace BSPConversionLib
 		private int CreatePatchFace(Vertex[] faceVerts, int faceIndex)
 		{
 			var sFace = CreateFace();
-
+			
 			var dispIndex = sourceBsp.Displacements.Count;
 			sFace.DisplacementIndex = dispIndex;
 
@@ -1000,7 +1000,7 @@ namespace BSPConversionLib
 		{
 			var data = new byte[TextureInfo.GetStructLength(sourceBsp.MapType)];
 			var textureInfo = new TextureInfo(data, sourceBsp.TextureInfo);
-
+			
 			// TODO: Get UV data from face vertices
 			textureInfo.UAxis = uAxis;
 			textureInfo.VAxis = vAxis;
@@ -1053,7 +1053,7 @@ namespace BSPConversionLib
 			var den = deltaUV1.X * deltaUV2.Y - deltaUV1.Y * deltaUV2.X;
 			if (den < 0.01f)
 				return GetTextureVectors_Old(qFace.Normal);
-
+			
 			var r = 1f / den;
 			var tangent = (deltaPos1 * deltaUV2.Y - deltaPos2 * deltaUV1.Y) * r / 32f;
 			var binormal = (deltaPos2 * deltaUV1.X - deltaPos1 * deltaUV2.X) * r / 32f;
@@ -1111,7 +1111,7 @@ namespace BSPConversionLib
 
 			var qLightmapData = quakeBsp.Lightmaps.Data;
 			var lmColors = new List<ColorRGBExp32>();
-
+			
 			for (var faceIndex = 0; faceIndex < quakeBsp.Faces.Count; faceIndex++)
 			{
 				var qFace = quakeBsp.Faces[faceIndex];
@@ -1183,7 +1183,7 @@ namespace BSPConversionLib
 					uvMin.X = vert.uv1.X;
 				if (vert.uv1.Y < uvMin.Y)
 					uvMin.Y = vert.uv1.Y;
-
+				
 				if (vert.uv1.X > uvMax.X)
 					uvMax.X = vert.uv1.X;
 				if (vert.uv1.Y > uvMax.Y)
@@ -1307,7 +1307,7 @@ namespace BSPConversionLib
 			var writer = new BSPWriter(sourceBsp);
 			var bspPath = Path.Combine(mapsDir, $"{options.prefix}{quakeBsp.MapName}.bsp");
 			writer.WriteBSP(bspPath);
-
+			
 			logger.Log($"Converted BSP: {bspPath}");
 		}
 	}
