@@ -22,10 +22,10 @@ namespace BSPConversionCmd
 			[Option("prefix", Required = false, HelpText = "Prefix for the converted BSP's file name.")]
 			public string Prefix { get; set; }
 
-			[Value(0, MetaName = "input file", HelpText = "Input Quake 3 BSP/PK3 to be converted.", Required = true)]
-			public string InputFile { get; set; }
+			[Value(0, MetaName = "input files", Required = true, HelpText = "Input file(s) and its path to be processed. (i.e. \"C:\\path\\to\\file.pk3)\" ")]
+			public IEnumerable<string> InputFile { get; set; }
 
-			[Value(1, MetaName = "output directory", HelpText = "Output game directory for converted BSP/materials.", Required = true)]
+			[Option('o', "output", Required = false, HelpText = "Output game directory for converted BSP/materials. (i.e. -output \"C:\\path\\to\\output\\folder)\" ")]
 			public string OutputDirectory { get; set; }
 		}
 
@@ -42,18 +42,29 @@ namespace BSPConversionCmd
 					if (options.DisplacementPower < 2 || options.DisplacementPower > 4)
 						throw new ArgumentOutOfRangeException("Displacement power must be between 2 and 4.");
 
-					var converterOptions = new BSPConverterOptions()
+					if (options.InputFile.Count() > 0)
+						Console.WriteLine(@"Converting... (may take more than a few seconds)");
+
+					if (options.OutputDirectory == null)
+						options.OutputDirectory = Path.GetDirectoryName(options.InputFile.First());
+
+					foreach (var inputEntry in options.InputFile)
 					{
-						noPak = options.NoPak,
-						skyFix = options.SkyFix,
-						DisplacementPower = options.DisplacementPower,
-						newBSP = options.NewBSP,
-						prefix = options.Prefix,
-						inputFile = options.InputFile,
-						outputDir = options.OutputDirectory
-					};
-					var converter = new BSPConverter(converterOptions, new ConsoleLogger());
-					converter.Convert();
+
+						var converterOptions = new BSPConverterOptions()
+						{
+							noPak = options.NoPak,
+							skyFix = options.SkyFix,
+							DisplacementPower = options.DisplacementPower,
+							newBSP = options.NewBSP,
+							prefix = options.Prefix,
+							inputFile = inputEntry,
+							outputDir = options.OutputDirectory
+						};
+						var converter = new BSPConverter(converterOptions, new ConsoleLogger());
+						converter.Convert();
+					}
+					// Console.ReadKey();
 				});
 		}
 	}
