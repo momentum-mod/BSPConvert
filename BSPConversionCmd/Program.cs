@@ -7,7 +7,7 @@ namespace BSPConversionCmd
 	{
 		class Options
 		{
-			[Option("nopak", Required = false, HelpText = "Export models/textures into folders instead of embedding them in the BSP.")]
+			[Option("nopak", Required = false, HelpText = "Export materials into folders instead of embedding them in the BSP.")]
 			public bool NoPak { get; set; }
 
 			[Option("skyfix", Required = false, HelpText = "This is a temporary hack to fix skybox rendering.")]
@@ -22,10 +22,10 @@ namespace BSPConversionCmd
 			[Option("prefix", Required = false, HelpText = "Prefix for the converted BSP's file name.")]
 			public string Prefix { get; set; }
 
-			[Value(0, MetaName = "input files", Required = true, HelpText = "Input file(s) and its path to be processed. (i.e. \"C:\\path\\to\\file.pk3)\" ")]
-			public IEnumerable<string> InputFile { get; set; }
+			[Value(0, MetaName = "input files", Required = true, HelpText = "Input Quake 3 BSP/PK3 file(s) to be converted.")]
+			public IEnumerable<string> InputFiles { get; set; }
 
-			[Option('o', "output", Required = false, HelpText = "Output game directory for converted BSP/materials. (i.e. -output \"C:\\path\\to\\output\\folder)\" ")]
+			[Option('o', "output", Required = false, HelpText = "Output game directory for converted BSP/materials.")]
 			public string OutputDirectory { get; set; }
 		}
 
@@ -42,15 +42,11 @@ namespace BSPConversionCmd
 					if (options.DisplacementPower < 2 || options.DisplacementPower > 4)
 						throw new ArgumentOutOfRangeException("Displacement power must be between 2 and 4.");
 
-					if (options.InputFile.Count() > 0)
-						Console.WriteLine(@"Converting... (may take more than a few seconds)");
-
 					if (options.OutputDirectory == null)
-						options.OutputDirectory = Path.GetDirectoryName(options.InputFile.First());
+						options.OutputDirectory = Path.GetDirectoryName(options.InputFiles.First());
 
-					foreach (var inputEntry in options.InputFile)
+					foreach (var inputEntry in options.InputFiles)
 					{
-
 						var converterOptions = new BSPConverterOptions()
 						{
 							noPak = options.NoPak,
@@ -64,7 +60,6 @@ namespace BSPConversionCmd
 						var converter = new BSPConverter(converterOptions, new ConsoleLogger());
 						converter.Convert();
 					}
-					// Console.ReadKey();
 				});
 		}
 	}

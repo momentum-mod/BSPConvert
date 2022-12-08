@@ -84,6 +84,8 @@ namespace BSPConversionLib
 
 		public void Convert()
 		{
+			logger.Log($"Converting {Path.GetFileName(options.inputFile)}...");
+			
 			contentManager = new ContentManager(options.inputFile);
 			
 			LoadBSP();
