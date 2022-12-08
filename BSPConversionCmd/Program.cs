@@ -45,11 +45,11 @@ namespace BSPConversionCmd
 					if (options.InputFile.Count() > 0)
 						Console.WriteLine(@"Converting... (may take more than a few seconds)");
 
+					if (options.OutputDirectory == null)
+						options.OutputDirectory = Path.GetDirectoryName(options.InputFile.First());
+
 					foreach (var inputEntry in options.InputFile)
 					{
-
-						if (options.OutputDirectory == null)
-							options.OutputDirectory = Path.GetDirectoryName(inputEntry);
 
 						var converterOptions = new BSPConverterOptions()
 						{
