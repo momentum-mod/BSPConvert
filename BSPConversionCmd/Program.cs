@@ -36,25 +36,11 @@ namespace BSPConversionCmd
 			//args[1] = @"c:\users\tyler\documents\tools\source engine\bspconvert\output";
 			//args[2] = "--newbsp";
 
-			var strFullInput = "";
-			List<string> inputEntries = new List<string>();
-			foreach (var entry in args)
-			{
-				if (Path.HasExtension(entry))
-				{
-					inputEntries.Add(entry);
-					strFullInput = (String.Join(",", inputEntries));
-				}
-			}
-
 			Parser.Default.ParseArguments<Options>(args)
 				.WithParsed(options =>
 				{
 					if (options.DisplacementPower < 2 || options.DisplacementPower > 4)
 						throw new ArgumentOutOfRangeException("Displacement power must be between 2 and 4.");
-
-					if (options.InputFile.Count() <= 0)
-						options.InputFile = inputEntries;
 
 					if (options.InputFile.Count() > 0)
 						Console.WriteLine(@"Converting... (may take more than a few seconds)");
