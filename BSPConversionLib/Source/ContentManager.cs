@@ -67,7 +67,7 @@ namespace BSPConversionLib
 
 		public static string GetQ3ContentDir()
 		{
-			return Path.Combine(Environment.CurrentDirectory, Q3CONTENT_FOLDER);
+			return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, Q3CONTENT_FOLDER);
 		}
 
 		public void Dispose()
