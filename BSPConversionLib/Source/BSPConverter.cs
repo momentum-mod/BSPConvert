@@ -96,7 +96,8 @@ namespace BSPConversionLib
 			ConvertEntities();
 			ConvertTextures();
 			ConvertPlanes();
-			ConvertFaces_SplitFaces();
+			//ConvertFaces_SplitFaces();
+			ConvertFaces();
 			ConvertLeaves_SplitFaces();
 			ConvertLeafFaces_SplitFaces();
 			//ConvertLeaves();
@@ -104,7 +105,6 @@ namespace BSPConversionLib
 			ConvertLeafBrushes();
 			ConvertNodes();
 			ConvertModels();
-			//ConvertFaces();
 			ConvertBrushes();
 			ConvertBrushSides();
 			ConvertLightmaps();
@@ -590,6 +590,7 @@ namespace BSPConversionLib
 
 			for (var faceIndex = 0; faceIndex < quakeBsp.Faces.Count; faceIndex++)
 			{
+				// TODO: Handle different face types
 				var qFace = quakeBsp.Faces[faceIndex];
 
 				sourceBsp.Normals.Add(qFace.Normal);
@@ -600,29 +601,16 @@ namespace BSPConversionLib
 				sFace.TextureInfoIndex = CreateTextureInfo(qFace);
 				sFace.DisplacementIndex = -1;
 
+				// Surface edges
 				(var surfEdgeIndex, var numEdges) = CreateSurfaceEdges(faceIndex);
-				//var usePrims = sourceBsp.Primitives.Count < 6;
-				//if (usePrims)
-				//{
-				//	sFace.FirstEdgeIndexIndex = 0;
-				//	sFace.NumEdgeIndices = 0;
-				//}
-				//else
-				{
-					sFace.FirstEdgeIndexIndex = surfEdgeIndex;
-					sFace.NumEdgeIndices = numEdges;
-				}
+				sFace.FirstEdgeIndexIndex = surfEdgeIndex;
+				sFace.NumEdgeIndices = numEdges;
 
-				//if (usePrims)
-				//{
-				//	sFace.FirstPrimitive = CreatePrimitive(qFace.Vertices.ToArray(), qFace.Indices.ToArray());
-				//	sFace.NumPrimitives = 1;
-				//}
-				//else
-				{
-					sFace.FirstPrimitive = 0;
-					sFace.NumPrimitives = 0;
-				}
+				// Primitives
+				sFace.FirstPrimitive = CreatePrimitive(qFace.Vertices.ToArray(), qFace.Indices.ToArray());
+				sFace.NumPrimitives = 1;
+
+				splitFaceDict[faceIndex] = new int[] { sourceBsp.Faces.Count - 1 };
 			}
 		}
 
@@ -932,16 +920,6 @@ namespace BSPConversionLib
 			return primitiveIndex;
 		}
 
-		private int CreatePrimitiveIndices(int[] indices, int firstVertex)
-		{
-			var firstPrimIndex = sourceBsp.PrimitiveIndices.Count;
-
-			foreach (var index in indices)
-				sourceBsp.PrimitiveIndices.Add(index + firstVertex);
-
-			return firstPrimIndex;
-		}
-
 		private int CreatePrimitiveVertices(Vertex[] vertices)
 		{
 			var firstPrimVertex = sourceBsp.PrimitiveVertices.Count;
@@ -950,6 +928,16 @@ namespace BSPConversionLib
 				sourceBsp.PrimitiveVertices.Add(vertex.position);
 
 			return firstPrimVertex;
+		}
+
+		private int CreatePrimitiveIndices(int[] indices, int firstVertex)
+		{
+			var firstPrimIndex = sourceBsp.PrimitiveIndices.Count;
+
+			foreach (var index in indices)
+				sourceBsp.PrimitiveIndices.Add(index/* + firstVertex*/);
+
+			return firstPrimIndex;
 		}
 
 		private (int surfEdgeIndex, int numEdges) CreateSurfaceEdges(int faceIndex)
