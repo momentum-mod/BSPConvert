@@ -111,10 +111,17 @@ namespace BSPConversionLib
 			ConvertVisData();
 			ConvertAreas();
 			ConvertAreaPortals();
+			ConvertGameLump();
 
 			WriteBSP();
 			
 			contentManager.Dispose();
+		}
+
+		private void ConvertGameLump()
+		{
+			// Add game lump data so that the map can be decompiled
+			sourceBsp.GameLump.Add(0, new LumpInfo());
 		}
 
 		private void LoadBSP()
@@ -550,12 +557,23 @@ namespace BSPConversionLib
 				var sBrushSide = new BrushSide(data, sourceBsp.BrushSides);
 
 				sBrushSide.PlaneIndex = qBrushSide.PlaneIndex;
-				sBrushSide.TextureIndex = LookupTextureInfoIndex(qBrushSide.Texture.Name);
+				sBrushSide.TextureIndex = GetBrushSideTextureInfoIndex(qBrushSide);
 				sBrushSide.DisplacementIndex = 0;
 				sBrushSide.IsBevel = false;
 
 				sourceBsp.BrushSides.Add(sBrushSide);
 			}
+		}
+
+		// Lookup texture info index using brush side's texture name. If it doesn't exist, create a new texture info.
+		private int GetBrushSideTextureInfoIndex(BrushSide qBrushSide)
+		{
+			var textureIndex = LookupTextureInfoIndex(qBrushSide.Texture.Name);
+			if (textureIndex > -1)
+				return textureIndex;
+			
+			(var uAxis, var vAxis) = GetTextureVectorsWithNormal(qBrushSide.Plane.Normal);
+			return CreateTextureInfo(qBrushSide.Texture.Name, uAxis, vAxis);
 		}
 
 		private void ConvertFaces()
@@ -1054,7 +1072,7 @@ namespace BSPConversionLib
 
 			var den = deltaUV1.X * deltaUV2.Y - deltaUV1.Y * deltaUV2.X;
 			if (den < 0.01f)
-				return GetTextureVectors_Old(qFace.Normal);
+				return GetTextureVectorsWithNormal(qFace.Normal);
 			
 			var r = 1f / den;
 			var tangent = (deltaPos1 * deltaUV2.Y - deltaPos2 * deltaUV1.Y) * r / 32f;
@@ -1064,7 +1082,7 @@ namespace BSPConversionLib
 		}
 
 		// Fallback for when faces have unusual uv deltas
-		private (Vector3 uAxis, Vector3 vAxis) GetTextureVectors_Old(Vector3 faceNormal)
+		private (Vector3 uAxis, Vector3 vAxis) GetTextureVectorsWithNormal(Vector3 faceNormal)
 		{
 			var axis = GetVectorAxis(faceNormal);
 			switch (axis)
