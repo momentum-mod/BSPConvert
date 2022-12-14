@@ -90,6 +90,7 @@ namespace BSPConversionLib
 			
 			LoadBSP();
 			
+			ReplaceToolTextures();
 			ConvertShaders();
 			ConvertTextureFiles();
 
@@ -116,6 +117,29 @@ namespace BSPConversionLib
 			WriteBSP();
 			
 			contentManager.Dispose();
+		}
+
+		private void ReplaceToolTextures()
+		{
+			// TODO: Replace weapon clip textures
+			var replacementTextures = new Dictionary<string, string>()
+			{
+				{ "textures/common/caulk", "tools/toolsnodraw" },
+				{ "textures/common/nodraw", "tools/toolsnodraw" },
+				{ "textures/common/clip", "tools/toolsplayerclip" },
+				{ "textures/common/full_clip", "tools/clip" },
+				{ "textures/common/trigger", "tools/toolstrigger" },
+				{ "textures/common/hint", "tools/toolshint" },
+				{ "textures/common/skip", "tools/toolsskip" },
+				{ "textures/common/areaportal", "tools/toolsareaportal" }
+			};
+
+			for (var i = 0; i < quakeBsp.Textures.Count; i++)
+			{
+				var texture = quakeBsp.Textures[i];
+				if (replacementTextures.TryGetValue(texture.Name, out var replacementTexture))
+					texture.Name = replacementTexture;
+			}
 		}
 
 		private void ConvertGameLump()
@@ -528,6 +552,12 @@ namespace BSPConversionLib
 		{
 			// TODO: Handle other texture contents flags
 			var contents = (Q3ContentsFlags)texture.Contents;
+			if (contents.HasFlag(Q3ContentsFlags.CONTENTS_PLAYERCLIP))
+				return (int)SourceContentsFlags.CONTENTS_PLAYERCLIP;
+
+			if (contents.HasFlag(Q3ContentsFlags.CONTENTS_SLIME))
+				return (int)SourceContentsFlags.CONTENTS_SLIME;
+
 			var flags = (SurfaceFlags)texture.Flags;
 			if (contents == 0 ||
 				contents.HasFlag(Q3ContentsFlags.CONTENTS_FOG) ||
