@@ -31,10 +31,12 @@ namespace BSPConversionCmd
 
 		static void Main(string[] args)
 		{
-			//args = new string[3];
-			//args[0] = @"c:\users\tyler\documents\tools\source engine\bspconvert\kopo_fe.pk3";
-			//args[1] = @"c:\users\tyler\documents\tools\source engine\bspconvert\output";
-			//args[2] = "--newbsp";
+			//args = new string[]
+			//{
+			//	@"c:\users\tyler\documents\tools\source engine\bspconvert\room-cube-q3.pk3",
+			//	"--output", @"c:\users\tyler\documents\tools\source engine\bspconvert\output",
+			//	"--newbsp",
+			//};
 
 			Parser.Default.ParseArguments<Options>(args)
 				.WithParsed(options =>
