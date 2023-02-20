@@ -25,5 +25,17 @@ namespace BSPConversionLib
 			Directory.CreateDirectory(Path.GetDirectoryName(destFileName));
 			File.Copy(sourceFileName, destFileName, true);
 		}
+
+		/// <summary>
+		/// Deserializes a file using the specified deserialization function.
+		/// </summary>
+		public static T DeserializeFromFile<T>(string path, Func<BinaryReader, T> deserializeFunc)
+		{
+			using (var stream = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+			using (var reader = new BinaryReader(stream))
+			{
+				return deserializeFunc(reader);
+			}
+		}
 	}
 }

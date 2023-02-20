@@ -114,8 +114,16 @@ namespace BSPConversionLib
 			var baseTexture = Path.ChangeExtension(shader.map, null);
 			TryCopyQ3Content(baseTexture);
 
-			var shaderVmt = GenerateLitVMT(baseTexture, shader);
+			var shaderVmt = GenerateVMT(shader, baseTexture);
 			WriteVMT(texture, shaderVmt);
+		}
+
+		private string GenerateVMT(Shader shader, string baseTexture)
+		{
+			if (shader.surfaceFlags.HasFlag(Q3SurfaceFlags.SURF_NOLIGHTMAP))
+				return GenerateUnlitVMT(baseTexture, shader);
+			
+			return GenerateLitVMT(baseTexture, shader);
 		}
 
 		private void CreateDefaultVMT(string texture)
@@ -153,19 +161,37 @@ namespace BSPConversionLib
 
 			sb.AppendLine($"\t$basetexture \"{baseTexture}\"");
 			if (shader != null)
-			{
-				if (shader.alphaFunc == AlphaFunc.GLS_ATEST_GE_80)
-				{
-					sb.AppendLine("\t$alphatest 1");
-					sb.AppendLine("\t$alphatestreference 0.5");
-				}
-				else if (shader.contents.HasFlag(Q3ContentsFlags.CONTENTS_TRANSLUCENT))
-					sb.AppendLine("\t$translucent 1");
-			}
+				AppendShaderParameters(sb, shader);
 
 			sb.AppendLine("}");
 
 			return sb.ToString();
+		}
+
+		private string GenerateUnlitVMT(string baseTexture, Shader shader)
+		{
+			var sb = new StringBuilder();
+			sb.AppendLine("UnlitGeneric");
+			sb.AppendLine("{");
+
+			sb.AppendLine($"\t$basetexture \"{baseTexture}\"");
+			if (shader != null)
+				AppendShaderParameters(sb, shader);
+
+			sb.AppendLine("}");
+
+			return sb.ToString();
+		}
+		
+		private void AppendShaderParameters(StringBuilder sb, Shader shader)
+		{
+			if (shader.alphaFunc == AlphaFunc.GLS_ATEST_GE_80)
+			{
+				sb.AppendLine("\t$alphatest 1");
+				sb.AppendLine("\t$alphatestreference 0.5");
+			}
+			else if (shader.contents.HasFlag(Q3ContentsFlags.CONTENTS_TRANSLUCENT))
+				sb.AppendLine("\t$translucent 1");
 		}
 
 		private string GenerateSkyboxVMT(string baseTexture)

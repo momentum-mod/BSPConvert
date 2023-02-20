@@ -17,7 +17,7 @@ namespace BSPConversionLib
 
 		public string map; // Path to image file
 		public SkyParms skyParms;
-		public SurfaceFlags surfaceFlags;
+		public Q3SurfaceFlags surfaceFlags;
 		public Q3ContentsFlags contents;
 
 		// Shader stage parameters (TODO: Needs to be moved to separate class for handling stages)

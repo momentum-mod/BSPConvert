@@ -101,7 +101,7 @@ namespace BSPConversionLib
 	}
 
 	[Flags]
-	public enum SurfaceFlags
+	public enum Q3SurfaceFlags
 	{
 		SURF_NODAMAGE = 0x1,        // never give falling damage
 		SURF_SLICK = 0x2,       // effects game physics
@@ -124,6 +124,32 @@ namespace BSPConversionLib
 		SURF_DUST = 0x40000     // leave a dust trail when walking on this surface
 	}
 
+	[Flags]
+	public enum SourceSurfaceFlags
+	{
+		SURF_LIGHT = 0x0001,		// value will hold the light strength
+		SURF_SKY2D = 0x0002,		// don't draw, indicates we should skylight + draw 2d sky but not draw the 3D skybox
+		SURF_SKY = 0x0004,		// don't draw, but add to skybox
+		SURF_WARP = 0x0008,		// turbulent water warp
+		SURF_TRANS = 0x0010,
+		SURF_NOPORTAL = 0x0020,	// the surface can not have a portal placed on it
+		SURF_TRIGGER = 0x0040,	// FIXME: This is an xbox hack to work around elimination of trigger surfaces, which breaks occluders
+		SURF_NODRAW = 0x0080,	// don't bother referencing the texture
+		
+		SURF_HINT = 0x0100,	// make a primary bsp splitter
+		
+		SURF_SKIP = 0x0200,	// completely ignore, allowing non-closed brushes
+		SURF_NOLIGHT = 0x0400,	// Don't calculate light
+		SURF_BUMPLIGHT = 0x0800,	// calculate three lightmaps for the surface for bumpmapping
+		SURF_NOSHADOWS = 0x1000,	// Don't receive shadows
+		SURF_NODECALS = 0x2000,	// Don't receive decals
+		SURF_NOPAINT = SURF_NODECALS,	// the surface can not have paint placed on it
+		SURF_NOCHOP = 0x4000,	// Don't subdivide patches on this surface 
+		SURF_HITBOX = 0x8000,	// surface is part of a hitbox
+		SURF_SKYNOEMIT = 0x10000,	// surface will show the skybox but does not emit light
+		SURF_SKYOCCLUSION = 0x20000,	// surface will draw the skybox before any solids
+	}
+
 	public enum AlphaFunc
 	{
 		GLS_ATEST_GT_0 = 0x10000000,
@@ -135,10 +161,10 @@ namespace BSPConversionLib
 	{
 		public string name;
 		public int clearSolid;
-		public SurfaceFlags surfaceFlags;
+		public Q3SurfaceFlags surfaceFlags;
 		public Q3ContentsFlags contents;
 
-		public InfoParm(string name, int clearSolid, SurfaceFlags surfaceFlags, Q3ContentsFlags contents)
+		public InfoParm(string name, int clearSolid, Q3SurfaceFlags surfaceFlags, Q3ContentsFlags contents)
 		{
 			this.name = name;
 			this.clearSolid = clearSolid;
@@ -158,7 +184,7 @@ namespace BSPConversionLib
 			new InfoParm("playerclip",  1,  0,  Q3ContentsFlags.CONTENTS_PLAYERCLIP ),
 			new InfoParm("monsterclip", 1,  0,  Q3ContentsFlags.CONTENTS_MONSTERCLIP ),
 			new InfoParm("nodrop",      1,  0,  Q3ContentsFlags.CONTENTS_NODROP ),		// don't drop items or leave bodies (death fog, lava, etc)
-			new InfoParm("nonsolid",    1,  SurfaceFlags.SURF_NONSOLID,  0),						// clears the solid flag
+			new InfoParm("nonsolid",    1,  Q3SurfaceFlags.SURF_NONSOLID,  0),						// clears the solid flag
 
 			// utility relevant attributes
 			new InfoParm("origin",      1,  0,  Q3ContentsFlags.CONTENTS_ORIGIN ),		// center of rotating brushes
@@ -170,27 +196,27 @@ namespace BSPConversionLib
 			new InfoParm("donotenter",  1,  0,  Q3ContentsFlags.CONTENTS_DONOTENTER ),		// for bots
 
 			new InfoParm("fog",         1,  0,  Q3ContentsFlags.CONTENTS_FOG),			// carves surfaces entering
-			new InfoParm("sky",         0,  SurfaceFlags.SURF_SKY,       0 ),		// emit light from an environment map
-			new InfoParm("lightfilter", 0,  SurfaceFlags.SURF_LIGHTFILTER, 0 ),		// filter light going through it
-			new InfoParm("alphashadow", 0,  SurfaceFlags.SURF_ALPHASHADOW, 0 ),		// test light on a per-pixel basis
-			new InfoParm("hint",        0,  SurfaceFlags.SURF_HINT,      0 ),		// use as a primary splitter
+			new InfoParm("sky",         0,  Q3SurfaceFlags.SURF_SKY,       0 ),		// emit light from an environment map
+			new InfoParm("lightfilter", 0,  Q3SurfaceFlags.SURF_LIGHTFILTER, 0 ),		// filter light going through it
+			new InfoParm("alphashadow", 0,  Q3SurfaceFlags.SURF_ALPHASHADOW, 0 ),		// test light on a per-pixel basis
+			new InfoParm("hint",        0,  Q3SurfaceFlags.SURF_HINT,      0 ),		// use as a primary splitter
 
 			// server attributes
-			new InfoParm("slick",       0,  SurfaceFlags.SURF_SLICK,     0 ),
-			new InfoParm("noimpact",    0,  SurfaceFlags.SURF_NOIMPACT,  0 ),		// don't make impact explosions or marks
-			new InfoParm("nomarks",     0,  SurfaceFlags.SURF_NOMARKS,   0 ),		// don't make impact marks, but still explode
-			new InfoParm("ladder",      0,  SurfaceFlags.SURF_LADDER,    0 ),
-			new InfoParm("nodamage",    0,  SurfaceFlags.SURF_NODAMAGE,  0 ),
-			new InfoParm("metalsteps",  0,  SurfaceFlags.SURF_METALSTEPS,0 ),
-			new InfoParm("flesh",       0,  SurfaceFlags.SURF_FLESH,     0 ),
-			new InfoParm("nosteps",     0,  SurfaceFlags.SURF_NOSTEPS,   0 ),
+			new InfoParm("slick",       0,  Q3SurfaceFlags.SURF_SLICK,     0 ),
+			new InfoParm("noimpact",    0,  Q3SurfaceFlags.SURF_NOIMPACT,  0 ),		// don't make impact explosions or marks
+			new InfoParm("nomarks",     0,  Q3SurfaceFlags.SURF_NOMARKS,   0 ),		// don't make impact marks, but still explode
+			new InfoParm("ladder",      0,  Q3SurfaceFlags.SURF_LADDER,    0 ),
+			new InfoParm("nodamage",    0,  Q3SurfaceFlags.SURF_NODAMAGE,  0 ),
+			new InfoParm("metalsteps",  0,  Q3SurfaceFlags.SURF_METALSTEPS,0 ),
+			new InfoParm("flesh",       0,  Q3SurfaceFlags.SURF_FLESH,     0 ),
+			new InfoParm("nosteps",     0,  Q3SurfaceFlags.SURF_NOSTEPS,   0 ),
 
 			// drawsurf attributes
-			new InfoParm("nodraw",      0,  SurfaceFlags.SURF_NODRAW,    0 ),	// don't generate a drawsurface (or a lightmap)
-			new InfoParm("pointlight",  0,  SurfaceFlags.SURF_POINTLIGHT, 0 ),	// sample lighting at vertexes
-			new InfoParm("nolightmap",  0,  SurfaceFlags.SURF_NOLIGHTMAP,0 ),	// don't generate a lightmap
-			new InfoParm("nodlight",    0,  SurfaceFlags.SURF_NODLIGHT, 0 ),		// don't ever add dynamic lights
-			new InfoParm("dust",        0,  SurfaceFlags.SURF_DUST, 0)			// leave a dust trail when walking on this surface
+			new InfoParm("nodraw",      0,  Q3SurfaceFlags.SURF_NODRAW,    0 ),	// don't generate a drawsurface (or a lightmap)
+			new InfoParm("pointlight",  0,  Q3SurfaceFlags.SURF_POINTLIGHT, 0 ),	// sample lighting at vertexes
+			new InfoParm("nolightmap",  0,  Q3SurfaceFlags.SURF_NOLIGHTMAP,0 ),	// don't generate a lightmap
+			new InfoParm("nodlight",    0,  Q3SurfaceFlags.SURF_NODLIGHT, 0 ),		// don't ever add dynamic lights
+			new InfoParm("dust",        0,  Q3SurfaceFlags.SURF_DUST, 0)			// leave a dust trail when walking on this surface
 		};
 	}
 }
