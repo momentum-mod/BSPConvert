@@ -16,8 +16,8 @@ namespace BSPConversionCmd
 			[Option("subdiv", Required = false, Default = 4, HelpText = "Displacement subdivisions [2-4].")]
 			public int DisplacementPower { get; set; }
 
-			[Option("newbsp", Required = false, HelpText = "Use BSP version 25 (Momentum Mod).")]
-			public bool NewBSP { get; set; }
+			[Option("oldbsp", Required = false, HelpText = "Use BSP version 20.")]
+			public bool OldBSP { get; set; }
 
 			[Option("prefix", Required = false, HelpText = "Prefix for the converted BSP's file name.")]
 			public string Prefix { get; set; }
@@ -54,7 +54,7 @@ namespace BSPConversionCmd
 							noPak = options.NoPak,
 							skyFix = options.SkyFix,
 							DisplacementPower = options.DisplacementPower,
-							newBSP = options.NewBSP,
+							oldBSP = options.OldBSP,
 							prefix = options.Prefix,
 							inputFile = inputEntry,
 							outputDir = options.OutputDirectory

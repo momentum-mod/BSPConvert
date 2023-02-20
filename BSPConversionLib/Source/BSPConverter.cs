@@ -52,7 +52,7 @@ namespace BSPConversionLib
 			get { return displacementPower; }
 			set { displacementPower = Math.Clamp(value, 2, 4); }
 		}
-		public bool newBSP;
+		public bool oldBSP;
 		public string prefix;
 		public string inputFile;
 		public string outputDir;
@@ -148,7 +148,7 @@ namespace BSPConversionLib
 			// TODO: Support converting multiple bsp's (some pk3's contain multiple bsp's)
 			quakeBsp = contentManager.BSPFiles.First();
 			
-			var mapType = options.newBSP ? MapType.Source25 : MapType.Source20;
+			var mapType = options.oldBSP ? MapType.Source20 : MapType.Source25;
 			sourceBsp = new BSP(Path.GetFileName(options.inputFile), mapType);
 		}
 
@@ -328,7 +328,7 @@ namespace BSPConversionLib
 		// Note: This needs to be called after converting split faces in order to fix skyboxes not rendering
 		private void ConvertNodes()
 		{
-			if (options.newBSP)
+			if (!options.oldBSP)
 				SetLumpVersionNumber(Node.GetIndexForLump(sourceBsp.MapType), 1);
 
 			foreach (var qNode in quakeBsp.Nodes)
@@ -379,7 +379,7 @@ namespace BSPConversionLib
 
 		private void ConvertLeaves()
 		{
-			var version = options.newBSP ? 2 : 1;
+			var version = options.oldBSP ? 1 : 2;
 			SetLumpVersionNumber(Leaf.GetIndexForLump(sourceBsp.MapType), version);
 
 			foreach (var qLeaf in quakeBsp.Leaves)
@@ -413,7 +413,7 @@ namespace BSPConversionLib
 
 		private void ConvertLeaves_SplitFaces()
 		{
-			var version = options.newBSP ? 2 : 1;
+			var version = options.oldBSP ? 1 : 2;
 			SetLumpVersionNumber(Leaf.GetIndexForLump(sourceBsp.MapType), version);
 
 			var currentFaceIndex = 0;
@@ -455,7 +455,7 @@ namespace BSPConversionLib
 
 		private void ConvertLeafFaces()
 		{
-			if (options.newBSP)
+			if (!options.oldBSP)
 				SetLumpVersionNumber(NumList.GetIndexForLeafFacesLump(sourceBsp.MapType, out _), 1);
 
 			foreach (var qLeafFace in quakeBsp.LeafFaces)
@@ -464,7 +464,7 @@ namespace BSPConversionLib
 
 		private void ConvertLeafFaces_SplitFaces()
 		{
-			if (options.newBSP)
+			if (!options.oldBSP)
 				SetLumpVersionNumber(NumList.GetIndexForLeafFacesLump(sourceBsp.MapType, out _), 1);
 
 			foreach (var qLeafFace in quakeBsp.LeafFaces)
@@ -477,7 +477,7 @@ namespace BSPConversionLib
 
 		private void ConvertLeafBrushes()
 		{
-			if (options.newBSP)
+			if (!options.oldBSP)
 				SetLumpVersionNumber(NumList.GetIndexForLeafBrushesLump(sourceBsp.MapType, out _), 1);
 
 			foreach (var qLeafBrush in quakeBsp.LeafBrushes)
@@ -496,8 +496,8 @@ namespace BSPConversionLib
 
 				var mins = qModel.Minimums;
 				var maxs = qModel.Maximums;
-				var minExtents = options.newBSP ? -65536 : -16384;
-				var maxExtents = options.newBSP ? 65536 : 16384;
+				var minExtents = options.oldBSP ? -16384 : -65536;
+				var maxExtents = options.oldBSP ? 16384 : 65536;
 				//sModel.Minimums = new Vector3(Math.Clamp(mins.X(), minExtents, maxExtents), Math.Clamp(mins.Y(), minExtents, maxExtents), Math.Clamp(mins.Z(), minExtents, maxExtents));
 				//sModel.Maximums = new Vector3(Math.Clamp(maxs.X(), minExtents, maxExtents), Math.Clamp(maxs.Y(), minExtents, maxExtents), Math.Clamp(maxs.Z(), minExtents, maxExtents));
 
@@ -618,7 +618,7 @@ namespace BSPConversionLib
 
 		private void ConvertBrushSides()
 		{
-			if (options.newBSP)
+			if (!options.oldBSP)
 				SetLumpVersionNumber(BrushSide.GetIndexForLump(sourceBsp.MapType), 1);
 
 			foreach (var qBrushSide in quakeBsp.BrushSides)
@@ -648,7 +648,7 @@ namespace BSPConversionLib
 
 		private void ConvertFaces()
 		{
-			if (options.newBSP)
+			if (!options.oldBSP)
 			{
 				SetLumpVersionNumber(Face.GetIndexForLump(sourceBsp.MapType), 2);
 				SetLumpVersionNumber(Displacement.GetIndexForLump(sourceBsp.MapType), 1);
@@ -723,7 +723,7 @@ namespace BSPConversionLib
 
 		private void ConvertFaces_SplitFaces()
 		{
-			if (options.newBSP)
+			if (!options.oldBSP)
 			{
 				SetLumpVersionNumber(Face.GetIndexForLump(sourceBsp.MapType), 2);
 				SetLumpVersionNumber(Displacement.GetIndexForLump(sourceBsp.MapType), 1);
@@ -1414,7 +1414,7 @@ namespace BSPConversionLib
 
 		private void ConvertAreaPortals()
 		{
-			if (options.newBSP)
+			if (!options.oldBSP)
 				SetLumpVersionNumber(AreaPortal.GetIndexForLump(sourceBsp.MapType), 1);
 
 			// Create an area portal for the first area
