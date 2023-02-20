@@ -147,7 +147,8 @@ namespace BSPConversionLib
 		SURF_NOCHOP = 0x4000,	// Don't subdivide patches on this surface 
 		SURF_HITBOX = 0x8000,	// surface is part of a hitbox
 		SURF_SKYNOEMIT = 0x10000,	// surface will show the skybox but does not emit light
-		SURF_SKYOCCLUSION = 0x20000,	// surface will draw the skybox before any solids
+		SURF_SKYOCCLUSION = 0x20000,    // surface will draw the skybox before any solids
+		SURF_SLICK = 0x40000	// surface is zero friction
 	}
 
 	public enum AlphaFunc

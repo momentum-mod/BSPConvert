@@ -1140,6 +1140,9 @@ namespace BSPConversionLib
 			textureInfo.LightmapVAxis = vAxis / 32f;
 			textureInfo.TextureIndex = LookupTextureDataIndex(texture.Name);
 
+			if ((texture.Flags & (int)Q3SurfaceFlags.SURF_SLICK) != 0)
+				textureInfo.Flags |= (int)SourceSurfaceFlags.SURF_SLICK;
+
 			if ((texture.Flags & (int)Q3SurfaceFlags.SURF_NOLIGHTMAP) != 0)
 				textureInfo.Flags |= (int)SourceSurfaceFlags.SURF_NOLIGHT;
 			
