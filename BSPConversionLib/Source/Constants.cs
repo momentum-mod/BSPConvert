@@ -151,13 +151,6 @@ namespace BSPConversionLib
 		SURF_SLICK = 0x40000	// surface is zero friction
 	}
 
-	public enum AlphaFunc
-	{
-		GLS_ATEST_GT_0 = 0x10000000,
-		GLS_ATEST_LT_80 = 0x20000000,
-		GLS_ATEST_GE_80 = 0x40000000
-	}
-
 	public struct InfoParm
 	{
 		public string name;

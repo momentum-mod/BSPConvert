@@ -6,24 +6,6 @@ using System.Threading.Tasks;
 
 namespace BSPConversionLib
 {
-	public class Shader
-	{
-		public class SkyParms
-		{
-			public string outerBox;
-			public string cloudHeight;
-			public string innerBox;
-		}
-
-		public string map; // Path to image file
-		public SkyParms skyParms;
-		public Q3SurfaceFlags surfaceFlags;
-		public Q3ContentsFlags contents;
-
-		// Shader stage parameters (TODO: Needs to be moved to separate class for handling stages)
-		public AlphaFunc alphaFunc;
-	}
-
 	public class ShaderParser
 	{
 		private string shaderFile;
@@ -83,16 +65,24 @@ namespace BSPConversionLib
 				switch (split[0].ToLower())
 				{
 					case "map":
-						ParseMap(shader, split);
+						if (string.IsNullOrEmpty(shader.map)) // Don't overwite existing map
+							shader.map = ParseMap(split[1]);
 						break;
 					case "surfaceparm":
-						ParseSurfaceParm(shader, split);
-						break;
+						{
+							var infoParm = ParseSurfaceParm(split[1]);
+							shader.surfaceFlags |= infoParm.surfaceFlags;
+							shader.contents |= infoParm.contents;
+							break;
+						}
 					case "skyparms":
-						ParseSkyParms(shader, split);
+						shader.skyParms = ParseSkyParms(split);
+						break;
+					case "cull":
+						shader.cullType = ParseCullType(split[1]);
 						break;
 					case "alphafunc":
-						ParseAlphaFunc(shader, split);
+						shader.alphaFunc = ParseAlphaFunc(split[1]);
 						break;
 				}
 			}
@@ -100,28 +90,28 @@ namespace BSPConversionLib
 			return shader;
 		}
 
-		private static void ParseMap(Shader shader, string[] split)
+		private static string ParseMap(string map)
 		{
-			if (!split[1].StartsWith('$') && string.IsNullOrEmpty(shader.map))
-				shader.map = split[1];
+			if (map.StartsWith('$'))
+				return string.Empty;
+
+			return map;
 		}
 
-		private void ParseSurfaceParm(Shader shader, string[] split)
+		private InfoParm ParseSurfaceParm(string surfaceParm)
 		{
 			foreach (var infoParm in Constants.infoParms)
 			{
-				if (split[1] == infoParm.name)
-				{
-					shader.surfaceFlags |= infoParm.surfaceFlags;
-					shader.contents |= infoParm.contents;
-					break;
-				}
+				if (surfaceParm == infoParm.name)
+					return infoParm;
 			}
+
+			return default(InfoParm);
 		}
 
-		private void ParseSkyParms(Shader shader, string[] split)
+		private Shader.SkyParms ParseSkyParms(string[] split)
 		{
-			shader.skyParms = new Shader.SkyParms()
+			return new Shader.SkyParms()
 			{
 				outerBox = split[1],
 				cloudHeight = split[2],
@@ -129,20 +119,37 @@ namespace BSPConversionLib
 			};
 		}
 
-		private void ParseAlphaFunc(Shader shader, string[] split)
+		private CullType ParseCullType(string cullType)
 		{
-			switch (split[1].ToLower())
+			switch (cullType.ToLower())
+			{
+				case "none":
+				case "twosided":
+				case "disable":
+					return CullType.TWO_SIDED;
+				case "back":
+				case "backside":
+				case "backsided":
+					return CullType.BACK_SIDED;
+				default:
+					return CullType.FRONT_SIDED;
+			}
+		}
+
+		private AlphaFunc ParseAlphaFunc(string func)
+		{
+			switch (func.ToLower())
 			{
 				case "gt0":
-					shader.alphaFunc = AlphaFunc.GLS_ATEST_GT_0;
-					break;
+					return AlphaFunc.GLS_ATEST_GT_0;
 				case "lt128":
-					shader.alphaFunc = AlphaFunc.GLS_ATEST_LT_80;
-					break;
+					return AlphaFunc.GLS_ATEST_LT_80;
 				case "ge128":
-					shader.alphaFunc = AlphaFunc.GLS_ATEST_GE_80;
-					break;
+					return AlphaFunc.GLS_ATEST_GE_80;
 			}
+
+			// Invalid alphaFunc
+			return 0;
 		}
 
 		private string TrimLine(string line)

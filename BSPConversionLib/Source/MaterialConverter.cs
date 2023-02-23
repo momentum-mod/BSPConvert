@@ -185,6 +185,9 @@ namespace BSPConversionLib
 		
 		private void AppendShaderParameters(StringBuilder sb, Shader shader)
 		{
+			if (shader.cullType == CullType.TWO_SIDED)
+				sb.AppendLine("\t$nocull 1");
+			
 			if (shader.alphaFunc == AlphaFunc.GLS_ATEST_GE_80)
 			{
 				sb.AppendLine("\t$alphatest 1");

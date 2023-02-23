@@ -33,9 +33,8 @@ namespace BSPConversionCmd
 		{
 			//args = new string[]
 			//{
-			//	@"c:\users\tyler\documents\tools\source engine\bspconvert\room-cube-q3.pk3",
+			//	@"c:\users\tyler\documents\tools\source engine\bspconvert\dfwc2017-6.pk3",
 			//	"--output", @"c:\users\tyler\documents\tools\source engine\bspconvert\output",
-			//	"--newbsp",
 			//};
 
 			Parser.Default.ParseArguments<Options>(args)
