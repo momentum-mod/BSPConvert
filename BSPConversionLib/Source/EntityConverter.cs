@@ -273,11 +273,17 @@ namespace BSPConversionLib
 			trigger.Remove("target");
 		}
 
-		private static void ConvertTriggerTeleport(Entity trigger)
+		private void ConvertTriggerTeleport(Entity trigger)
 		{
 			trigger["spawnflags"] = "1";
 			trigger["mode"] = "5";
 			trigger["setspeed"] = "400";
+
+			if (TryGetTargetEntities(trigger, out var targetEnts))
+			{
+				foreach (var ent in targetEnts)
+					ent.ClassName = "info_teleport_destination";
+			}
 		}
 
 		private void ConvertWeapon(Entity entity, int weaponSlot)
