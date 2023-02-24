@@ -1021,7 +1021,7 @@ namespace BSPConversionLib
 			primitive.FirstVertex = CreatePrimitiveVertices(vertices);
 			primitive.VertexCount = vertices.Length;
 
-			primitive.FirstIndex = CreatePrimitiveIndices(indices, primitive.FirstVertex);
+			primitive.FirstIndex = CreatePrimitiveIndices(indices);
 			primitive.IndexCount = indices.Length;
 
 			sourceBsp.Primitives.Add(primitive);
@@ -1054,12 +1054,12 @@ namespace BSPConversionLib
 			return firstPrimVertex;
 		}
 
-		private int CreatePrimitiveIndices(int[] indices, int firstVertex)
+		private int CreatePrimitiveIndices(int[] indices)
 		{
 			var firstPrimIndex = sourceBsp.PrimitiveIndices.Count;
 
 			foreach (var index in indices)
-				sourceBsp.PrimitiveIndices.Add(index/* + firstVertex*/);
+				sourceBsp.PrimitiveIndices.Add(index);
 
 			return firstPrimIndex;
 		}
