@@ -13,6 +13,7 @@ using System.Linq;
 using System.IO.Compression;
 using System.Diagnostics;
 using System.Collections;
+using System.Xml.Linq;
 
 namespace BSPConversionLib
 {
@@ -45,7 +46,6 @@ namespace BSPConversionLib
 	public class BSPConverterOptions
 	{
 		public bool noPak;
-		public bool skyFix;
 		private int displacementPower;
 		public int DisplacementPower
 		{
@@ -351,30 +351,84 @@ namespace BSPConversionLib
 				sourceBsp.Nodes.Add(node);
 			}
 
-			if (options.skyFix)
-				FixSkyboxRendering();
+			UpdateSplitFaces();
 		}
 
-		// Configuring all child1 nodes and the first child2 node to render all faces seems to fix skybox rendering
-		// This hack breaks rendering on some maps, so it's disabled by default
-		// TODO: Figure out a better way to do this, or at least only apply this fix for skybox faces. Could move all skybox faces to be at the end of the face array to target them specifically
-		// TODO: Set onNode to true for all skybox faces? onNode is typically only set to true for faces that split visleafs
-		// TODO: Does this need to be done for all model head nodes?
-		private void FixSkyboxRendering()
+		// Assigns face ids to nodes by searching for the face that was used to split the node into its children
+		// This is necessary to get skyboxes to render correctly (and perhaps some other engine optimizations)
+		private void UpdateSplitFaces()
 		{
+			// TODO: Does this need to be done for all model head nodes?
 			var rootNode = sourceBsp.Nodes[0];
-			
-			var child2 = sourceBsp.Nodes[rootNode.Child2Index];
-			child2.NumFaceIndices = sourceBsp.Faces.Count;
 
-			FixSkyboxRenderingRecursive(rootNode);
+			UpdateSplitFacesRecursive(rootNode.Child1);
+			UpdateSplitFacesRecursive(rootNode.Child2);
 		}
 
-		private void FixSkyboxRenderingRecursive(Node node)
+		private IEnumerable<int> UpdateSplitFacesRecursive(ILumpObject obj)
 		{
-			node.NumFaceIndices = sourceBsp.Faces.Count;
-			if (node.Child1Index > 0)
-				FixSkyboxRenderingRecursive(sourceBsp.Nodes[node.Child1Index]);
+			if (obj is Leaf)
+				return ((Leaf)obj).MarkFaces;
+
+			var node = (Node)obj;
+			var faces = UpdateSplitFacesRecursive(node.Child1).Concat(
+				UpdateSplitFacesRecursive(node.Child2));
+
+			// Find the face that splits this node
+			var vertices = sourceBsp.PrimitiveVertices;
+			foreach (var faceIndex in faces)
+			{
+				var face = sourceBsp.Faces[faceIndex];
+				var primitive = sourceBsp.Primitives[face.FirstPrimitive];
+
+				var plane = Plane.CreateFromVertices(
+					vertices[primitive.FirstVertex],
+					vertices[primitive.FirstVertex + 1],
+					vertices[primitive.FirstVertex + 2]);
+
+				// TODO: Should this check be more precise?
+				// Splitting face will be in between each child node
+				if (IsPlaneCoplanarWithNode(plane, node.Child1) && IsPlaneCoplanarWithNode(plane, node.Child2) &&
+					IsPlaneBetweenNodes(plane, node.Child1, node.Child2))
+				{
+					node.FirstFaceIndex = faceIndex;
+					node.NumFaceIndices = 1;
+
+					break;
+				}
+			}
+
+			return faces;
+		}
+
+		private bool IsPlaneCoplanarWithNode(Plane plane, ILumpObject node)
+		{
+			(var mins, var maxs) = GetMinsMaxs(node);
+			return plane.HasPoint(mins) || plane.HasPoint(maxs);
+		}
+
+		private bool IsPlaneBetweenNodes(Plane plane, ILumpObject node1, ILumpObject node2)
+		{
+			(var mins1, var maxs1) = GetMinsMaxs(node1);
+			(var mins2, var maxs2) = GetMinsMaxs(node2);
+			var center1 = (mins1 + maxs1) / 2;
+			var center2 = (mins2 + maxs2) / 2;
+
+			return plane.GetSide(center1) != plane.GetSide(center2);
+		}
+
+		private (Vector3, Vector3) GetMinsMaxs(ILumpObject obj)
+		{
+			if (obj is Node)
+			{
+				var node = (Node)obj;
+				return (node.Minimums, node.Maximums);
+			}
+			else
+			{
+				var leaf = (Leaf)obj;
+				return (leaf.Minimums, leaf.Maximums);
+			}
 		}
 
 		private void ConvertLeaves()

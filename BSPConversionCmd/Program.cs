@@ -10,9 +10,6 @@ namespace BSPConversionCmd
 			[Option("nopak", Required = false, HelpText = "Export materials into folders instead of embedding them in the BSP.")]
 			public bool NoPak { get; set; }
 
-			[Option("skyfix", Required = false, HelpText = "This is a temporary hack to fix skybox rendering.")]
-			public bool SkyFix { get; set; }
-
 			[Option("subdiv", Required = false, Default = 4, HelpText = "Displacement subdivisions [2-4].")]
 			public int DisplacementPower { get; set; }
 
@@ -51,7 +48,6 @@ namespace BSPConversionCmd
 						var converterOptions = new BSPConverterOptions()
 						{
 							noPak = options.NoPak,
-							skyFix = options.SkyFix,
 							DisplacementPower = options.DisplacementPower,
 							oldBSP = options.OldBSP,
 							prefix = options.Prefix,
