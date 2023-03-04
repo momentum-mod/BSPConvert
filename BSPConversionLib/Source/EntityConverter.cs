@@ -1,7 +1,9 @@
 ﻿using LibBSP;
+using SharpCompress.Common;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Numerics;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -46,11 +48,10 @@ namespace BSPConversionLib
 						ConvertWorldspawn(entity);
 						break;
 					case "info_player_start":
-						entity.Name = MOMENTUM_START_ENTITY;
+						ConvertPlayerStart(entity);
 						break;
 					case "info_player_deathmatch":
-						entity.ClassName = "info_player_start";
-						entity.Name = MOMENTUM_START_ENTITY;
+						ConvertPlayerStart(entity);
 						break;
 					case "trigger_multiple":
 						ConvertTriggerMultiple(entity);
@@ -67,24 +68,6 @@ namespace BSPConversionLib
 					case "target_position":
 						entity.ClassName = "info_target";
 						break;
-					case "weapon_machinegun":
-						ConvertWeapon(entity, 2);
-						break;
-					case "weapon_gauntlet":
-						ConvertWeapon(entity, 3);
-						break;
-					case "weapon_grenadelauncher":
-						ConvertWeapon(entity, 4);
-						break;
-					case "weapon_rocketlauncher":
-						ConvertWeapon(entity, 5);
-						break;
-					case "weapon_plasmagun":
-						ConvertWeapon(entity, 8);
-						break;
-					case "weapon_bfg":
-						ConvertWeapon(entity, 9);
-						break;
 					// Ignore these entities since they have no use in Source engine
 					case "target_startTimer":
 					case "target_stopTimer":
@@ -92,6 +75,17 @@ namespace BSPConversionLib
 					case "target_give":
 						ignoreEntity = true;
 						break;
+					default:
+						{
+							if (entity.ClassName.StartsWith("weapon_"))
+								ConvertWeapon(entity);
+							else if (entity.ClassName.StartsWith("ammo_"))
+								ConvertAmmo(entity);
+							else if (entity.ClassName.StartsWith("item_"))
+								ConvertItem(entity);
+							
+							break;
+						}
 				}
 
 				if (!ignoreEntity)
@@ -115,19 +109,98 @@ namespace BSPConversionLib
 			}
 		}
 
-		private bool TryGetTargetEntities(Entity sourceEntity, out List<Entity> targetEntities)
+		private void ConvertPlayerStart(Entity playerStart)
 		{
-			if (sourceEntity.TryGetValue("target", out var target))
+			playerStart.ClassName = "info_player_start";
+			playerStart.Name = MOMENTUM_START_ENTITY;
+
+			if (TryGetTargetEntities(playerStart, out var targetEnts))
 			{
-				if (entityDict.ContainsKey(target))
+				foreach (var targetEnt in targetEnts)
 				{
-					targetEntities = entityDict[target];
-					return true;
+					switch (targetEnt.ClassName)
+					{
+						case "target_give":
+							ConvertPlayerStartTargetGive(playerStart, targetEnt);
+							break;
+					}
 				}
 			}
+		}
 
-			targetEntities = new List<Entity>();
-			return false;
+		private void ConvertPlayerStartTargetGive(Entity playerStart, Entity targetGive)
+		{
+			if (TryGetTargetEntities(targetGive, out var targetEnts))
+			{
+				foreach (var targetEnt in targetEnts)
+				{
+					if (targetEnt.ClassName.StartsWith("weapon_"))
+					{
+						var weaponName = GetMomentumWeaponName(targetEnt.ClassName);
+						var weapon = CreateTargetGiveWeapon(weaponName, playerStart.Origin, targetEnt["count"]);
+						sourceEntities.Add(weapon);
+					}
+					else if (targetEnt.ClassName.StartsWith("ammo_"))
+					{
+						var ammoName = GetMomentumAmmoName(targetEnt.ClassName);
+						var ammo = CreateTargetGiveAmmo(ammoName, playerStart.Origin, targetEnt["count"]);
+						sourceEntities.Add(ammo);
+					}
+					else if (targetEnt.ClassName.StartsWith("item_"))
+					{
+						var itemName = GetMomentumItemName(targetEnt.ClassName);
+						var item = CreateTargetGiveItem(itemName, playerStart.Origin, targetEnt["count"]);
+						sourceEntities.Add(item);
+					}
+
+					removeEntities.Add(targetEnt);
+				}
+			}
+		}
+
+		private Entity CreateTargetGiveWeapon(string weaponName, Vector3 origin, string count)
+		{
+			var weapon = new Entity();
+
+			weapon.ClassName = "momentum_weapon_spawner";
+			weapon.Origin = origin;
+			weapon["weaponname"] = weaponName;
+			weapon["pickupammo"] = count;
+			weapon["resettime"] = "-1"; // Only use once
+			weapon["rendermode"] = "10";
+			
+			return weapon;
+		}
+
+		private Entity CreateTargetGiveAmmo(string ammoName, Vector3 origin, string count)
+		{
+			var ammo = new Entity();
+
+			ammo.ClassName = "momentum_pickup_ammo";
+			ammo.Origin = origin;
+			ammo["ammoname"] = ammoName;
+			ammo["pickupammo"] = count;
+			ammo["resettime"] = "-1"; // Only use once
+			ammo["rendermode"] = "10";
+
+			return ammo;
+		}
+
+		private Entity CreateTargetGiveItem(string itemName, Vector3 origin, string count)
+		{
+			var item = new Entity();
+
+			item.ClassName = itemName;
+			item.Origin = origin;
+			item["resettime"] = "-1"; // Only use once
+			item["rendermode"] = "10";
+
+			if (itemName == "momentum_powerup_haste")
+				item["hastetime"] = count;
+			else if (itemName == "momentum_powerup_damage_boost")
+				item["damageboosttime"] = count;
+
+			return item;
 		}
 
 		private void ConvertTriggerMultiple(Entity trigger)
@@ -180,39 +253,56 @@ namespace BSPConversionLib
 				return;
 			
 			// TODO: Support more entities (ammo, health, armor, etc.)
-			foreach (var target in targetEnts)
+			foreach (var targetEnt in targetEnts)
 			{
-				switch (target.ClassName)
+				switch (targetEnt.ClassName)
 				{
 					case "item_haste":
-						GiveHasteOnStartTouch(trigger);
+						GiveHasteOnStartTouch(trigger, targetEnt);
 						break;
 					case "item_enviro": // TODO: Not supported yet
 						break;
 					case "item_flight": // TODO: Not supported yet
 						break;
-					case "item_quad": // TODO: Not supported yet
+					case "item_quad":
+						GiveQuadOnStartTouch(trigger, targetEnt);
 						break;
 					default:
-						if (target.ClassName.StartsWith("weapon_"))
-							GiveWeaponOnStartTouch(trigger, target);
+						if (targetEnt.ClassName.StartsWith("weapon_"))
+							GiveWeaponOnStartTouch(trigger, targetEnt);
+						else if (targetEnt.ClassName.StartsWith("ammo_"))
+							GiveAmmoOnStartTouch(trigger, targetEnt);
 						break;
 				}
 
-				removeEntities.Add(target);
+				removeEntities.Add(targetEnt);
 			}
 
 			trigger.Remove("target");
 		}
 
-		private void GiveHasteOnStartTouch(Entity trigger)
+		private void GiveHasteOnStartTouch(Entity trigger, Entity hasteEnt)
 		{
 			var connection = new Entity.EntityConnection()
 			{
 				name = "OnStartTouch",
 				target = "!activator",
 				action = "SetHaste",
-				param = "30", // TODO: Figure out how to get buff duration
+				param = hasteEnt["count"],
+				delay = 0f,
+				fireOnce = -1
+			};
+			trigger.connections.Add(connection);
+		}
+
+		private void GiveQuadOnStartTouch(Entity trigger, Entity quadEnt)
+		{
+			var connection = new Entity.EntityConnection()
+			{
+				name = "OnStartTouch",
+				target = "!activator",
+				action = "SetDamageBoost",
+				param = quadEnt["count"],
 				delay = 0f,
 				fireOnce = -1
 			};
@@ -225,16 +315,81 @@ namespace BSPConversionLib
 			if (weaponIndex == -1)
 				return;
 			
+			// TODO: Support weapon count
 			var connection = new Entity.EntityConnection()
 			{
 				name = "OnStartTouch",
 				target = "!activator",
-				action = "GiveDFWeapon",
+				action = "GiveWeapon",
 				param = weaponIndex.ToString(),
 				delay = 0f,
 				fireOnce = -1
 			};
 			trigger.connections.Add(connection);
+		}
+
+		private int GetWeaponIndex(string weaponName)
+		{
+			switch (weaponName)
+			{
+				case "weapon_machinegun":
+					return 2;
+				case "weapon_gauntlet":
+					return 3;
+				case "weapon_grenadelauncher":
+					return 4;
+				case "weapon_rocketlauncher":
+					return 5;
+				case "weapon_plasmagun":
+					return 8;
+				case "weapon_bfg":
+					return 9;
+				default:
+					return -1;
+			}
+		}
+
+		private void GiveAmmoOnStartTouch(Entity trigger, Entity ammoEnt)
+		{
+			var ammoOutput = GetAmmoOutput(ammoEnt.ClassName);
+			if (string.IsNullOrEmpty(ammoOutput))
+				return;
+
+			var connection = new Entity.EntityConnection()
+			{
+				name = "OnStartTouch",
+				target = "!activator",
+				action = ammoOutput,
+				param = ammoEnt["count"],
+				delay = 0f,
+				fireOnce = -1
+			};
+			trigger.connections.Add(connection);
+		}
+
+		private string GetAmmoOutput(string ammoName)
+		{
+			switch (ammoName)
+			{
+				case "ammo_bfg":
+					return "AddBfgRockets";
+				case "ammo_bullets": // Machine gun
+					return "AddBullets";
+				case "ammo_cells": // Plasma gun
+					return "AddPlasma";
+				case "ammo_grenades":
+					return "AddGrenades";
+				case "ammo_lightning":
+					return "AddCells";
+				case "ammo_rockets":
+					return "AddRockets";
+				case "ammo_shells": // Shotgun
+					return "AddShells";
+				case "ammo_slugs": // Railgun
+					return "AddRails";
+				default:
+					return string.Empty;
+			}
 		}
 
 		private void ConvertTeleportTrigger(Entity trigger, Entity targetTele)
@@ -286,31 +441,107 @@ namespace BSPConversionLib
 			}
 		}
 
-		private void ConvertWeapon(Entity entity, int weaponSlot)
+		private void ConvertWeapon(Entity weaponEnt)
 		{
-			entity.ClassName = "momentum_df_weaponspawner";
-			entity["weapon_slot"] = weaponSlot.ToString();
+			weaponEnt["weaponname"] = GetMomentumWeaponName(weaponEnt.ClassName);
+			weaponEnt["pickupammo"] = weaponEnt["count"];
+			weaponEnt.ClassName = "momentum_weapon_spawner";
 		}
 
-		private int GetWeaponIndex(string weaponName)
+		private string GetMomentumWeaponName(string q3WeaponName)
 		{
-			switch (weaponName)
+			switch (q3WeaponName)
 			{
 				case "weapon_machinegun":
-					return 2;
+					return "weapon_momentum_machinegun";
 				case "weapon_gauntlet":
-					return 3;
+					return "weapon_knife";
 				case "weapon_grenadelauncher":
-					return 4;
+					return "weapon_momentum_df_grenadelauncher";
 				case "weapon_rocketlauncher":
-					return 5;
+					return "weapon_momentum_df_rocketlauncher";
 				case "weapon_plasmagun":
-					return 8;
+					return "weapon_momentum_df_plasmagun";
 				case "weapon_bfg":
-					return 9;
+					return "weapon_momentum_df_bfg";
+				case "item_haste":
+					return "momentum_powerup_haste";
+				case "item_quad":
+					return "momentum_powerup_damage_boost";
 				default:
-					return -1;
+					return string.Empty;
 			}
+		}
+
+		private void ConvertAmmo(Entity ammoEnt)
+		{
+			ammoEnt["ammoname"] = GetMomentumAmmoName(ammoEnt.ClassName);
+			ammoEnt["pickupammo"] = ammoEnt["count"];
+			ammoEnt.ClassName = "momentum_pickup_ammo";
+		}
+
+		private string GetMomentumAmmoName(string q3AmmoName)
+		{
+			switch (q3AmmoName)
+			{
+				case "ammo_bfg":
+					return "bfg_rockets";
+				case "ammo_bullets": // Machine gun
+					return "bullets";
+				case "ammo_cells": // Plasma gun
+					return "plasma";
+				case "ammo_grenades":
+					return "grenades";
+				case "ammo_lightning":
+					return "cells";
+				case "ammo_rockets":
+					return "rockets";
+				case "ammo_shells": // Shotgun
+					return "shells";
+				case "ammo_slugs": // Railgun
+					return "rails";
+				default:
+					return string.Empty;
+			}
+		}
+
+		private void ConvertItem(Entity itemEnt)
+		{
+			itemEnt["resettime"] = itemEnt["wait"];
+			if (itemEnt.ClassName == "item_haste")
+				itemEnt["hastetime"] = itemEnt["count"];
+			else if (itemEnt.ClassName == "item_quad")
+				itemEnt["damageboosttime"] = itemEnt["count"];
+
+			itemEnt.ClassName = GetMomentumItemName(itemEnt.ClassName);
+		}
+
+		private string GetMomentumItemName(string q3ItemName)
+		{
+			switch (q3ItemName)
+			{
+				case "item_haste":
+					return "momentum_powerup_haste";
+				case "item_quad":
+					return "momentum_powerup_damage_boost";
+				default:
+					return string.Empty;
+			}
+		}
+
+		private bool TryGetTargetEntities(Entity sourceEntity, out List<Entity> targetEntities)
+		{
+			if (sourceEntity.TryGetValue("target", out var target))
+			{
+				if (entityDict.ContainsKey(target))
+				{
+					targetEntities = entityDict[target];
+					return true;
+				}
+			}
+
+			targetEntities = new List<Entity>();
+			return false;
 		}
 	}
 }
