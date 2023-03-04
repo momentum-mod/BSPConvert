@@ -1321,8 +1321,8 @@ namespace BSPConversionLib
 					for (var x = (int)lmStart.X; x < lmEnd.X; x++)
 					{
 						// Remove padding
-						var xCoord = Math.Clamp(x, (int)lmStart.X + LIGHTMAP_PADDING, (int)lmEnd.X - LIGHTMAP_PADDING - 1);
-						var yCoord = Math.Clamp(y, (int)lmStart.Y + LIGHTMAP_PADDING, (int)lmEnd.Y - LIGHTMAP_PADDING - 1);
+						var xCoord = Math.Clamp(x, (int)lmStart.X + LIGHTMAP_PADDING, (int)lmEnd.X - LIGHTMAP_PADDING);
+						var yCoord = Math.Clamp(y, (int)lmStart.Y + LIGHTMAP_PADDING, (int)lmEnd.Y - LIGHTMAP_PADDING);
 						var index = xCoord + yCoord * Q3_LIGHTMAP_SIZE;
 
 						var color = ColorUtil.ConvertQ3LightmapToColorRGBExp32(
