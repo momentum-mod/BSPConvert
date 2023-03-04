@@ -65,7 +65,7 @@ namespace BSPConversionLib
 				switch (split[0].ToLower())
 				{
 					case "map":
-						if (string.IsNullOrEmpty(shader.map)) // Don't overwite existing map
+						if (string.IsNullOrEmpty(shader.map)) // Don't overwrite existing map
 							shader.map = ParseMap(split[1]);
 						break;
 					case "surfaceparm":
