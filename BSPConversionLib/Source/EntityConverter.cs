@@ -320,7 +320,7 @@ namespace BSPConversionLib
 			{
 				name = "OnStartTouch",
 				target = "!activator",
-				action = "GiveWeapon",
+				action = "GiveDFWeapon",
 				param = weaponIndex.ToString(),
 				delay = 0f,
 				fireOnce = -1
