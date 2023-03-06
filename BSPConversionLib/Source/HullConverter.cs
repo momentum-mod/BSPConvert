@@ -21,7 +21,7 @@ namespace BSPConversionLib
 		/// </summary>
 		public static List<Vertex> ConvertConvexHull(Vertex[] faceVerts, Vector3 faceNormal)
 		{
-			// Treat face vertices as an arbitrary set of points on a plane and use the gift wrapping alogrithm to generate a convex polygon
+			// Treat face vertices as an arbitrary set of points on a plane and use the gift wrapping algorithm to generate a convex polygon
 			var hullVerts = new List<Vertex>();
 
 			var pointOnHull = GetFurthestPointFromCenter(faceVerts);
@@ -73,7 +73,7 @@ namespace BSPConversionLib
 			var cross = Vector3.Cross(a, b);
 
 			// Use face normal to determine if the vertex is on the left side of the line
-			// TODO: Handle colinear vertices (dot product should be 0)
+			// TODO: Handle collinear vertices (dot product should be 0)
 			return Vector3.Dot(cross, faceNormal) > 0;
 		}
 	}
