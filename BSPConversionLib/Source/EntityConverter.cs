@@ -230,12 +230,6 @@ namespace BSPConversionLib
 			{
 				switch (targetEnt.ClassName)
 				{
-					case "target_startTimer":
-						ConvertTimerTrigger(trigger, "trigger_momentum_timer_start", 1);
-						trigger["teleport_destination"] = MOMENTUM_START_ENTITY;
-						//entity["start_on_jump"] = "0";
-						//entity["speed_limit"] = "999999";
-						break;
 					case "target_stopTimer":
 						ConvertTimerTrigger(trigger, "trigger_momentum_timer_stop", 0);
 						break;
@@ -253,6 +247,7 @@ namespace BSPConversionLib
 			}
 
 			trigger["spawnflags"] = "1";
+			trigger.Remove("target");
 		}
 
 		private static void ConvertTimerTrigger(Entity trigger, string className, int zoneNumber)
@@ -260,8 +255,6 @@ namespace BSPConversionLib
 			trigger.ClassName = className;
 			//trigger["track_number"] = "0";
 			trigger["zone_number"] = zoneNumber.ToString();
-
-			trigger.Remove("target");
 		}
 
 		// TODO: Convert target_give for player spawn entities
@@ -295,8 +288,6 @@ namespace BSPConversionLib
 
 				removeEntities.Add(targetEnt);
 			}
-
-			trigger.Remove("target");
 		}
 
 		private void GiveHasteOnStartTouch(Entity trigger, Entity hasteEnt)
@@ -429,8 +420,6 @@ namespace BSPConversionLib
 				fireOnce = -1
 			};
 			trigger.connections.Add(connection);
-
-			trigger.Remove("target");
 		}
 
 		private void ConvertTriggerPush(Entity trigger)
