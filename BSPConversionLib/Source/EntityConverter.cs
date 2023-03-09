@@ -14,6 +14,7 @@ namespace BSPConversionLib
 		private Entities q3Entities;
 		private Entities sourceEntities;
 		private Dictionary<string, Shader> shaderDict;
+		private int minDamageToConvertTrigger;
 		
 		private Dictionary<string, List<Entity>> entityDict = new Dictionary<string, List<Entity>>();
 		private List<Entity> removeEntities = new List<Entity>(); // Entities to remove after conversion (ex: remove weapons after converting a trigger_multiple that references target_give). TODO: It might be better to convert entities by priority, such as trigger_multiples first so that target_give weapons can be ignored after
@@ -21,12 +22,13 @@ namespace BSPConversionLib
 
 		private const string MOMENTUM_START_ENTITY = "_momentum_player_start_";
 
-		public EntityConverter(Entities q3Entities, Entities sourceEntities, Dictionary<string, Shader> shaderDict)
+		public EntityConverter(Entities q3Entities, Entities sourceEntities, Dictionary<string, Shader> shaderDict, int minDamageToConvertTrigger)
 		{
 			this.q3Entities = q3Entities;
 			this.sourceEntities = sourceEntities;
 			this.shaderDict = shaderDict;
-			
+			this.minDamageToConvertTrigger = minDamageToConvertTrigger;
+
 			foreach (var entity in q3Entities)
 			{
 				if (!entityDict.ContainsKey(entity.Name))
@@ -52,6 +54,9 @@ namespace BSPConversionLib
 						break;
 					case "info_player_deathmatch":
 						ConvertPlayerStart(entity);
+						break;
+					case "trigger_hurt":
+						ConvertTriggerHurt(entity);
 						break;
 					case "trigger_multiple":
 						ConvertTriggerMultiple(entity);
@@ -201,6 +206,19 @@ namespace BSPConversionLib
 				item["damageboosttime"] = count;
 
 			return item;
+		}
+
+		private void ConvertTriggerHurt(Entity trigger)
+		{
+			if (int.TryParse(trigger["dmg"], out var damage))
+			{
+				if (damage >= minDamageToConvertTrigger)
+				{
+					trigger.ClassName = "trigger_teleport";
+					trigger["target"] = MOMENTUM_START_ENTITY;
+					trigger["spawnflags"] = "1";
+				}
+			}
 		}
 
 		private void ConvertTriggerMultiple(Entity trigger)

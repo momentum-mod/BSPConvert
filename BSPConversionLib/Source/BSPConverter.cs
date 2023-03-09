@@ -52,6 +52,7 @@ namespace BSPConversionLib
 			get { return displacementPower; }
 			set { displacementPower = Math.Clamp(value, 2, 4); }
 		}
+		public int minDamageToConvertTrigger;
 		public bool oldBSP;
 		public string prefix;
 		public string inputFile;
@@ -196,7 +197,7 @@ namespace BSPConversionLib
 
 		private void ConvertEntities()
 		{
-			var converter = new EntityConverter(quakeBsp.Entities, sourceBsp.Entities, shaderDict);
+			var converter = new EntityConverter(quakeBsp.Entities, sourceBsp.Entities, shaderDict, options.minDamageToConvertTrigger);
 			converter.Convert();
 		}
 

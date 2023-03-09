@@ -13,6 +13,9 @@ namespace BSPConversionCmd
 			[Option("subdiv", Required = false, Default = 4, HelpText = "Displacement subdivisions [2-4].")]
 			public int DisplacementPower { get; set; }
 
+			[Option("mindmg", Required = false, Default = 50, HelpText = "Minimum damage to convert trigger_hurt into trigger_teleport.")]
+			public int MinDamageToConvertTrigger { get; set; }
+
 			[Option("oldbsp", Required = false, HelpText = "Use BSP version 20.")]
 			public bool OldBSP { get; set; }
 
@@ -49,6 +52,7 @@ namespace BSPConversionCmd
 						{
 							noPak = options.NoPak,
 							DisplacementPower = options.DisplacementPower,
+							minDamageToConvertTrigger = options.MinDamageToConvertTrigger,
 							oldBSP = options.OldBSP,
 							prefix = options.Prefix,
 							inputFile = inputEntry,
