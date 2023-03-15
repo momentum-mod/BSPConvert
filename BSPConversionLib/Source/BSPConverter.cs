@@ -556,7 +556,7 @@ namespace BSPConversionLib
 				{
 					if (!TryCreateHeadNode(qModel.FirstBrushIndex, out var nodeIndex))
 					{
-						logger.Log($"Failed to create model: {i}");
+						logger.Log($"Failed to convert model: {i}");
 						continue;
 					}
 					
