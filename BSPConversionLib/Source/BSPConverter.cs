@@ -543,11 +543,25 @@ namespace BSPConversionLib
 		{
 			var exceededMaxExtents = false;
 
-			foreach (var qModel in quakeBsp.Models)
+			for (var i = 0; i < quakeBsp.Models.Count; i++)
 			{
-				// Modify model 0 on sourceBsp until ready to remove sourceBsp's models? Index 0 handles all world geometry, anything after is for brush entities
+				var qModel = quakeBsp.Models[i];
+
 				var data = new byte[Model.GetStructLength(sourceBsp.MapType)];
 				var sModel = new Model(data, sourceBsp.Models);
+
+				if (i == 0)
+					sModel.HeadNodeIndex = 0;
+				else
+				{
+					if (!TryCreateHeadNode(qModel.FirstBrushIndex, out var nodeIndex))
+					{
+						logger.Log($"Failed to create model: {i}");
+						continue;
+					}
+					
+					sModel.HeadNodeIndex = nodeIndex;
+				}
 
 				var mins = qModel.Minimums;
 				var maxs = qModel.Maximums;
@@ -565,10 +579,6 @@ namespace BSPConversionLib
 
 				sModel.Minimums = mins;
 				sModel.Maximums = maxs;
-				if (sourceBsp.Models.Count == 0) // First model always references first node?
-					sModel.HeadNodeIndex = 0;
-				else
-					sModel.HeadNodeIndex = CreateHeadNode(qModel.FirstBrushIndex, mins, maxs);
 				sModel.Origin = new Vector3(0f, 0f, 0f); // Recalculate origin?
 				sModel.FirstFaceIndex = qModel.FirstFaceIndex;
 				sModel.NumFaces = qModel.NumFaces;
@@ -582,47 +592,40 @@ namespace BSPConversionLib
 
 		// TODO: Add face references in order for showtriggers_toggle to work?
 		// Creates a head node using the leaf that references the brush index (seems to be required to get trigger collisions working)
-		private int CreateHeadNode(int firstBrushIndex, Vector3 mins, Vector3 maxs)
+		private bool TryCreateHeadNode(int brushIndex, out int nodeIndex)
 		{
-			var leafIndex = FindLeafIndex(firstBrushIndex);
+			var leafIndex = FindLeafIndex(brushIndex);
 			if (leafIndex < 0)
-				return 0;
-			
-			var leaf = sourceBsp.Leaves[leafIndex];
-			leaf.Contents = (int)SourceContentsFlags.CONTENTS_SOLID;
-			leaf.Visibility = -1; // Cluster index
-			leaf.Area = 0;
-			leaf.Minimums = mins;
-			leaf.Maximums = maxs;
-			
+			{
+				nodeIndex = -1;
+				return false;
+			}
+
 			var data = new byte[Node.GetStructLength(sourceBsp.MapType)];
 			var node = new Node(data, sourceBsp.Nodes);
 			
 			node.Child1Index = -leafIndex - 1;
 			node.Child2Index = -leafIndex - 1;
 
-			node.PlaneIndex = 0;
-			node.Minimums = mins;
-			node.Maximums = maxs;
-			node.FirstFaceIndex = 0;
-			node.NumFaceIndices = 0;
-			node.AreaIndex = 0;
-
 			sourceBsp.Nodes.Add(node);
 
-			return sourceBsp.Nodes.Count - 1;
+			nodeIndex = sourceBsp.Nodes.Count - 1;
+			return true;
 		}
 
 		// Finds a leaf that references the brush index
-		private int FindLeafIndex(int firstBrushIndex)
+		private int FindLeafIndex(int brushIndex)
 		{
 			var leafBrushes = sourceBsp.LeafBrushes;
 
 			for (var i = 0; i < sourceBsp.Leaves.Count; i++)
 			{
 				var leaf = sourceBsp.Leaves[i];
-				if (leafBrushes[leaf.FirstMarkBrushIndex] == firstBrushIndex)
-					return i;
+				for (var j = 0; j < leaf.NumMarkBrushIndices; j++)
+				{
+					if (leafBrushes[leaf.FirstMarkBrushIndex + j] == brushIndex)
+						return i;
+				}
 			}
 
 			return -1;
