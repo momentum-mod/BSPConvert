@@ -94,7 +94,10 @@ namespace BSPConversionLib
 				}
 
 				if (!ignoreEntity)
+				{
+					ConvertAngles(entity);
 					sourceEntities.Add(entity);
+				}
 			}
 
 			foreach (var entity in removeEntities)
@@ -411,6 +414,7 @@ namespace BSPConversionLib
 			var targetEnt = targetEnts.First();
 			var telePos = targetEnt["origin"];
 			
+			// TODO: Set player angles? Or just change target_teleporter to info_teleport_destination
 			var connection = new Entity.EntityConnection()
 			{
 				name = "OnStartTouch",
@@ -534,6 +538,15 @@ namespace BSPConversionLib
 					return "momentum_powerup_damage_boost";
 				default:
 					return string.Empty;
+			}
+		}
+
+		private void ConvertAngles(Entity entity)
+		{
+			if (float.TryParse(entity["angle"], out var angle))
+			{
+				entity.Angles = new Vector3(0f, angle, 0f);
+				entity.Remove("angle");
 			}
 		}
 
