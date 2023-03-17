@@ -251,7 +251,6 @@ namespace BSPConversionLib
 			}
 
 			trigger["spawnflags"] = "1";
-			trigger.Remove("target");
 		}
 
 		private static void ConvertTimerTrigger(Entity trigger, string className, int zoneNumber)
@@ -259,6 +258,8 @@ namespace BSPConversionLib
 			trigger.ClassName = className;
 			//trigger["track_number"] = "0";
 			trigger["zone_number"] = zoneNumber.ToString();
+
+			trigger.Remove("target");
 		}
 
 		// TODO: Convert target_give for player spawn entities
@@ -292,6 +293,8 @@ namespace BSPConversionLib
 
 				removeEntities.Add(targetEnt);
 			}
+
+			trigger.Remove("target");
 		}
 
 		private void GiveHasteOnStartTouch(Entity trigger, Entity hasteEnt)
@@ -407,24 +410,11 @@ namespace BSPConversionLib
 
 		private void ConvertTeleportTrigger(Entity trigger, Entity targetTele)
 		{
-			if (!TryGetTargetEntities(targetTele, out var targetEnts))
-				return;
-
-			// Set player position to target_teleporter's destination
-			var targetEnt = targetEnts.First();
-			var telePos = targetEnt["origin"];
-			
-			// TODO: Set player angles? Or just change target_teleporter to info_teleport_destination
-			var connection = new Entity.EntityConnection()
+			if (TryGetTargetEntities(targetTele, out var targetEnts))
 			{
-				name = "OnStartTouch",
-				target = "!activator",
-				action = "SetLocalOrigin",
-				param = telePos,
-				delay = 0f,
-				fireOnce = -1
-			};
-			trigger.connections.Add(connection);
+				trigger.ClassName = "trigger_teleport";
+				trigger["target"] = targetEnts.First().Name;
+			}
 		}
 
 		private void ConvertTriggerPush(Entity trigger)
