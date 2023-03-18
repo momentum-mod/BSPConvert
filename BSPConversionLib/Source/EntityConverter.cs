@@ -260,7 +260,6 @@ namespace BSPConversionLib
 		{
 			trigger.ClassName = "trigger_teleport";
 			trigger["target"] = MOMENTUM_START_ENTITY;
-			trigger["spawnflags"] = "1";
 			trigger["mode"] = "1";
 		}
 
