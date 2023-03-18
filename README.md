@@ -29,8 +29,6 @@ Available command line arguments:
 Example usage:
 `.\BSPConv.exe "C:\Users\<username>\Documents\BSPConvert\nood-aDr.pk3" --output "C:\Program Files (x86)\Steam\steamapps\common\Momentum Mod Playtest\momentum" --prefix "df_"`
 
-List available command line options: `.\BSPConv.exe --help`
-
 # Supported BSP conversions
 - Quake 3 -> Source Engine **(WIP)**
 - Half-Life (GoldSrc) -> Source Engine **(Not Started)**
