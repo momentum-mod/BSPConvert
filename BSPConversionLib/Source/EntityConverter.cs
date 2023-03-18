@@ -247,10 +247,20 @@ namespace BSPConversionLib
 					case "target_teleporter":
 						ConvertTeleportTrigger(trigger, targetEnt);
 						break;
+					case "target_kill":
+						ConvertKillTrigger(trigger);
+						break;
 				}
 			}
 
 			trigger["spawnflags"] = "1";
+		}
+
+		private void ConvertKillTrigger(Entity trigger)
+		{
+			trigger.ClassName = "trigger_teleport";
+			trigger["target"] = MOMENTUM_START_ENTITY;
+			trigger["mode"] = "1";
 		}
 
 		private static void ConvertTimerTrigger(Entity trigger, string className, int zoneNumber)
