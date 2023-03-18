@@ -256,15 +256,15 @@ namespace BSPConversionLib
 			trigger["spawnflags"] = "1";
 		}
 
-        private void ConvertKillTrigger(Entity trigger)
-        {
+		private void ConvertKillTrigger(Entity trigger)
+		{
 			trigger.ClassName = "trigger_teleport";
 			trigger["target"] = MOMENTUM_START_ENTITY;
 			trigger["spawnflags"] = "1";
 			trigger["mode"] = "1";
-        }
+		}
 
-        private static void ConvertTimerTrigger(Entity trigger, string className, int zoneNumber)
+		private static void ConvertTimerTrigger(Entity trigger, string className, int zoneNumber)
 		{
 			trigger.ClassName = className;
 			//trigger["track_number"] = "0";
