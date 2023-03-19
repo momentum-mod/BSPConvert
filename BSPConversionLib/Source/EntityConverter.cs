@@ -122,47 +122,43 @@ namespace BSPConversionLib
 			playerStart.ClassName = "info_player_start";
 			playerStart.Name = MOMENTUM_START_ENTITY;
 
-			if (TryGetTargetEntities(playerStart, out var targetEnts))
+			var targets = GetTargetEntities(playerStart);
+			foreach (var target in targets)
 			{
-				foreach (var targetEnt in targetEnts)
+				switch (target.ClassName)
 				{
-					switch (targetEnt.ClassName)
-					{
-						case "target_give":
-							ConvertPlayerStartTargetGive(playerStart, targetEnt);
-							break;
-					}
+					case "target_give":
+						ConvertPlayerStartTargetGive(playerStart, target);
+						break;
 				}
 			}
 		}
 
 		private void ConvertPlayerStartTargetGive(Entity playerStart, Entity targetGive)
 		{
-			if (TryGetTargetEntities(targetGive, out var targetEnts))
+			var targets = GetTargetEntities(targetGive);
+			foreach (var target in targets)
 			{
-				foreach (var targetEnt in targetEnts)
+				if (target.ClassName.StartsWith("weapon_"))
 				{
-					if (targetEnt.ClassName.StartsWith("weapon_"))
-					{
-						var weaponName = GetMomentumWeaponName(targetEnt.ClassName);
-						var weapon = CreateTargetGiveWeapon(weaponName, playerStart.Origin, targetEnt["count"]);
-						sourceEntities.Add(weapon);
-					}
-					else if (targetEnt.ClassName.StartsWith("ammo_"))
-					{
-						var ammoName = GetMomentumAmmoName(targetEnt.ClassName);
-						var ammo = CreateTargetGiveAmmo(ammoName, playerStart.Origin, targetEnt["count"]);
-						sourceEntities.Add(ammo);
-					}
-					else if (targetEnt.ClassName.StartsWith("item_"))
-					{
-						var itemName = GetMomentumItemName(targetEnt.ClassName);
-						var item = CreateTargetGiveItem(itemName, playerStart.Origin, targetEnt["count"]);
-						sourceEntities.Add(item);
-					}
-
-					removeEntities.Add(targetEnt);
+					var weaponName = GetMomentumWeaponName(target.ClassName);
+					var weapon = CreateTargetGiveWeapon(weaponName, playerStart.Origin, target["count"]);
+					sourceEntities.Add(weapon);
 				}
+				else if (target.ClassName.StartsWith("ammo_"))
+				{
+					var ammoName = GetMomentumAmmoName(target.ClassName);
+					var ammo = CreateTargetGiveAmmo(ammoName, playerStart.Origin, target["count"]);
+					sourceEntities.Add(ammo);
+				}
+				else if (target.ClassName.StartsWith("item_"))
+				{
+					var itemName = GetMomentumItemName(target.ClassName);
+					var item = CreateTargetGiveItem(itemName, playerStart.Origin, target["count"]);
+					sourceEntities.Add(item);
+				}
+
+				removeEntities.Add(target);
 			}
 		}
 
@@ -227,12 +223,10 @@ namespace BSPConversionLib
 
 		private void ConvertTriggerMultiple(Entity trigger)
 		{
-			if (!TryGetTargetEntities(trigger, out var targetEnts))
-				return;
-
-			foreach (var targetEnt in targetEnts)
+			var targets = GetTargetEntities(trigger);
+			foreach (var target in targets)
 			{
-				switch (targetEnt.ClassName)
+				switch (target.ClassName)
 				{
 					case "target_stopTimer":
 						ConvertTimerTrigger(trigger, "trigger_momentum_timer_stop", 0);
@@ -242,10 +236,10 @@ namespace BSPConversionLib
 						currentCheckpointIndex++;
 						break;
 					case "target_give":
-						ConvertGiveTrigger(trigger, targetEnt);
+						ConvertGiveTrigger(trigger, target);
 						break;
 					case "target_teleporter":
-						ConvertTeleportTrigger(trigger, targetEnt);
+						ConvertTeleportTrigger(trigger, target);
 						break;
 					case "target_kill":
 						ConvertKillTrigger(trigger);
@@ -275,33 +269,31 @@ namespace BSPConversionLib
 		// TODO: Convert target_give for player spawn entities
 		private void ConvertGiveTrigger(Entity trigger, Entity targetGive)
 		{
-			if (!TryGetTargetEntities(targetGive, out var targetEnts))
-				return;
-			
-			// TODO: Support more entities (ammo, health, armor, etc.)
-			foreach (var targetEnt in targetEnts)
+			// TODO: Support more entities (health, armor, etc.)
+			var targets = GetTargetEntities(targetGive);
+			foreach (var target in targets)
 			{
-				switch (targetEnt.ClassName)
+				switch (target.ClassName)
 				{
 					case "item_haste":
-						GiveHasteOnStartTouch(trigger, targetEnt);
+						GiveHasteOnStartTouch(trigger, target);
 						break;
 					case "item_enviro": // TODO: Not supported yet
 						break;
 					case "item_flight": // TODO: Not supported yet
 						break;
 					case "item_quad":
-						GiveQuadOnStartTouch(trigger, targetEnt);
+						GiveQuadOnStartTouch(trigger, target);
 						break;
 					default:
-						if (targetEnt.ClassName.StartsWith("weapon_"))
-							GiveWeaponOnStartTouch(trigger, targetEnt);
-						else if (targetEnt.ClassName.StartsWith("ammo_"))
-							GiveAmmoOnStartTouch(trigger, targetEnt);
+						if (target.ClassName.StartsWith("weapon_"))
+							GiveWeaponOnStartTouch(trigger, target);
+						else if (target.ClassName.StartsWith("ammo_"))
+							GiveAmmoOnStartTouch(trigger, target);
 						break;
 				}
 
-				removeEntities.Add(targetEnt);
+				removeEntities.Add(target);
 			}
 
 			trigger.Remove("target");
@@ -335,9 +327,9 @@ namespace BSPConversionLib
 			trigger.connections.Add(connection);
 		}
 
-		private void GiveWeaponOnStartTouch(Entity trigger, Entity target)
+		private void GiveWeaponOnStartTouch(Entity trigger, Entity weaponEnt)
 		{
-			var weaponIndex = GetWeaponIndex(target.ClassName);
+			var weaponIndex = GetWeaponIndex(weaponEnt.ClassName);
 			if (weaponIndex == -1)
 				return;
 			
@@ -420,24 +412,26 @@ namespace BSPConversionLib
 
 		private void ConvertTeleportTrigger(Entity trigger, Entity targetTele)
 		{
-			if (TryGetTargetEntities(targetTele, out var targetEnts))
+			var targets = GetTargetEntities(targetTele);
+			if (targets.Any())
 			{
 				trigger.ClassName = "trigger_teleport";
-				trigger["target"] = targetEnts.First().Name;
+				trigger["target"] = targets.First().Name;
 			}
 		}
 
 		private void ConvertTriggerPush(Entity trigger)
 		{
-			if (!TryGetTargetEntities(trigger, out var targetEnts))
-				return;
+			var targets = GetTargetEntities(trigger);
+			if (targets.Any())
+			{
+				trigger.ClassName = "trigger_catapult";
+				trigger["launchtarget"] = targets.First().Name;
+				trigger["spawnflags"] = "1";
+				trigger["playerspeed"] = "450";
 
-			trigger.ClassName = "trigger_catapult";
-			trigger["launchtarget"] = targetEnts.First().Name;
-			trigger["spawnflags"] = "1";
-			trigger["playerspeed"] = "450";
-
-			trigger.Remove("target");
+				trigger.Remove("target");
+			}
 		}
 
 		private void ConvertTriggerTeleport(Entity trigger)
@@ -446,11 +440,9 @@ namespace BSPConversionLib
 			trigger["mode"] = "5";
 			trigger["setspeed"] = "400";
 
-			if (TryGetTargetEntities(trigger, out var targetEnts))
-			{
-				foreach (var ent in targetEnts)
-					ent.ClassName = "info_teleport_destination";
-			}
+			var targets = GetTargetEntities(trigger);
+			foreach (var target in targets)
+				target.ClassName = "info_teleport_destination";
 		}
 
 		private void ConvertWeapon(Entity weaponEnt)
@@ -550,19 +542,12 @@ namespace BSPConversionLib
 			}
 		}
 
-		private bool TryGetTargetEntities(Entity sourceEntity, out List<Entity> targetEntities)
+		private List<Entity> GetTargetEntities(Entity sourceEntity)
 		{
-			if (sourceEntity.TryGetValue("target", out var target))
-			{
-				if (entityDict.ContainsKey(target))
-				{
-					targetEntities = entityDict[target];
-					return true;
-				}
-			}
+			if (sourceEntity.TryGetValue("target", out var target) && entityDict.ContainsKey(target))
+				return entityDict[target];
 
-			targetEntities = new List<Entity>();
-			return false;
+			return new List<Entity>();
 		}
 	}
 }
