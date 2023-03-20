@@ -11,6 +11,17 @@ namespace BSPConversionLib
 {
 	public class EntityConverter
 	{
+		[Flags]
+		private enum TargetInitFlags
+		{
+			KeepArmor = 1,
+			KeepHealth = 2,
+			KeepWeapons = 4,
+			KeepPowerUps = 8,
+			KeepHoldable = 16,
+			RemoveMachineGun = 32
+		}
+
 		private Entities q3Entities;
 		private Entities sourceEntities;
 		private Dictionary<string, Shader> shaderDict;
@@ -80,9 +91,9 @@ namespace BSPConversionLib
 					case "target_give":
 						ignoreEntity = true;
 						break;
-					default:
-						{
-							if (entity.ClassName.StartsWith("weapon_"))
+						default:
+							{
+							if ((entity.ClassName.StartsWith("weapon_")) && (entity.Name == ""))
 								ConvertWeapon(entity);
 							else if (entity.ClassName.StartsWith("ammo_"))
 								ConvertAmmo(entity);
@@ -90,7 +101,7 @@ namespace BSPConversionLib
 								ConvertItem(entity);
 							
 							break;
-						}
+							}
 				}
 
 				if (!ignoreEntity)
@@ -244,10 +255,60 @@ namespace BSPConversionLib
 					case "target_kill":
 						ConvertKillTrigger(trigger);
 						break;
+					case "target_init":
+						ConvertInitTrigger(trigger, target);
+						break;
 				}
 			}
 
 			trigger["spawnflags"] = "1";
+		}
+		private void ConvertInitTrigger(Entity trigger, Entity targetInit)
+		{
+			var Spawnflags = (TargetInitFlags)targetInit.Spawnflags;
+
+			if (!Spawnflags.HasFlag(TargetInitFlags.KeepPowerUps))
+			{
+				GiveHasteOnStartTouch(trigger, "0");
+				GiveQuadOnStartTouch(trigger, "0");
+			}
+			if (!Spawnflags.HasFlag(TargetInitFlags.KeepWeapons))
+			{
+				RemoveWeaponOnStartTouch(trigger, 3); //gauntlet
+				RemoveWeaponOnStartTouch(trigger, 4); //grenade launcher
+				RemoveWeaponOnStartTouch(trigger, 5); //rocket launcher
+				RemoveWeaponOnStartTouch(trigger, 8); //plasma gun
+				RemoveWeaponOnStartTouch(trigger, 9); //bfg
+			}
+			if (Spawnflags.HasFlag(TargetInitFlags.RemoveMachineGun))
+			{
+				RemoveWeaponOnStartTouch(trigger, 2); //machine gun
+			}
+			var targets = GetTargetEntities(targetInit);
+
+			foreach (var target in targets)
+			{
+				switch (target.ClassName)
+				{
+					case "target_give":
+						ConvertGiveTrigger(trigger, target);
+						break;
+				}
+			}
+		}
+
+		private static void RemoveWeaponOnStartTouch(Entity trigger, int weaponIndex)
+		{
+			var connection = new Entity.EntityConnection()
+			{
+				name = "OnStartTouch",
+				target = "!activator",
+				action = "RemoveDFWeapon",
+				param = weaponIndex.ToString(),
+				delay = 0f,
+				fireOnce = -1
+			};
+			trigger.connections.Add(connection);
 		}
 
 		private void ConvertKillTrigger(Entity trigger)
@@ -276,14 +337,14 @@ namespace BSPConversionLib
 				switch (target.ClassName)
 				{
 					case "item_haste":
-						GiveHasteOnStartTouch(trigger, target);
+						GiveHasteOnStartTouch(trigger, target["count"]);
 						break;
 					case "item_enviro": // TODO: Not supported yet
 						break;
 					case "item_flight": // TODO: Not supported yet
 						break;
 					case "item_quad":
-						GiveQuadOnStartTouch(trigger, target);
+						GiveQuadOnStartTouch(trigger, target["count"]);
 						break;
 					default:
 						if (target.ClassName.StartsWith("weapon_"))
@@ -299,28 +360,28 @@ namespace BSPConversionLib
 			trigger.Remove("target");
 		}
 
-		private void GiveHasteOnStartTouch(Entity trigger, Entity hasteEnt)
+		private void GiveHasteOnStartTouch(Entity trigger, string duration)
 		{
 			var connection = new Entity.EntityConnection()
 			{
 				name = "OnStartTouch",
 				target = "!activator",
 				action = "SetHaste",
-				param = hasteEnt["count"],
+				param = duration,
 				delay = 0f,
 				fireOnce = -1
 			};
 			trigger.connections.Add(connection);
 		}
 
-		private void GiveQuadOnStartTouch(Entity trigger, Entity quadEnt)
+		private void GiveQuadOnStartTouch(Entity trigger, string duration)
 		{
 			var connection = new Entity.EntityConnection()
 			{
 				name = "OnStartTouch",
 				target = "!activator",
 				action = "SetDamageBoost",
-				param = quadEnt["count"],
+				param = duration,
 				delay = 0f,
 				fireOnce = -1
 			};
@@ -340,7 +401,7 @@ namespace BSPConversionLib
 				target = "!activator",
 				action = "GiveDFWeapon",
 				param = weaponIndex.ToString(),
-				delay = 0f,
+				delay = 0.01f, //hack to make sure that the weapon removal applies before weapon give
 				fireOnce = -1
 			};
 			trigger.connections.Add(connection);
