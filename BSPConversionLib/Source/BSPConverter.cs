@@ -175,7 +175,10 @@ namespace BSPConversionLib
 		private string[] GetQ3Shaders()
 		{
 			var q3ScriptsDir = Path.Combine(ContentManager.GetQ3ContentDir(), "scripts");
-			return Directory.GetFiles(q3ScriptsDir, "*.shader");
+			if (Directory.Exists(q3ScriptsDir))
+				return Directory.GetFiles(q3ScriptsDir, "*.shader");
+
+			return new string[0];
 		}
 
 		private string[] GetPK3Shaders()
