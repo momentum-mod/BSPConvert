@@ -37,9 +37,11 @@ namespace BSPConversionLib
 					entityDict[entity.Name].Add(entity);
 			}
 		}
-
+		
+		
 		public void Convert()
 		{
+
 			foreach (var entity in q3Entities)
 			{
 				var ignoreEntity = false;
@@ -81,7 +83,7 @@ namespace BSPConversionLib
 						ignoreEntity = true;
 						break;
 					default:
-						{
+						{	
 							if (entity.ClassName.StartsWith("weapon_"))
 								ConvertWeapon(entity);
 							else if (entity.ClassName.StartsWith("ammo_"))
@@ -102,6 +104,7 @@ namespace BSPConversionLib
 
 			foreach (var entity in removeEntities)
 				sourceEntities.Remove(entity);
+
 		}
 
 		private void ConvertWorldspawn(Entity worldspawn)
@@ -130,11 +133,14 @@ namespace BSPConversionLib
 					case "target_give":
 						ConvertPlayerStartTargetGive(playerStart, target);
 						break;
+					case "target_init":
+						ConvertPlayerStartTargetInit(playerStart, target);
+						break;
 				}
 			}
 		}
 
-		private void ConvertPlayerStartTargetGive(Entity playerStart, Entity targetGive)
+				private void ConvertPlayerStartTargetGive(Entity playerStart, Entity targetGive)
 		{
 			var targets = GetTargetEntities(targetGive);
 			foreach (var target in targets)
@@ -162,6 +168,20 @@ namespace BSPConversionLib
 			}
 		}
 
+		private void ConvertPlayerStartTargetInit(Entity playerStart, Entity targetInit)
+		{
+			var targets = GetTargetEntities(targetInit);
+
+			foreach (var target in targets)
+			{
+				switch (target.ClassName)
+				{
+					case "target_give":
+						ConvertPlayerStartTargetGive(playerStart, target);
+						break;
+				}
+			}
+		}
 		private Entity CreateTargetGiveWeapon(string weaponName, Vector3 origin, string count)
 		{
 			var weapon = new Entity();
