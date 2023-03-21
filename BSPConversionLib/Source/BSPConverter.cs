@@ -92,6 +92,7 @@ namespace BSPConversionLib
 			
 			LoadBSP();
 			
+			CheckQ3Content();
 			ReplaceToolTextures();
 			ConvertShaders();
 			ConvertTextureFiles();
@@ -120,6 +121,22 @@ namespace BSPConversionLib
 			
 			contentManager.Dispose();
 		}
+		
+		private void LoadBSP()
+		{
+			// TODO: Support converting multiple bsp's (some pk3's contain multiple bsp's)
+			quakeBsp = contentManager.BSPFiles.First();
+
+			var mapType = options.oldBSP ? MapType.Source20 : MapType.Source25;
+			sourceBsp = new BSP(Path.GetFileName(options.inputFile), mapType);
+		}
+
+		private void CheckQ3Content()
+		{
+			var files = Directory.GetFiles(ContentManager.GetQ3ContentDir());
+			if (files.Length <= 1)
+				logger.Log("Warning: Q3Content folder is empty. Quake 3 assets will not be converted.");
+		}
 
 		private void ReplaceToolTextures()
 		{
@@ -142,15 +159,6 @@ namespace BSPConversionLib
 				if (replacementTextures.TryGetValue(texture.Name, out var replacementTexture))
 					texture.Name = replacementTexture;
 			}
-		}
-
-		private void LoadBSP()
-		{
-			// TODO: Support converting multiple bsp's (some pk3's contain multiple bsp's)
-			quakeBsp = contentManager.BSPFiles.First();
-			
-			var mapType = options.oldBSP ? MapType.Source20 : MapType.Source25;
-			sourceBsp = new BSP(Path.GetFileName(options.inputFile), mapType);
 		}
 
 		private void ConvertShaders()
