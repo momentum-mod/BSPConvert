@@ -141,6 +141,9 @@ namespace BSPConversionLib
 					case "target_give":
 						ConvertPlayerStartTargetGive(playerStart, target);
 						break;
+					case "target_init":
+						ConvertPlayerStartTargetInit(playerStart, target);
+						break;
 				}
 			}
 		}
@@ -173,6 +176,20 @@ namespace BSPConversionLib
 			}
 		}
 
+		private void ConvertPlayerStartTargetInit(Entity playerStart, Entity targetInit)
+		{
+			var targets = GetTargetEntities(targetInit);
+
+			foreach (var target in targets)
+			{
+				switch (target.ClassName)
+				{
+					case "target_give":
+						ConvertPlayerStartTargetGive(playerStart, target);
+						break;
+				}
+			}
+		}
 		private Entity CreateTargetGiveWeapon(string weaponName, Vector3 origin, string count)
 		{
 			var weapon = new Entity();
