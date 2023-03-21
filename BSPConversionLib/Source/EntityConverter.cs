@@ -91,17 +91,17 @@ namespace BSPConversionLib
 					case "target_give":
 						ignoreEntity = true;
 						break;
-						default:
-							{
-							if ((entity.ClassName.StartsWith("weapon_")) && (entity.Name == ""))
+					default:
+						{
+						if (entity.ClassName.StartsWith("weapon_"))
 								ConvertWeapon(entity);
-							else if (entity.ClassName.StartsWith("ammo_"))
+						else if (entity.ClassName.StartsWith("ammo_"))
 								ConvertAmmo(entity);
-							else if (entity.ClassName.StartsWith("item_"))
+						else if (entity.ClassName.StartsWith("item_"))
 								ConvertItem(entity);
-							
-							break;
-							}
+
+						break;
+						}
 				}
 
 				if (!ignoreEntity)
@@ -265,14 +265,14 @@ namespace BSPConversionLib
 		}
 		private void ConvertInitTrigger(Entity trigger, Entity targetInit)
 		{
-			var Spawnflags = (TargetInitFlags)targetInit.Spawnflags;
+			var spawnFlags = (TargetInitFlags)targetInit.Spawnflags;
 
-			if (!Spawnflags.HasFlag(TargetInitFlags.KeepPowerUps))
+			if (!spawnFlags.HasFlag(TargetInitFlags.KeepPowerUps))
 			{
 				GiveHasteOnStartTouch(trigger, "0");
 				GiveQuadOnStartTouch(trigger, "0");
 			}
-			if (!Spawnflags.HasFlag(TargetInitFlags.KeepWeapons))
+			if (!spawnFlags.HasFlag(TargetInitFlags.KeepWeapons))
 			{
 				RemoveWeaponOnStartTouch(trigger, 3); //gauntlet
 				RemoveWeaponOnStartTouch(trigger, 4); //grenade launcher
@@ -280,7 +280,7 @@ namespace BSPConversionLib
 				RemoveWeaponOnStartTouch(trigger, 8); //plasma gun
 				RemoveWeaponOnStartTouch(trigger, 9); //bfg
 			}
-			if (Spawnflags.HasFlag(TargetInitFlags.RemoveMachineGun))
+			if (spawnFlags.HasFlag(TargetInitFlags.RemoveMachineGun))
 			{
 				RemoveWeaponOnStartTouch(trigger, 2); //machine gun
 			}
