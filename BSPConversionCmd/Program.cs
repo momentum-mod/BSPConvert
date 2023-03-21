@@ -20,7 +20,7 @@ namespace BSPConversionCmd
 			//[Option("oldbsp", Required = false, HelpText = "Use BSP version 20 (HL:2 / CS:S).")]
 			//public bool OldBSP { get; set; }
 
-			[Option("prefix", Required = false, HelpText = "Prefix for the converted BSP's file name.")]
+			[Option("prefix", Required = false, Default = "df_", HelpText = "Prefix for the converted BSP's file name.")]
 			public string Prefix { get; set; }
 
 			[Option("output", Required = false, HelpText = "Output game directory for converted BSP/materials.")]
