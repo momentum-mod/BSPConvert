@@ -49,7 +49,6 @@ namespace BSPConversionLib
 			}
 		}
 		
-		
 		public void Convert()
 		{
 
