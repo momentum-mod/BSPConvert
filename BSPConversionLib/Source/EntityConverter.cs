@@ -92,16 +92,16 @@ namespace BSPConversionLib
 						ignoreEntity = true;
 						break;
 					default:
-							{
-								if (entity.ClassName.StartsWith("weapon_"))
-									ConvertWeapon(entity);
-								else if (entity.ClassName.StartsWith("ammo_"))
-									ConvertAmmo(entity);
-								else if (entity.ClassName.StartsWith("item_"))
-									ConvertItem(entity);
+						{
+							if (entity.ClassName.StartsWith("weapon_"))
+								ConvertWeapon(entity);
+							else if (entity.ClassName.StartsWith("ammo_"))
+								ConvertAmmo(entity);
+							else if (entity.ClassName.StartsWith("item_"))
+								ConvertItem(entity);
 
-								break;
-							}
+							break;
+						}
 				}
 
 				if (!ignoreEntity)
