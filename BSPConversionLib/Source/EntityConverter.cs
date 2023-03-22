@@ -22,6 +22,18 @@ namespace BSPConversionLib
 			RemoveMachineGun = 32
 		}
 
+		private enum WeaponSlot
+		{
+			MachineGun = 2,
+			Gauntlet = 3,
+			GrenadeLauncher = 4,
+			RocketLauncher = 5,
+			// LightningGun = 6,
+			// Railgun = 7,
+			PlasmaGun = 8,
+			BFG = 9
+		}
+
 		private Entities q3Entities;
 		private Entities sourceEntities;
 		private Dictionary<string, Shader> shaderDict;
@@ -190,6 +202,7 @@ namespace BSPConversionLib
 				}
 			}
 		}
+		
 		private Entity CreateTargetGiveWeapon(string weaponName, Vector3 origin, string count)
 		{
 			var weapon = new Entity();
@@ -280,29 +293,29 @@ namespace BSPConversionLib
 
 			trigger["spawnflags"] = "1";
 		}
+		
 		private void ConvertInitTrigger(Entity trigger, Entity targetInit)
 		{
-			var spawnFlags = (TargetInitFlags)targetInit.Spawnflags;
-
-			if (!spawnFlags.HasFlag(TargetInitFlags.KeepPowerUps))
+			var spawnflags = (TargetInitFlags)targetInit.Spawnflags;
+			if (!spawnflags.HasFlag(TargetInitFlags.KeepPowerUps))
 			{
 				GiveHasteOnStartTouch(trigger, "0");
 				GiveQuadOnStartTouch(trigger, "0");
 			}
-			if (!spawnFlags.HasFlag(TargetInitFlags.KeepWeapons))
+			if (!spawnflags.HasFlag(TargetInitFlags.KeepWeapons))
 			{
-				RemoveWeaponOnStartTouch(trigger, 3); //gauntlet
-				RemoveWeaponOnStartTouch(trigger, 4); //grenade launcher
-				RemoveWeaponOnStartTouch(trigger, 5); //rocket launcher
-				RemoveWeaponOnStartTouch(trigger, 8); //plasma gun
-				RemoveWeaponOnStartTouch(trigger, 9); //bfg
+				RemoveWeaponOnStartTouch(trigger, (int)WeaponSlot.Gauntlet);
+				RemoveWeaponOnStartTouch(trigger, (int)WeaponSlot.GrenadeLauncher);
+				RemoveWeaponOnStartTouch(trigger, (int)WeaponSlot.RocketLauncher);
+				RemoveWeaponOnStartTouch(trigger, (int)WeaponSlot.PlasmaGun);
+				RemoveWeaponOnStartTouch(trigger, (int)WeaponSlot.BFG);
 			}
-			if (spawnFlags.HasFlag(TargetInitFlags.RemoveMachineGun))
+			if (spawnflags.HasFlag(TargetInitFlags.RemoveMachineGun))
 			{
-				RemoveWeaponOnStartTouch(trigger, 2); //machine gun
+				RemoveWeaponOnStartTouch(trigger, (int)WeaponSlot.MachineGun);
 			}
+			
 			var targets = GetTargetEntities(targetInit);
-
 			foreach (var target in targets)
 			{
 				switch (target.ClassName)
@@ -429,17 +442,17 @@ namespace BSPConversionLib
 			switch (weaponName)
 			{
 				case "weapon_machinegun":
-					return 2;
+					return (int)WeaponSlot.MachineGun;
 				case "weapon_gauntlet":
-					return 3;
+					return (int)WeaponSlot.Gauntlet;
 				case "weapon_grenadelauncher":
-					return 4;
+					return (int)WeaponSlot.GrenadeLauncher;
 				case "weapon_rocketlauncher":
-					return 5;
+					return (int)WeaponSlot.RocketLauncher;
 				case "weapon_plasmagun":
-					return 8;
+					return (int)WeaponSlot.PlasmaGun;
 				case "weapon_bfg":
-					return 9;
+					return (int)WeaponSlot.BFG;
 				default:
 					return -1;
 			}
