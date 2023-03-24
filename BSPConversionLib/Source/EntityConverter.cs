@@ -98,6 +98,12 @@ namespace BSPConversionLib
 					case "target_position":
 						entity.ClassName = "info_target";
 						break;
+					case "func_door":
+						ConvertFuncDoor(entity);
+						break;
+					case "func_button":
+						ConvertFuncButton(entity);
+						break;
 					// Ignore these entities since they have no use in Source engine
 					case "target_startTimer":
 					case "target_stopTimer":
@@ -135,6 +141,62 @@ namespace BSPConversionLib
 			}
 
 			return targets;
+		}
+
+		private void ConvertFuncDoor(Entity entity)
+		{
+			GetMoveDir(entity);
+
+			if (float.TryParse(entity["health"], out var health))
+			{
+				entity.ClassName = "func_button"; // Health is obsolete on func_door, maybe fix in engine and update this
+			}
+		}
+
+		private void ConvertFuncButton(Entity entity)
+		{
+			GetMoveDir(entity);
+
+			GetButtonFlags(entity);
+
+			if (entity["wait"] == "-1")
+			{
+				entity["wait"] = "0.001";
+			}
+		}
+
+		private static void GetButtonFlags(Entity entity)
+		{
+			float.TryParse(entity["speed"], out var speed);
+
+			if ((speed == -1 || speed >= 9999) && (entity["wait"] == "-1")) // TODO: Add customization setting for the upper bounds potentially?
+			{
+				entity["spawnflags"] = "1"; // Don't move flag
+			}
+			if (!float.TryParse(entity["health"], out var health) || entity["health"] == "0")
+			{
+				entity["spawnflags"] = "256"; // Press on touch
+			}
+		}
+
+		private static void GetMoveDir(Entity entity)
+		{
+			float.TryParse(entity["angle"], out var angle);
+
+			if (angle == -1) // UP
+			{
+				entity["movedir"] = "-90 0 0";
+			}
+			else if (angle == -2) // DOWN
+			{
+				entity["movedir"] = "90 0 0";
+			}
+			else
+			{
+				entity["movedir"] = "0 " + angle.ToString() + " 0";
+			}
+
+			entity.Remove("angle");
 		}
 
 		private void ConvertWorldspawn(Entity worldspawn)
