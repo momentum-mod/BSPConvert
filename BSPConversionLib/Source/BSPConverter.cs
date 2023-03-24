@@ -391,8 +391,12 @@ namespace BSPConversionLib
 			foreach (var faceIndex in faces)
 			{
 				var face = sourceBsp.Faces[faceIndex];
-				var primitive = sourceBsp.Primitives[face.FirstPrimitive];
 
+				var surfaceFlags = (SourceSurfaceFlags)face.TextureInfo.Flags;
+				if (!surfaceFlags.HasFlag(SourceSurfaceFlags.SURF_SKY))
+					continue;
+
+				var primitive = sourceBsp.Primitives[face.FirstPrimitive];
 				var plane = Plane.CreateFromVertices(
 					vertices[primitive.FirstVertex],
 					vertices[primitive.FirstVertex + 1],
