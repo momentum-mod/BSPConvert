@@ -1222,6 +1222,9 @@ namespace BSPConversionLib
 			if ((texture.Flags & (int)Q3SurfaceFlags.SURF_SKY) != 0)
 				textureInfo.Flags |= (int)(SourceSurfaceFlags.SURF_SKY | SourceSurfaceFlags.SURF_NOLIGHT | SourceSurfaceFlags.SURF_SKYNOEMIT);
 
+			if ((texture.Flags & (int)Q3SurfaceFlags.SURF_NODRAW) != 0)
+				textureInfo.Flags |= (int)SourceSurfaceFlags.SURF_NODRAW;
+
 			// Avoid adding duplicate texture info
 			var hashCode = BSPUtil.GetHashCode(textureInfo);
 			if (textureInfoHashCodeDict.TryGetValue(hashCode, out var textureInfoIndex))
