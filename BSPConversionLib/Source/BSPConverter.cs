@@ -1213,16 +1213,17 @@ namespace BSPConversionLib
 			textureInfo.LightmapVAxis = vAxis / 32f;
 			textureInfo.TextureIndex = LookupTextureDataIndex(texture.Name);
 
-			if ((texture.Flags & (int)Q3SurfaceFlags.SURF_SLICK) != 0)
+			var q3Flags = (Q3SurfaceFlags)texture.Flags;
+			if (q3Flags.HasFlag(Q3SurfaceFlags.SURF_SLICK))
 				textureInfo.Flags |= (int)SourceSurfaceFlags.SURF_SLICK;
 
-			if ((texture.Flags & (int)Q3SurfaceFlags.SURF_NOLIGHTMAP) != 0)
+			if (q3Flags.HasFlag(Q3SurfaceFlags.SURF_NOLIGHTMAP))
 				textureInfo.Flags |= (int)SourceSurfaceFlags.SURF_NOLIGHT;
 			
-			if ((texture.Flags & (int)Q3SurfaceFlags.SURF_SKY) != 0)
+			if (q3Flags.HasFlag(Q3SurfaceFlags.SURF_SKY))
 				textureInfo.Flags |= (int)(SourceSurfaceFlags.SURF_SKY | SourceSurfaceFlags.SURF_NOLIGHT | SourceSurfaceFlags.SURF_SKYNOEMIT);
 
-			if ((texture.Flags & (int)Q3SurfaceFlags.SURF_NODRAW) != 0)
+			if (q3Flags.HasFlag(Q3SurfaceFlags.SURF_NODRAW))
 				textureInfo.Flags |= (int)SourceSurfaceFlags.SURF_NODRAW;
 
 			// Avoid adding duplicate texture info
