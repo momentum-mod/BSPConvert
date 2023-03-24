@@ -163,6 +163,32 @@ namespace BSPConversionLib
 			{
 				entity["wait"] = "0.001";
 			}
+
+			var targets = GetTargetEntities(entity);
+
+			foreach (var target in targets)
+			{
+				switch (target.ClassName)
+				{
+					case "func_door":
+						ButtonDoorLink(entity, target);
+						break;
+				}
+			}
+		}
+
+		private static void ButtonDoorLink(Entity entity, Entity target)
+		{
+			var connection = new Entity.EntityConnection()
+			{
+				name = "OnPressed",
+				target = target["targetname"],
+				action = "Open",
+				param = null,
+				delay = 0,
+				fireOnce = -1
+			};
+			entity.connections.Add(connection);
 		}
 
 		private static void GetButtonFlags(Entity entity)
@@ -360,12 +386,29 @@ namespace BSPConversionLib
 					case "target_init":
 						ConvertInitTrigger(trigger, target);
 						break;
+					case "func_door":
+						ConvertDoorTrigger(trigger, target);
+						break;
 				}
 			}
 
 			trigger["spawnflags"] = "1";
 		}
-		
+
+		private void ConvertDoorTrigger(Entity trigger, Entity target)
+		{
+			var connection = new Entity.EntityConnection()
+			{
+				name = "OnStartTouch",
+				target = target["targetname"],
+				action = "Open",
+				param = null,
+				delay = 0,
+				fireOnce = -1
+			};
+			trigger.connections.Add(connection);
+		}
+
 		private void ConvertInitTrigger(Entity trigger, Entity targetInit)
 		{
 			var spawnflags = (TargetInitFlags)targetInit.Spawnflags;
