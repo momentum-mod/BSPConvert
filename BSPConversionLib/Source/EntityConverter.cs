@@ -63,6 +63,8 @@ namespace BSPConversionLib
 
 		public void Convert()
 		{
+			var giveTargets = GetGiveTargets();
+
 			foreach (var entity in q3Entities)
 			{
 				var ignoreEntity = false;
@@ -105,13 +107,9 @@ namespace BSPConversionLib
 						break;
 					default:
 						{
-							if (entity.ClassName.StartsWith("weapon_"))
-								ConvertWeapon(entity);
-							else if (entity.ClassName.StartsWith("ammo_"))
-								ConvertAmmo(entity);
-							else if (entity.ClassName.StartsWith("item_"))
-								ConvertItem(entity);
-
+							if (!giveTargets.Contains(entity.Name)) // Don't convert equipment linked to target_give
+								ConvertEquipment(entity);
+							
 							break;
 						}
 				}
@@ -125,6 +123,18 @@ namespace BSPConversionLib
 
 			foreach (var entity in removeEntities)
 				sourceEntities.Remove(entity);
+		}
+
+		private HashSet<string> GetGiveTargets()
+		{
+			var targets = new HashSet<string>();
+			foreach (var entity in q3Entities)
+			{
+				if (entity.ClassName == "target_give" && entity.TryGetValue("target", out var target))
+					targets.Add(target);
+			}
+
+			return targets;
 		}
 
 		private void ConvertWorldspawn(Entity worldspawn)
@@ -451,6 +461,7 @@ namespace BSPConversionLib
 					return (int)WeaponSlot.RocketLauncher;
 				case "weapon_plasmagun":
 					return (int)WeaponSlot.PlasmaGun;
+				case "weapon_lightning": // TEMP: Lightning gun doesn't exist yet
 				case "weapon_bfg":
 					return (int)WeaponSlot.BFG;
 				default:
@@ -534,6 +545,16 @@ namespace BSPConversionLib
 			var targets = GetTargetEntities(trigger);
 			foreach (var target in targets)
 				target.ClassName = "info_teleport_destination";
+		}
+
+		private void ConvertEquipment(Entity entity)
+		{
+			if (entity.ClassName.StartsWith("weapon_"))
+				ConvertWeapon(entity);
+			else if (entity.ClassName.StartsWith("ammo_"))
+				ConvertAmmo(entity);
+			else if (entity.ClassName.StartsWith("item_"))
+				ConvertItem(entity);
 		}
 
 		private void ConvertWeapon(Entity weaponEnt)
