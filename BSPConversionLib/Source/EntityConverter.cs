@@ -38,7 +38,7 @@ namespace BSPConversionLib
 		private Entities sourceEntities;
 		private Dictionary<string, Shader> shaderDict;
 		private int minDamageToConvertTrigger;
-		
+
 		private Dictionary<string, List<Entity>> entityDict = new Dictionary<string, List<Entity>>();
 		private List<Entity> removeEntities = new List<Entity>(); // Entities to remove after conversion (ex: remove weapons after converting a trigger_multiple that references target_give). TODO: It might be better to convert entities by priority, such as trigger_multiples first so that target_give weapons can be ignored after
 		private int currentCheckpointIndex = 2;
@@ -98,6 +98,12 @@ namespace BSPConversionLib
 					case "target_position":
 						entity.ClassName = "info_target";
 						break;
+					case "func_door":
+						ConvertFuncDoor(entity);
+						break;
+					case "func_button":
+						ConvertFuncButton(entity);
+						break;
 					// Ignore these entities since they have no use in Source engine
 					case "target_startTimer":
 					case "target_stopTimer":
@@ -109,7 +115,7 @@ namespace BSPConversionLib
 						{
 							if (!giveTargets.Contains(entity.Name)) // Don't convert equipment linked to target_give
 								ConvertEquipment(entity);
-							
+
 							break;
 						}
 				}
@@ -135,6 +141,77 @@ namespace BSPConversionLib
 			}
 
 			return targets;
+		}
+
+		private void ConvertFuncDoor(Entity entity)
+		{
+			SetMoveDir(entity);
+
+			if (float.TryParse(entity["health"], out var health))
+				entity.ClassName = "func_button"; // Health is obsolete on func_door, maybe fix in engine and update this
+		}
+
+		private void ConvertFuncButton(Entity entity)
+		{
+			SetMoveDir(entity);
+
+			SetButtonFlags(entity);
+
+			if (entity["wait"] == "-1") // A value of -1 in quake is instantly reset position, in source it is don't reset position.
+				entity["wait"] = "0.001"; // exactly 0 also behaves as don't reset in source, so the delay is as short as possible without being 0.
+
+			var targets = GetTargetEntities(entity);
+
+			foreach (var target in targets)
+			{
+				switch (target.ClassName)
+				{
+					case "func_door":
+						OpenDoorOnPressed(entity, target);
+						break;
+				}
+			}
+		}
+
+		private static void OpenDoorOnPressed(Entity button, Entity door)
+		{
+			var connection = new Entity.EntityConnection()
+			{
+				name = "OnPressed",
+				target = door["targetname"],
+				action = "Open",
+				param = null,
+				delay = 0,
+				fireOnce = -1
+			};
+			button.connections.Add(connection);
+		}
+
+		private static void SetButtonFlags(Entity button)
+		{
+			if (!float.TryParse(button["speed"], out var speed))
+				return;
+
+			if ((speed == -1 || speed >= 9999) && (button["wait"] == "-1")) // TODO: Add customization setting for the upper bounds potentially?
+				button["spawnflags"] = "1"; // Don't move flag
+
+			if (!float.TryParse(button["health"], out var health) || button["health"] == "0")
+				button["spawnflags"] = "256"; // Press on touch
+		}
+
+		private static void SetMoveDir(Entity entity)
+		{
+			if (!float.TryParse(entity["angle"], out var angle))
+				return;
+
+			if (angle == -1) // UP
+				entity["movedir"] = "-90 0 0";
+			else if (angle == -2) // DOWN
+				entity["movedir"] = "90 0 0";
+			else
+				entity["movedir"] = $"0 {angle.ToString()} 0";
+
+			entity.Remove("angle");
 		}
 
 		private void ConvertWorldspawn(Entity worldspawn)
@@ -212,7 +289,7 @@ namespace BSPConversionLib
 				}
 			}
 		}
-		
+
 		private Entity CreateTargetGiveWeapon(string weaponName, Vector3 origin, string count)
 		{
 			var weapon = new Entity();
@@ -223,7 +300,7 @@ namespace BSPConversionLib
 			weapon["pickupammo"] = count;
 			weapon["resettime"] = "-1"; // Only use once
 			weapon["rendermode"] = "10";
-			
+
 			return weapon;
 		}
 
@@ -298,12 +375,29 @@ namespace BSPConversionLib
 					case "target_init":
 						ConvertInitTrigger(trigger, target);
 						break;
+					case "func_door":
+						OpenDoorOnStartTouch(trigger, target);
+						break;
 				}
 			}
 
 			trigger["spawnflags"] = "1";
 		}
-		
+
+		private void OpenDoorOnStartTouch(Entity trigger, Entity door)
+		{
+			var connection = new Entity.EntityConnection()
+			{
+				name = "OnStartTouch",
+				target = door["targetname"],
+				action = "Open",
+				param = null,
+				delay = 0,
+				fireOnce = -1
+			};
+			trigger.connections.Add(connection);
+		}
+
 		private void ConvertInitTrigger(Entity trigger, Entity targetInit)
 		{
 			var spawnflags = (TargetInitFlags)targetInit.Spawnflags;
@@ -324,7 +418,7 @@ namespace BSPConversionLib
 			{
 				RemoveWeaponOnStartTouch(trigger, (int)WeaponSlot.MachineGun);
 			}
-			
+
 			var targets = GetTargetEntities(targetInit);
 			foreach (var target in targets)
 			{
@@ -433,7 +527,7 @@ namespace BSPConversionLib
 			var weaponIndex = GetWeaponIndex(weaponEnt.ClassName);
 			if (weaponIndex == -1)
 				return;
-			
+
 			// TODO: Support weapon count
 			var connection = new Entity.EntityConnection()
 			{
