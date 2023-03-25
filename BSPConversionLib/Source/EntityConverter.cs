@@ -154,14 +154,12 @@ namespace BSPConversionLib
 		private void ConvertFuncButton(Entity entity)
 		{
 			SetMoveDir(entity);
-
 			SetButtonFlags(entity);
 
 			if (entity["wait"] == "-1") // A value of -1 in quake is instantly reset position, in source it is don't reset position.
 				entity["wait"] = "0.001"; // exactly 0 also behaves as don't reset in source, so the delay is as short as possible without being 0.
 
 			var targets = GetTargetEntities(entity);
-
 			foreach (var target in targets)
 			{
 				switch (target.ClassName)
