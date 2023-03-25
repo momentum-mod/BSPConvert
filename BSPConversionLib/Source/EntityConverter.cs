@@ -145,24 +145,20 @@ namespace BSPConversionLib
 
 		private void ConvertFuncDoor(Entity entity)
 		{
-			GetMoveDir(entity);
+			SetMoveDir(entity);
 
 			if (float.TryParse(entity["health"], out var health))
-			{
 				entity.ClassName = "func_button"; // Health is obsolete on func_door, maybe fix in engine and update this
-			}
 		}
 
 		private void ConvertFuncButton(Entity entity)
 		{
-			GetMoveDir(entity);
+			SetMoveDir(entity);
 
-			GetButtonFlags(entity);
+			SetButtonFlags(entity);
 
-			if (entity["wait"] == "-1")
-			{
-				entity["wait"] = "0.001";
-			}
+			if (entity["wait"] == "-1") // A value of -1 in quake is instantly reset position, in source it is don't reset position.
+				entity["wait"] = "0.001"; // exactly 0 also behaves as don't reset in source, so the delay is as short as possible without being 0.
 
 			var targets = GetTargetEntities(entity);
 
@@ -171,56 +167,54 @@ namespace BSPConversionLib
 				switch (target.ClassName)
 				{
 					case "func_door":
-						ButtonDoorLink(entity, target);
+						OpenDoorOnPressed(entity, target);
 						break;
 				}
 			}
 		}
 
-		private static void ButtonDoorLink(Entity entity, Entity target)
+		private static void OpenDoorOnPressed(Entity button, Entity door)
 		{
 			var connection = new Entity.EntityConnection()
 			{
 				name = "OnPressed",
-				target = target["targetname"],
+				target = door["targetname"],
 				action = "Open",
 				param = null,
 				delay = 0,
 				fireOnce = -1
 			};
-			entity.connections.Add(connection);
+			button.connections.Add(connection);
 		}
 
-		private static void GetButtonFlags(Entity entity)
+		private static void SetButtonFlags(Entity button)
 		{
-			float.TryParse(entity["speed"], out var speed);
+			float.TryParse(button["speed"], out var speed);
+			if (!float.TryParse(button["speed"], out _))
+				return;
 
-			if ((speed == -1 || speed >= 9999) && (entity["wait"] == "-1")) // TODO: Add customization setting for the upper bounds potentially?
-			{
-				entity["spawnflags"] = "1"; // Don't move flag
-			}
-			if (!float.TryParse(entity["health"], out var health) || entity["health"] == "0")
-			{
-				entity["spawnflags"] = "256"; // Press on touch
-			}
+			if ((speed == -1 || speed >= 9999) && (button["wait"] == "-1")) // TODO: Add customization setting for the upper bounds potentially?
+				button["spawnflags"] = "1"; // Don't move flag
+
+			if (!float.TryParse(button["health"], out var health) || button["health"] == "0")
+				button["spawnflags"] = "256"; // Press on touch
 		}
 
-		private static void GetMoveDir(Entity entity)
+		private static void SetMoveDir(Entity entity)
 		{
 			float.TryParse(entity["angle"], out var angle);
+			
+			if (!float.TryParse(entity["speed"], out _))
+				return;
 
-			if (angle == -1) // UP
-			{
+			else if (angle == -1) // UP
 				entity["movedir"] = "-90 0 0";
-			}
+
 			else if (angle == -2) // DOWN
-			{
 				entity["movedir"] = "90 0 0";
-			}
+
 			else
-			{
-				entity["movedir"] = "0 " + angle.ToString() + " 0";
-			}
+				entity["movedir"] = $"0 {angle.ToString()} 0";
 
 			entity.Remove("angle");
 		}
@@ -387,7 +381,7 @@ namespace BSPConversionLib
 						ConvertInitTrigger(trigger, target);
 						break;
 					case "func_door":
-						ConvertDoorTrigger(trigger, target);
+						OpenDoorOnStartTouch(trigger, target);
 						break;
 				}
 			}
@@ -395,12 +389,12 @@ namespace BSPConversionLib
 			trigger["spawnflags"] = "1";
 		}
 
-		private void ConvertDoorTrigger(Entity trigger, Entity target)
+		private void OpenDoorOnStartTouch(Entity trigger, Entity door)
 		{
 			var connection = new Entity.EntityConnection()
 			{
 				name = "OnStartTouch",
-				target = target["targetname"],
+				target = door["targetname"],
 				action = "Open",
 				param = null,
 				delay = 0,
