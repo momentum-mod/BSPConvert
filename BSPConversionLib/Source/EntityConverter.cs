@@ -38,7 +38,7 @@ namespace BSPConversionLib
 		private Entities sourceEntities;
 		private Dictionary<string, Shader> shaderDict;
 		private int minDamageToConvertTrigger;
-		
+
 		private Dictionary<string, List<Entity>> entityDict = new Dictionary<string, List<Entity>>();
 		private List<Entity> removeEntities = new List<Entity>(); // Entities to remove after conversion (ex: remove weapons after converting a trigger_multiple that references target_give). TODO: It might be better to convert entities by priority, such as trigger_multiples first so that target_give weapons can be ignored after
 		private int currentCheckpointIndex = 2;
@@ -115,7 +115,7 @@ namespace BSPConversionLib
 						{
 							if (!giveTargets.Contains(entity.Name)) // Don't convert equipment linked to target_give
 								ConvertEquipment(entity);
-							
+
 							break;
 						}
 				}
@@ -190,7 +190,7 @@ namespace BSPConversionLib
 		private static void SetButtonFlags(Entity button)
 		{
 			if (!float.TryParse(button["speed"], out var speed))
-			return;
+				return;
 
 			if ((speed == -1 || speed >= 9999) && (button["wait"] == "-1")) // TODO: Add customization setting for the upper bounds potentially?
 				button["spawnflags"] = "1"; // Don't move flag
@@ -200,7 +200,7 @@ namespace BSPConversionLib
 		}
 
 		private static void SetMoveDir(Entity entity)
-		{	
+		{
 			if (!float.TryParse(entity["angle"], out var angle))
 				return;
 
@@ -289,7 +289,7 @@ namespace BSPConversionLib
 				}
 			}
 		}
-		
+
 		private Entity CreateTargetGiveWeapon(string weaponName, Vector3 origin, string count)
 		{
 			var weapon = new Entity();
@@ -300,7 +300,7 @@ namespace BSPConversionLib
 			weapon["pickupammo"] = count;
 			weapon["resettime"] = "-1"; // Only use once
 			weapon["rendermode"] = "10";
-			
+
 			return weapon;
 		}
 
@@ -418,7 +418,7 @@ namespace BSPConversionLib
 			{
 				RemoveWeaponOnStartTouch(trigger, (int)WeaponSlot.MachineGun);
 			}
-			
+
 			var targets = GetTargetEntities(targetInit);
 			foreach (var target in targets)
 			{
@@ -527,7 +527,7 @@ namespace BSPConversionLib
 			var weaponIndex = GetWeaponIndex(weaponEnt.ClassName);
 			if (weaponIndex == -1)
 				return;
-			
+
 			// TODO: Support weapon count
 			var connection = new Entity.EntityConnection()
 			{
