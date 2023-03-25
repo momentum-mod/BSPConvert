@@ -189,9 +189,8 @@ namespace BSPConversionLib
 
 		private static void SetButtonFlags(Entity button)
 		{
-			float.TryParse(button["speed"], out var speed);
-			if (!float.TryParse(button["speed"], out _))
-				return;
+			if (!float.TryParse(button["speed"], out var speed))
+			return;
 
 			if ((speed == -1 || speed >= 9999) && (button["wait"] == "-1")) // TODO: Add customization setting for the upper bounds potentially?
 				button["spawnflags"] = "1"; // Don't move flag
@@ -201,18 +200,14 @@ namespace BSPConversionLib
 		}
 
 		private static void SetMoveDir(Entity entity)
-		{
-			float.TryParse(entity["angle"], out var angle);
-			
-			if (!float.TryParse(entity["speed"], out _))
+		{	
+			if (!float.TryParse(entity["angle"], out var angle))
 				return;
 
-			else if (angle == -1) // UP
+			if (angle == -1) // UP
 				entity["movedir"] = "-90 0 0";
-
 			else if (angle == -2) // DOWN
 				entity["movedir"] = "90 0 0";
-
 			else
 				entity["movedir"] = $"0 {angle.ToString()} 0";
 
