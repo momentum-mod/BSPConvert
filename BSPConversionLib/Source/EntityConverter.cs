@@ -195,18 +195,18 @@ namespace BSPConversionLib
 
 		private static void SetButtonFlags(Entity button)
 		{
-			var spawnflags = 0;
-
 			if (!float.TryParse(button["speed"], out var speed))
 				return;
 
+			var spawnflags = 0;
+
 			if ((speed == -1 || speed >= 9999) && (button["wait"] == "-1")) // TODO: Add customization setting for the upper bounds potentially?
-				spawnflags += (int)FuncButtonFlags.DontMove;
+				spawnflags |= (int)FuncButtonFlags.DontMove;
 
 			if (!float.TryParse(button["health"], out var health) || button["health"] == "0")
-				spawnflags += (int)FuncButtonFlags.TouchActivates;
+				spawnflags |= (int)FuncButtonFlags.TouchActivates;
 			else
-				spawnflags += (int)FuncButtonFlags.DamageActivates;
+				spawnflags |= (int)FuncButtonFlags.DamageActivates;
 
 			button["spawnflags"] = spawnflags.ToString();
 		}
