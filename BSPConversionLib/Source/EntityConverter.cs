@@ -22,6 +22,14 @@ namespace BSPConversionLib
 			RemoveMachineGun = 32
 		}
 
+		[Flags]
+		private enum FuncButtonFlags
+		{
+			DontMove = 1,
+			TouchActivates = 256,
+			DamageActivates = 512,
+		}
+
 		private enum WeaponSlot
 		{
 			MachineGun = 2,
@@ -187,14 +195,20 @@ namespace BSPConversionLib
 
 		private static void SetButtonFlags(Entity button)
 		{
+			var spawnflags = 0;
+
 			if (!float.TryParse(button["speed"], out var speed))
 				return;
 
 			if ((speed == -1 || speed >= 9999) && (button["wait"] == "-1")) // TODO: Add customization setting for the upper bounds potentially?
-				button["spawnflags"] = "1"; // Don't move flag
+				spawnflags += (int)FuncButtonFlags.DontMove;
 
 			if (!float.TryParse(button["health"], out var health) || button["health"] == "0")
-				button["spawnflags"] = "256"; // Press on touch
+				spawnflags += (int)FuncButtonFlags.TouchActivates;
+			else
+				spawnflags += (int)FuncButtonFlags.DamageActivates;
+
+			button["spawnflags"] = spawnflags.ToString();
 		}
 
 		private static void SetMoveDir(Entity entity)
