@@ -7,6 +7,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="DevILSharp" Version="0.2.19" />
     <PackageReference Include="SharpCompress" Version="0.32.2" />
   </ItemGroup>
 
@@ -14,23 +15,31 @@
     <Reference Include="libBSP">
       <HintPath>Dependencies\libBSP.dll</HintPath>
     </Reference>
+    <Reference Include="VTFLib.NET">
+      <HintPath>Dependencies\VTFLib.NET.dll</HintPath>
+    </Reference>
   </ItemGroup>
 
   <ItemGroup>
+    <ContentWithTargetPath Include="Dependencies\DevIL.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <TargetPath>DevIL.dll</TargetPath>
+    </ContentWithTargetPath>
     <None Update="Dependencies\DevIL.dll">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="Dependencies\HLLib.dll">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
     </None>
     <None Update="Dependencies\libBSP.dll">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
     </None>
+    <ContentWithTargetPath Include="Dependencies\VTFLib.dll">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <TargetPath>VTFLib.dll</TargetPath>
+    </ContentWithTargetPath>
     <None Update="Dependencies\VTFLib.dll">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
     </None>
-    <None Update="Dependencies\VTFCmd.exe">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    <None Update="Dependencies\VTFLib.NET.dll">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
     </None>
     <None Update="Q3Content\instructions.txt">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>

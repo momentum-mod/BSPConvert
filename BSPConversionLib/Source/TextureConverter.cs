@@ -16,6 +16,15 @@ namespace BSPConversionLib
 		private BSP bsp;
 		private string outputDir;
 
+		private readonly HashSet<string> validImageExtensions = new HashSet<string>()
+		{
+			".bmp",
+			".jpg",
+			".jpeg",
+			".png",
+			".tga"
+		};
+
 		public TextureConverter(string pk3Dir, BSP bsp)
 		{
 			this.pk3Dir = pk3Dir;
@@ -30,18 +39,23 @@ namespace BSPConversionLib
 
 		public void Convert()
 		{
-			var startInfo = new ProcessStartInfo();
-			startInfo.FileName = "Dependencies\\VTFCmd.exe";
-			startInfo.Arguments = $"-folder {pk3Dir}\\*.* -resize -recurse -silent";
-
-			var process = Process.Start(startInfo);
-			process.EnableRaisingEvents = true;
-			process.Exited += (x, y) => OnFinishedConvertingTextures();
-
-			process.WaitForExit();
+			ConvertImagesToVtfs();
+			MoveOrEmbedVtfs();
 		}
 
-		private void OnFinishedConvertingTextures()
+		// TODO: Make multi-threaded
+		private void ConvertImagesToVtfs()
+		{
+			var imageConverter = new ImageConverter();
+			var files = Directory.GetFiles(pk3Dir, "*.*", SearchOption.AllDirectories);
+			foreach (var file in files)
+			{
+				if (validImageExtensions.Contains(Path.GetExtension(file)))
+					imageConverter.Convert(file);
+			}
+		}
+
+		private void MoveOrEmbedVtfs()
 		{
 			// TODO: Find textures using shader texture paths
 			var vtfFiles = Directory.GetFiles(pk3Dir, "*.vtf", SearchOption.AllDirectories);
