@@ -117,6 +117,7 @@ namespace BSPConversionLib
 					case "target_stopTimer":
 					case "target_checkpoint":
 					case "target_give":
+					case "target_init":
 						ignoreEntity = true;
 						break;
 					default:
