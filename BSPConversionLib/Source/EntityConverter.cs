@@ -552,48 +552,51 @@ namespace BSPConversionLib
 			};
 			trigger.connections.Add(connection);
 
-			if (weaponEnt["count"] == "-1")
+			GiveWeaponAmmoOnStartTouch(trigger, weaponEnt);
+		}
+
+		private void GiveWeaponAmmoOnStartTouch(Entity trigger, Entity weaponEnt)
+		{
+			if (!weaponEnt.TryGetValue("count", out var count) || count == "0") // Every quake weapon has a default ammo count when none is specified
+				weaponEnt["count"] = GetDefaultAmmoCount(weaponEnt.ClassName);
+
+			if (count == "-1")
 				return;
 
-			if (!weaponEnt.TryGetValue("count", out _) || weaponEnt["count"] == "0") // Every quake weapon has a default ammo count when none is specified
-				SetDefaultAmmoCount(weaponEnt, weaponEnt.ClassName);
-			
 			var ammoType = GetWeaponAmmoType(weaponEnt.ClassName);
 			if (string.IsNullOrEmpty(ammoType))
 				return;
-			else
-			{
-				var connection2 = new Entity.EntityConnection()
-				{
-					name = "OnStartTouch",
-					target = "!activator",
-					action = ammoType,
-					param = weaponEnt["count"],
-					delay = 0f,
-					fireOnce = -1
-				};
-				trigger.connections.Add(connection2);
-			}
 
+			var connection = new Entity.EntityConnection()
+			{
+				name = "OnStartTouch",
+				target = "!activator",
+				action = ammoType,
+				param = count,
+				delay = 0f,
+				fireOnce = -1
+			};
+			trigger.connections.Add(connection);
 		}
-		private string SetDefaultAmmoCount(Entity weaponEnt, string weaponName)
+
+		private string GetDefaultAmmoCount(string weaponName)
 		{
 			switch (weaponName)
 			{
 				case "weapon_machinegun":
-					return weaponEnt["count"] = "40";
+					return "40";
 				case "weapon_grenadelauncher":
-					return weaponEnt["count"] = "10";
+					return "10";
 				case "weapon_rocketlauncher":
-					return weaponEnt["count"] = "10";
+					return "10";
 				case "weapon_plasmagun":
-					return weaponEnt["count"] = "50";
+					return "50";
 				case "weapon_lightning":
-					return weaponEnt["count"] = "100";
+					return "100";
 				case "weapon_bfg":
-					return weaponEnt["count"] = "20";
+					return "20";
 				default:
-					return weaponEnt["count"] = "-1";
+					return "-1";
 			}
 		}
 
@@ -631,8 +634,8 @@ namespace BSPConversionLib
 					return "SetRockets";
 				case "weapon_plasmagun":
 					return "SetPlasma";
-			//	case "weapon_lightning":
-			//		return "SetCells";
+				//	case "weapon_lightning":
+				//		return "SetCells";
 				case "weapon_bfg":
 					return "SetBfgRockets";
 				default:
