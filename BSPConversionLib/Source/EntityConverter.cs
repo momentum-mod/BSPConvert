@@ -551,6 +551,50 @@ namespace BSPConversionLib
 				fireOnce = -1
 			};
 			trigger.connections.Add(connection);
+
+			if (weaponEnt["count"] == "-1")
+				return;
+
+			if (!weaponEnt.TryGetValue("count", out _) || weaponEnt["count"] == "0") // Every quake weapon has a default ammo count when none is specified
+				SetDefaultAmmoCount(weaponEnt, weaponEnt.ClassName);
+			
+			var ammoType = GetWeaponAmmoType(weaponEnt.ClassName);
+			if (string.IsNullOrEmpty(ammoType))
+				return;
+			else
+			{
+				var connection2 = new Entity.EntityConnection()
+				{
+					name = "OnStartTouch",
+					target = "!activator",
+					action = ammoType,
+					param = weaponEnt["count"],
+					delay = 0f,
+					fireOnce = -1
+				};
+				trigger.connections.Add(connection2);
+			}
+
+		}
+		private string SetDefaultAmmoCount(Entity weaponEnt, string weaponName)
+		{
+			switch (weaponName)
+			{
+				case "weapon_machinegun":
+					return weaponEnt["count"] = "40";
+				case "weapon_grenadelauncher":
+					return weaponEnt["count"] = "10";
+				case "weapon_rocketlauncher":
+					return weaponEnt["count"] = "10";
+				case "weapon_plasmagun":
+					return weaponEnt["count"] = "50";
+				case "weapon_lightning":
+					return weaponEnt["count"] = "100";
+				case "weapon_bfg":
+					return weaponEnt["count"] = "20";
+				default:
+					return weaponEnt["count"] = "-1";
+			}
 		}
 
 		private int GetWeaponIndex(string weaponName)
@@ -572,6 +616,27 @@ namespace BSPConversionLib
 					return (int)WeaponSlot.BFG;
 				default:
 					return -1;
+			}
+		}
+
+		private string GetWeaponAmmoType(string weaponName)
+		{
+			switch (weaponName)
+			{
+				case "weapon_machinegun":
+					return "SetBullets";
+				case "weapon_grenadelauncher":
+					return "SetGrenades";
+				case "weapon_rocketlauncher":
+					return "SetRockets";
+				case "weapon_plasmagun":
+					return "SetPlasma";
+			//	case "weapon_lightning":
+			//		return "SetCells";
+				case "weapon_bfg":
+					return "SetBfgRockets";
+				default:
+					return string.Empty;
 			}
 		}
 
