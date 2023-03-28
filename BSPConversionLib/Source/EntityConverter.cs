@@ -30,6 +30,13 @@ namespace BSPConversionLib
 			DamageActivates = 512,
 		}
 
+		[Flags]
+		private enum Q3TriggerTeleportFlags
+		{
+			Spectator = 1,
+			KeepSpeed = 2
+		}
+
 		private enum WeaponSlot
 		{
 			MachineGun = 2,
@@ -72,7 +79,7 @@ namespace BSPConversionLib
 		public void Convert()
 		{
 			var giveTargets = GetGiveTargets();
-			
+
 			foreach (var entity in q3Entities)
 			{
 				var ignoreEntity = false;
@@ -697,6 +704,14 @@ namespace BSPConversionLib
 				trigger.ClassName = "trigger_teleport";
 				trigger["target"] = targets.First().Name;
 			}
+
+			if (targetTele["spawnflags"] == "1")
+				trigger["mode"] = "3";
+			else
+			{
+				trigger["mode"] = "5";
+				trigger["setspeed"] = "400";
+			}
 		}
 
 		private void ConvertTriggerPush(Entity trigger)
@@ -715,9 +730,16 @@ namespace BSPConversionLib
 
 		private void ConvertTriggerTeleport(Entity trigger)
 		{
+			var spawnflags = (Q3TriggerTeleportFlags)trigger.Spawnflags;
+
+			if (spawnflags.HasFlag(Q3TriggerTeleportFlags.KeepSpeed))
+				trigger["mode"] = "3";
+			else
+			{
+				trigger["mode"] = "5";
+				trigger["setspeed"] = "400";
+			}
 			trigger["spawnflags"] = "1";
-			trigger["mode"] = "5";
-			trigger["setspeed"] = "400";
 
 			var targets = GetTargetEntities(trigger);
 			foreach (var target in targets)
