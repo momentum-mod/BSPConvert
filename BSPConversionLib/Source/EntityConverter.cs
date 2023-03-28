@@ -72,7 +72,7 @@ namespace BSPConversionLib
 		public void Convert()
 		{
 			var giveTargets = GetGiveTargets();
-
+			
 			foreach (var entity in q3Entities)
 			{
 				var ignoreEntity = false;
@@ -552,6 +552,53 @@ namespace BSPConversionLib
 				fireOnce = -1
 			};
 			trigger.connections.Add(connection);
+
+			GiveWeaponAmmoOnStartTouch(trigger, weaponEnt);
+		}
+
+		private void GiveWeaponAmmoOnStartTouch(Entity trigger, Entity weaponEnt)
+		{
+			if (!weaponEnt.TryGetValue("count", out var count) || count == "0") // Every quake weapon has a default ammo count when none is specified
+				weaponEnt["count"] = GetDefaultAmmoCount(weaponEnt.ClassName);
+
+			if (count == "-1")
+				return;
+
+			var ammoType = GetWeaponAmmoType(weaponEnt.ClassName);
+			if (string.IsNullOrEmpty(ammoType))
+				return;
+
+			var connection = new Entity.EntityConnection()
+			{
+				name = "OnStartTouch",
+				target = "!activator",
+				action = ammoType,
+				param = count,
+				delay = 0f,
+				fireOnce = -1
+			};
+			trigger.connections.Add(connection);
+		}
+
+		private string GetDefaultAmmoCount(string weaponName)
+		{
+			switch (weaponName)
+			{
+				case "weapon_machinegun":
+					return "40";
+				case "weapon_grenadelauncher":
+					return "10";
+				case "weapon_rocketlauncher":
+					return "10";
+				case "weapon_plasmagun":
+					return "50";
+				case "weapon_lightning":
+					return "100";
+				case "weapon_bfg":
+					return "20";
+				default:
+					return "-1";
+			}
 		}
 
 		private int GetWeaponIndex(string weaponName)
@@ -576,8 +623,32 @@ namespace BSPConversionLib
 			}
 		}
 
+		private string GetWeaponAmmoType(string weaponName)
+		{
+			switch (weaponName)
+			{
+				case "weapon_machinegun":
+					return "SetBullets";
+				case "weapon_grenadelauncher":
+					return "SetGrenades";
+				case "weapon_rocketlauncher":
+					return "SetRockets";
+				case "weapon_plasmagun":
+					return "SetCells";
+				//	case "weapon_lightning":
+				//		return "SetCells";
+				case "weapon_bfg":
+					return "SetBfgRockets";
+				default:
+					return string.Empty;
+			}
+		}
+
 		private void GiveAmmoOnStartTouch(Entity trigger, Entity ammoEnt)
 		{
+			if (ammoEnt["notcpm"] == "1")
+				return;
+
 			var ammoOutput = GetAmmoOutput(ammoEnt.ClassName);
 			if (string.IsNullOrEmpty(ammoOutput))
 				return;
