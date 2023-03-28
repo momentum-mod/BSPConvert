@@ -222,7 +222,7 @@ namespace BSPConversionLib
 			else if (angle == -2) // DOWN
 				entity["movedir"] = "90 0 0";
 			else
-				entity["movedir"] = $"0 {angle.ToString()} 0";
+				entity["movedir"] = $"0 {angle} 0";
 
 			entity.Remove("angle");
 		}
@@ -291,7 +291,6 @@ namespace BSPConversionLib
 		private void ConvertPlayerStartTargetInit(Entity playerStart, Entity targetInit)
 		{
 			var targets = GetTargetEntities(targetInit);
-
 			foreach (var target in targets)
 			{
 				switch (target.ClassName)
@@ -635,8 +634,8 @@ namespace BSPConversionLib
 					return "SetRockets";
 				case "weapon_plasmagun":
 					return "SetCells";
-				//	case "weapon_lightning":
-				//		return "SetCells";
+				//case "weapon_lightning":
+				//	return "SetCells";
 				case "weapon_bfg":
 					return "SetBfgRockets";
 				default:
@@ -646,7 +645,7 @@ namespace BSPConversionLib
 
 		private void GiveAmmoOnStartTouch(Entity trigger, Entity ammoEnt)
 		{
-			if (ammoEnt["notcpm"] == "1")
+			if (ammoEnt["notcpm"] == "1") // TODO: Figure out how to handle gamemode specific entities more robustly
 				return;
 
 			var ammoOutput = GetAmmoOutput(ammoEnt.ClassName);
