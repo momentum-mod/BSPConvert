@@ -14,6 +14,8 @@ using System.IO.Compression;
 using System.Diagnostics;
 using System.Collections;
 using System.Xml.Linq;
+using VTFLib;
+using DevILSharp;
 
 namespace BSPConversionLib
 {
@@ -92,6 +94,7 @@ namespace BSPConversionLib
 			
 			LoadBSP();
 			
+			InitVTFLib();
 			CheckQ3Content();
 			ReplaceToolTextures();
 			ConvertShaders();
@@ -129,6 +132,32 @@ namespace BSPConversionLib
 
 			var mapType = options.oldBSP ? MapType.Source20 : MapType.Source25;
 			sourceBsp = new BSP(Path.GetFileName(options.inputFile), mapType);
+		}
+
+		private void InitVTFLib()
+		{
+			InitVTFAPI();
+			InitDevIL();
+		}
+
+		private static void InitVTFAPI()
+		{
+			VTFAPI.Initialize();
+
+			uint vtfImage = 0;
+			VTFFile.CreateImage(ref vtfImage);
+			VTFFile.BindImage(vtfImage);
+		}
+
+		private static void InitDevIL()
+		{
+			IL.Init();
+
+			IL.Enable(EnableCap.AbsoluteOrigin); // Flips images that are upside down (by format)
+			IL.OriginFunc(OriginMode.UpperLeft);
+
+			var ilImage = IL.GenImage();
+			IL.BindImage(ilImage);
 		}
 
 		private void CheckQ3Content()
@@ -235,31 +264,27 @@ namespace BSPConversionLib
 			if (!File.Exists(vtfPath))
 				return GetDefaultTextureData();
 
-			try
-			{
-				var textureData = CreateTextureData();
-				
-				var vtfFile = FileUtil.DeserializeFromFile(vtfPath, VTFFile.Deserialize);
-				var header = vtfFile.header;
-				
-				var r = (int)Math.Round(header.reflectivityX * 255f);
-				var g = (int)Math.Round(header.reflectivityY * 255f);
-				var b = (int)Math.Round(header.reflectivityZ * 255f);
-				textureData.Reflectivity = ColorExtensions.FromArgb(255, r, g, b);
-				
-				var size = new Vector2(vtfFile.header.width, vtfFile.header.height);
-				textureData.Size = size;
-				textureData.ViewSize = size;
-
-				return textureData;
-			}
-			catch (Exception e)
+			if (!VTFFile.ImageLoad(vtfPath, true))
 			{
 				Console.WriteLine($"Failed to load vtf file ({Path.GetFileName(vtfPath)})");
-				Console.WriteLine(e.Message);
-
 				return GetDefaultTextureData();
 			}
+
+			var textureData = CreateTextureData();
+
+			var reflectivity = new Vector3();
+			VTFFile.ImageGetReflectivity(ref reflectivity.X, ref reflectivity.Y, ref reflectivity.Z);
+				
+			var r = (int)Math.Round(reflectivity.X * 255f);
+			var g = (int)Math.Round(reflectivity.Y * 255f);
+			var b = (int)Math.Round(reflectivity.Z * 255f);
+			textureData.Reflectivity = ColorExtensions.FromArgb(255, r, g, b);
+				
+			var size = new Vector2(VTFFile.ImageGetWidth(), VTFFile.ImageGetHeight());
+			textureData.Size = size;
+			textureData.ViewSize = size;
+
+			return textureData;
 		}
 
 		private TextureData GetDefaultTextureData()
