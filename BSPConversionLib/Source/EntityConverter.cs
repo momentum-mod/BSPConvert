@@ -72,7 +72,7 @@ namespace BSPConversionLib
 		public void Convert()
 		{
 			var giveTargets = GetGiveTargets();
-
+			
 			foreach (var entity in q3Entities)
 			{
 				var ignoreEntity = false;
@@ -633,7 +633,7 @@ namespace BSPConversionLib
 				case "weapon_rocketlauncher":
 					return "SetRockets";
 				case "weapon_plasmagun":
-					return "SetPlasma";
+					return "SetCells";
 				//	case "weapon_lightning":
 				//		return "SetCells";
 				case "weapon_bfg":
@@ -645,6 +645,9 @@ namespace BSPConversionLib
 
 		private void GiveAmmoOnStartTouch(Entity trigger, Entity ammoEnt)
 		{
+			if (ammoEnt["notcpm"] == "1")
+				return;
+
 			var ammoOutput = GetAmmoOutput(ammoEnt.ClassName);
 			if (string.IsNullOrEmpty(ammoOutput))
 				return;
