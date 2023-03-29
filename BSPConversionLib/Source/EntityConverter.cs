@@ -642,7 +642,7 @@ namespace BSPConversionLib
 				case "weapon_plasmagun":
 					return "SetCells";
 				//case "weapon_lightning":
-				//	return "SetCells";
+				//	return "SetLightning";
 				case "weapon_bfg":
 					return "SetBfgRockets";
 				default:
@@ -680,11 +680,11 @@ namespace BSPConversionLib
 				case "ammo_bullets": // Machine gun
 					return "AddBullets";
 				case "ammo_cells": // Plasma gun
-					return "AddPlasma";
+					return "AddCells";
 				case "ammo_grenades":
 					return "AddGrenades";
 				case "ammo_lightning":
-					return "AddCells";
+					return "AddLightning";
 				case "ammo_rockets":
 					return "AddRockets";
 				case "ammo_shells": // Shotgun
@@ -804,11 +804,11 @@ namespace BSPConversionLib
 				case "ammo_bullets": // Machine gun
 					return "bullets";
 				case "ammo_cells": // Plasma gun
-					return "plasma";
+					return "cells";
 				case "ammo_grenades":
 					return "grenades";
 				case "ammo_lightning":
-					return "cells";
+					return "lightning";
 				case "ammo_rockets":
 					return "rockets";
 				case "ammo_shells": // Shotgun
