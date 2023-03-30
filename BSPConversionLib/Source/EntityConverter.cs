@@ -135,6 +135,8 @@ namespace BSPConversionLib
 							break;
 						}
 				}
+				if (entity.ClassName == "info_teleport_destination")
+					SetTeleportOrigin(entity);
 
 				if (!ignoreEntity)
 				{
@@ -851,6 +853,14 @@ namespace BSPConversionLib
 				entity.Angles = new Vector3(0f, angle, 0f);
 				entity.Remove("angle");
 			}
+		}
+
+		private void SetTeleportOrigin(Entity teleDest)
+		{
+			string[] origin = teleDest["origin"].Split(' ');
+			float.TryParse(origin[2], out var z);
+			origin[2] = (z - 24).ToString(); // teleport destinations are 24 units higher than they should be
+			teleDest["origin"] = string.Join(" ", origin);
 		}
 
 		private List<Entity> GetTargetEntities(Entity sourceEntity)
