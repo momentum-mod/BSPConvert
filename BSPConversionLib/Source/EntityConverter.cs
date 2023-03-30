@@ -857,8 +857,8 @@ namespace BSPConversionLib
 
 		private void SetTeleportOrigin(Entity teleDest)
 		{
-			string[] origin = teleDest["origin"].Split(' ');
-			float.TryParse(origin[2], out var z);
+			var origin = teleDest["origin"].Split(' ');
+			var z = float.Parse(origin[2]);
 			origin[2] = (z - 24).ToString(); // teleport destinations are 24 units higher than they should be
 			teleDest["origin"] = string.Join(" ", origin);
 		}
