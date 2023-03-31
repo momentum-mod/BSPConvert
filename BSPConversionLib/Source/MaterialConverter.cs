@@ -64,7 +64,7 @@ namespace BSPConversionLib
 		{
 			if (shader.skyParms != null && !string.IsNullOrEmpty(shader.skyParms.outerBox))
 				CreateSkyboxVMT(shader);
-			else if (!string.IsNullOrEmpty(shader.map))
+			else if (!string.IsNullOrEmpty(shader.GetFirstValidStage()?.map))
 				CreateBaseShaderVMT(texture, shader);
 		}
 
@@ -111,7 +111,7 @@ namespace BSPConversionLib
 
 		private void CreateBaseShaderVMT(string texture, Shader shader)
 		{
-			var baseTexture = Path.ChangeExtension(shader.map, null);
+			var baseTexture = Path.ChangeExtension(shader.GetFirstValidStage()?.map, null);
 			TryCopyQ3Content(baseTexture);
 
 			var shaderVmt = GenerateVMT(shader, baseTexture);
@@ -187,8 +187,11 @@ namespace BSPConversionLib
 		{
 			if (shader.cullType == CullType.TWO_SIDED)
 				sb.AppendLine("\t$nocull 1");
+
+			var stage = shader.GetFirstValidStage();
+			var flags = stage?.flags ?? 0;
 			
-			if (shader.alphaFunc == AlphaFunc.GLS_ATEST_GE_80)
+			if (flags.HasFlag(ShaderStageFlags.GLS_ATEST_GE_80))
 			{
 				sb.AppendLine("\t$alphatest 1");
 				sb.AppendLine("\t$alphatestreference 0.5");
@@ -196,7 +199,7 @@ namespace BSPConversionLib
 			else if (shader.contents.HasFlag(Q3ContentsFlags.CONTENTS_TRANSLUCENT))
 				sb.AppendLine("\t$translucent 1");
 
-			if (shader.blendFunc.HasFlag(BlendFuncFlags.GLS_SRCBLEND_ONE | BlendFuncFlags.GLS_DSTBLEND_ONE))
+			if (flags.HasFlag(ShaderStageFlags.GLS_SRCBLEND_ONE | ShaderStageFlags.GLS_DSTBLEND_ONE))
 				sb.Append("\t$additive 1");
 		}
 

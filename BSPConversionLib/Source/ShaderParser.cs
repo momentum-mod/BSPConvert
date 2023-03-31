@@ -21,12 +21,9 @@ namespace BSPConversionLib
 			var shaderDict = new Dictionary<string, Shader>();
 
 			var fileEnumerator = File.ReadLines(shaderFile).GetEnumerator();
-			while (fileEnumerator.MoveNext())
+			string line;
+			while ((line = GetNextValidLine(fileEnumerator)) != null)
 			{
-				var line = TrimLine(fileEnumerator.Current);
-				if (string.IsNullOrEmpty(line))
-					continue;
-
 				var textureName = line;
 				var shader = ParseShader(fileEnumerator);
 
@@ -39,36 +36,35 @@ namespace BSPConversionLib
 		private Shader ParseShader(IEnumerator<string> fileEnumerator)
 		{
 			var shader = new Shader();
+			var stages = new List<ShaderStage>();
 
-			var nesting = 0;
-			while (fileEnumerator.MoveNext())
+			var line = GetNextValidLine(fileEnumerator);
+			if (!line.StartsWith('{'))
+				throw new Exception("Warning: Expecting '{', found '" + line + "' instead in shader file: " + shaderFile);
+
+			while ((line = GetNextValidLine(fileEnumerator)) != null)
 			{
-				var line = TrimLine(fileEnumerator.Current);
-				if (string.IsNullOrEmpty(line))
-					continue;
-
-				// TODO: Parse shader passes
-				// TODO: Handle nesting with recursion?
-				if (line == "{")
+				if (line == "}") // End of shader definition
+					break;
+				else if (line.StartsWith('{'))
 				{
-					nesting++;
+					stages.Add(ParseStage(fileEnumerator));
 					continue;
-				}
-
-				if (line == "}")
-				{
-					nesting--;
-					if (nesting <= 0)
-						break;
 				}
 
 				// Parse shader parameter
 				var split = line.Split(' ');
 				switch (split[0].ToLower())
 				{
-					case "map":
-						if (string.IsNullOrEmpty(shader.map)) // Don't overwrite existing map
-							shader.map = ParseMap(split[1]);
+					case "q3map_sun":
+						break;
+					case "deformvertexes":
+						break;
+					case "tesssize":
+						break;
+					case "clamptime":
+						break;
+					case "q3map":
 						break;
 					case "surfaceparm":
 						{
@@ -77,31 +73,90 @@ namespace BSPConversionLib
 							shader.contents |= infoParm.contents;
 							break;
 						}
+					case "nomipmaps":
+						break;
+					case "nopicmip":
+						break;
+					case "polygonoffset":
+						break;
+					case "entitymergable":
+						break;
+					case "fogparms":
+						break;
+					case "portal":
+						break;
 					case "skyparms":
 						shader.skyParms = ParseSkyParms(split);
+						break;
+					case "light":
 						break;
 					case "cull":
 						shader.cullType = ParseCullType(split[1]);
 						break;
-					case "alphafunc":
-						shader.alphaFunc = ParseAlphaFunc(split[1]);
+					case "sort":
 						break;
-					case "blendfunc":
-						if (shader.blendFunc == 0)  // Don't overwrite existing blendFunc
-							shader.blendFunc = ParseBlendFunc(split);
+					default:
+						if (!split[0].ToLower().StartsWith("qer"))
+							Debug.WriteLine("Warning: Unknown shader parameter '" + split[0] + "' in shader file: " + shaderFile);
+						
 						break;
 				}
 			}
 
+			shader.stages = stages.ToArray();
+
 			return shader;
 		}
 
-		private static string ParseMap(string map)
+		private ShaderStage ParseStage(IEnumerator<string> fileEnumerator)
 		{
-			if (map.StartsWith('$'))
-				return string.Empty;
+			var stage = new ShaderStage();
 
-			return map;
+			string line;
+			while ((line = GetNextValidLine(fileEnumerator)) != null)
+			{
+				if (line == "}") // End of shader pass definition
+					break;
+				
+				var split = line.Split(' ');
+				switch (split[0].ToLower())
+				{
+					case "map":
+						stage.map = split[1];
+						break;
+					case "clampmap":
+						break;
+					case "animmap":
+						break;
+					case "videomap":
+						break;
+					case "alphafunc":
+						stage.flags |= ParseAlphaFunc(split[1]);
+						break;
+					case "depthfunc":
+						break;
+					case "detail":
+						break;
+					case "blendfunc":
+						stage.flags |= ParseBlendFunc(split);
+						break;
+					case "rgbgen":
+						break;
+					case "alphagen":
+						break;
+					case "texgen":
+						break;
+					case "tcmod":
+						break;
+					case "depthwrite":
+						break;
+					default:
+						Debug.WriteLine($"Warning: Unknown shader parameter: {split[0]}");
+						break;
+				}
+			}
+
+			return stage;
 		}
 
 		private InfoParm ParseSurfaceParm(string surfaceParm)
@@ -142,32 +197,32 @@ namespace BSPConversionLib
 			}
 		}
 
-		private AlphaFunc ParseAlphaFunc(string func)
+		private ShaderStageFlags ParseAlphaFunc(string func)
 		{
 			switch (func.ToLower())
 			{
 				case "gt0":
-					return AlphaFunc.GLS_ATEST_GT_0;
+					return ShaderStageFlags.GLS_ATEST_GT_0;
 				case "lt128":
-					return AlphaFunc.GLS_ATEST_LT_80;
+					return ShaderStageFlags.GLS_ATEST_LT_80;
 				case "ge128":
-					return AlphaFunc.GLS_ATEST_GE_80;
+					return ShaderStageFlags.GLS_ATEST_GE_80;
 			}
 
 			// Invalid alphaFunc
 			return 0;
 		}
 
-		private BlendFuncFlags ParseBlendFunc(string[] split)
+		private ShaderStageFlags ParseBlendFunc(string[] split)
 		{
 			switch (split[1].ToLower())
 			{
 				case "add":
-					return BlendFuncFlags.GLS_SRCBLEND_ONE | BlendFuncFlags.GLS_DSTBLEND_ONE;
+					return ShaderStageFlags.GLS_SRCBLEND_ONE | ShaderStageFlags.GLS_DSTBLEND_ONE;
 				case "filter":
-					return BlendFuncFlags.GLS_SRCBLEND_DST_COLOR | BlendFuncFlags.GLS_DSTBLEND_ZERO;
+					return ShaderStageFlags.GLS_SRCBLEND_DST_COLOR | ShaderStageFlags.GLS_DSTBLEND_ZERO;
 				case "blend":
-					return BlendFuncFlags.GLS_SRCBLEND_SRC_ALPHA | BlendFuncFlags.GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA;
+					return ShaderStageFlags.GLS_SRCBLEND_SRC_ALPHA | ShaderStageFlags.GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA;
 				default:
 					if (split.Length == 3)
 						return ParseSrcBlendMode(split[1]) | ParseDestBlendMode(split[2]);
@@ -176,58 +231,71 @@ namespace BSPConversionLib
 			}
 		}
 
-		private BlendFuncFlags ParseSrcBlendMode(string src)
+		private ShaderStageFlags ParseSrcBlendMode(string src)
 		{
 			switch (src.ToUpper())
 			{
 				case "GL_ONE":
-					return BlendFuncFlags.GLS_SRCBLEND_ONE;
+					return ShaderStageFlags.GLS_SRCBLEND_ONE;
 				case "GL_ZERO":
-					return BlendFuncFlags.GLS_SRCBLEND_ZERO;
+					return ShaderStageFlags.GLS_SRCBLEND_ZERO;
 				case "GL_DST_COLOR":
-					return BlendFuncFlags.GLS_SRCBLEND_DST_COLOR;
+					return ShaderStageFlags.GLS_SRCBLEND_DST_COLOR;
 				case "GL_ONE_MINUS_DST_COLOR":
-					return BlendFuncFlags.GLS_SRCBLEND_ONE_MINUS_DST_COLOR;
+					return ShaderStageFlags.GLS_SRCBLEND_ONE_MINUS_DST_COLOR;
 				case "GL_SRC_ALPHA":
-					return BlendFuncFlags.GLS_SRCBLEND_SRC_ALPHA;
+					return ShaderStageFlags.GLS_SRCBLEND_SRC_ALPHA;
 				case "GL_ONE_MINUS_SRC_ALPHA":
-					return BlendFuncFlags.GLS_SRCBLEND_ONE_MINUS_SRC_ALPHA;
+					return ShaderStageFlags.GLS_SRCBLEND_ONE_MINUS_SRC_ALPHA;
 				case "GL_DST_ALPHA":
-					return BlendFuncFlags.GLS_SRCBLEND_DST_ALPHA;
+					return ShaderStageFlags.GLS_SRCBLEND_DST_ALPHA;
 				case "GL_ONE_MINUS_DST_ALPHA":
-					return BlendFuncFlags.GLS_SRCBLEND_ONE_MINUS_DST_ALPHA;
+					return ShaderStageFlags.GLS_SRCBLEND_ONE_MINUS_DST_ALPHA;
 				case "GL_SRC_ALPHA_SATURATE":
-					return BlendFuncFlags.GLS_SRCBLEND_ALPHA_SATURATE;
+					return ShaderStageFlags.GLS_SRCBLEND_ALPHA_SATURATE;
 				default:
 					Debug.WriteLine($"Warning: Unknown blend mode: {src}");
-					return BlendFuncFlags.GLS_SRCBLEND_ONE;
+					return ShaderStageFlags.GLS_SRCBLEND_ONE;
 			}
 		}
 
-		private BlendFuncFlags ParseDestBlendMode(string dest)
+		private ShaderStageFlags ParseDestBlendMode(string dest)
 		{
 			switch (dest.ToUpper())
 			{
 				case "GL_ONE":
-					return BlendFuncFlags.GLS_DSTBLEND_ONE;
+					return ShaderStageFlags.GLS_DSTBLEND_ONE;
 				case "GL_ZERO":
-					return BlendFuncFlags.GLS_DSTBLEND_ZERO;
+					return ShaderStageFlags.GLS_DSTBLEND_ZERO;
 				case "GL_SRC_ALPHA":
-					return BlendFuncFlags.GLS_DSTBLEND_SRC_ALPHA;
+					return ShaderStageFlags.GLS_DSTBLEND_SRC_ALPHA;
 				case "GL_ONE_MINUS_SRC_ALPHA":
-					return BlendFuncFlags.GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA;
+					return ShaderStageFlags.GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA;
 				case "GL_DST_ALPHA":
-					return BlendFuncFlags.GLS_DSTBLEND_DST_ALPHA;
+					return ShaderStageFlags.GLS_DSTBLEND_DST_ALPHA;
 				case "GL_ONE_MINUS_DST_ALPHA":
-					return BlendFuncFlags.GLS_DSTBLEND_ONE_MINUS_DST_ALPHA;
+					return ShaderStageFlags.GLS_DSTBLEND_ONE_MINUS_DST_ALPHA;
 				case "GL_SRC_COLOR":
-					return BlendFuncFlags.GLS_DSTBLEND_SRC_COLOR;
+					return ShaderStageFlags.GLS_DSTBLEND_SRC_COLOR;
 				case "GL_ONE_MINUS_SRC_COLOR":
-					return BlendFuncFlags.GLS_DSTBLEND_ONE_MINUS_SRC_COLOR;
+					return ShaderStageFlags.GLS_DSTBLEND_ONE_MINUS_SRC_COLOR;
 				default:
 					Debug.WriteLine($"Warning: Unknown blend mode: {dest}");
-					return BlendFuncFlags.GLS_DSTBLEND_ONE;
+					return ShaderStageFlags.GLS_DSTBLEND_ONE;
 			}
+		}
+		
+		// TODO: Get next valid token instead of line
+		private string GetNextValidLine(IEnumerator<string> fileEnumerator)
+		{
+			while (fileEnumerator.MoveNext())
+			{
+				var line = TrimLine(fileEnumerator.Current);
+				if (!string.IsNullOrEmpty(line))
+					return line;
+			}
+
+			return null;
 		}
 
 		private string TrimLine(string line)
