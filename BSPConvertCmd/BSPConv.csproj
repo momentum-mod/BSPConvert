@@ -12,7 +12,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\BSPConversionLib\BSPConversionLib.csproj" />
+    <ProjectReference Include="..\BSPConvertLib\BSPConvertLib.csproj" />
   </ItemGroup>
 
 </Project>
