@@ -749,9 +749,10 @@ namespace BSPConversionLib
 
 			var targets = GetTargetEntities(trigger);
 			foreach (var target in targets)
-			
-			if (target.ClassName != "info_teleport_destination")
-				ConvertTeleportDestination(target);
+			{
+				if (target.ClassName != "info_teleport_destination")
+					ConvertTeleportDestination(target);
+			}
 		}
 
 		private void ConvertEquipment(Entity entity)
