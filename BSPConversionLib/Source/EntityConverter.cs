@@ -108,7 +108,7 @@ namespace BSPConversionLib
 						ConvertTriggerTeleport(entity);
 						break;
 					case "misc_teleporter_dest":
-						entity.ClassName = "info_teleport_destination";
+						ConvertTeleportDestination(entity);
 						break;
 					case "target_position":
 						entity.ClassName = "info_target";
@@ -135,8 +135,6 @@ namespace BSPConversionLib
 							break;
 						}
 				}
-				if (entity.ClassName == "info_teleport_destination")
-					SetTeleportOrigin(entity);
 
 				if (!ignoreEntity)
 				{
@@ -147,6 +145,12 @@ namespace BSPConversionLib
 
 			foreach (var entity in removeEntities)
 				sourceEntities.Remove(entity);
+		}
+
+		private void ConvertTeleportDestination(Entity entity)
+		{
+			entity.ClassName = "info_teleport_destination";
+			SetTeleportOrigin(entity);
 		}
 
 		private HashSet<string> GetGiveTargets()
@@ -745,7 +749,9 @@ namespace BSPConversionLib
 
 			var targets = GetTargetEntities(trigger);
 			foreach (var target in targets)
-				target.ClassName = "info_teleport_destination";
+			
+			if (target.ClassName != "info_teleport_destination")
+				ConvertTeleportDestination(target);
 		}
 
 		private void ConvertEquipment(Entity entity)
