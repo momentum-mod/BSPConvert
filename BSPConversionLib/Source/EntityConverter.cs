@@ -864,10 +864,9 @@ namespace BSPConversionLib
 
 		private void SetTeleportOrigin(Entity teleDest)
 		{
-			var origin = teleDest["origin"].Split(' ');
-			var z = float.Parse(origin[2]);
-			origin[2] = (z - 24).ToString(); // teleport destinations are 24 units higher than they should be
-			teleDest["origin"] = string.Join(" ", origin);
+			var origin = teleDest.Origin;
+			origin.Z -= 24; // misc_teleporter_dest entities are 24 units higher than they should be
+			teleDest.Origin = origin;
 		}
 
 		private List<Entity> GetTargetEntities(Entity sourceEntity)
