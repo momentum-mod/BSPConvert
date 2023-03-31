@@ -108,7 +108,7 @@ namespace BSPConversionLib
 						ConvertTriggerTeleport(entity);
 						break;
 					case "misc_teleporter_dest":
-						entity.ClassName = "info_teleport_destination";
+						ConvertTeleportDestination(entity);
 						break;
 					case "target_position":
 						entity.ClassName = "info_target";
@@ -145,6 +145,12 @@ namespace BSPConversionLib
 
 			foreach (var entity in removeEntities)
 				sourceEntities.Remove(entity);
+		}
+
+		private void ConvertTeleportDestination(Entity entity)
+		{
+			entity.ClassName = "info_teleport_destination";
+			SetTeleportOrigin(entity);
 		}
 
 		private HashSet<string> GetGiveTargets()
@@ -743,7 +749,10 @@ namespace BSPConversionLib
 
 			var targets = GetTargetEntities(trigger);
 			foreach (var target in targets)
-				target.ClassName = "info_teleport_destination";
+			{
+				if (target.ClassName != "info_teleport_destination")
+					ConvertTeleportDestination(target);
+			}
 		}
 
 		private void ConvertEquipment(Entity entity)
@@ -851,6 +860,13 @@ namespace BSPConversionLib
 				entity.Angles = new Vector3(0f, angle, 0f);
 				entity.Remove("angle");
 			}
+		}
+
+		private void SetTeleportOrigin(Entity teleDest)
+		{
+			var origin = teleDest.Origin;
+			origin.Z -= 24; // misc_teleporter_dest entities are 24 units higher than they should be
+			teleDest.Origin = origin;
 		}
 
 		private List<Entity> GetTargetEntities(Entity sourceEntity)
