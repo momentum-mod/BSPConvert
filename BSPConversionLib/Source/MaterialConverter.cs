@@ -195,6 +195,9 @@ namespace BSPConversionLib
 			}
 			else if (shader.contents.HasFlag(Q3ContentsFlags.CONTENTS_TRANSLUCENT))
 				sb.AppendLine("\t$translucent 1");
+
+			if (shader.blendFunc.HasFlag(BlendFuncFlags.GLS_SRCBLEND_ONE | BlendFuncFlags.GLS_DSTBLEND_ONE))
+				sb.Append("\t$additive 1");
 		}
 
 		private string GenerateSkyboxVMT(string baseTexture)

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -46,6 +47,7 @@ namespace BSPConversionLib
 				if (string.IsNullOrEmpty(line))
 					continue;
 
+				// TODO: Parse shader passes
 				// TODO: Handle nesting with recursion?
 				if (line == "{")
 				{
@@ -83,6 +85,10 @@ namespace BSPConversionLib
 						break;
 					case "alphafunc":
 						shader.alphaFunc = ParseAlphaFunc(split[1]);
+						break;
+					case "blendfunc":
+						if (shader.blendFunc == 0)  // Don't overwrite existing blendFunc
+							shader.blendFunc = ParseBlendFunc(split);
 						break;
 				}
 			}
@@ -150,6 +156,78 @@ namespace BSPConversionLib
 
 			// Invalid alphaFunc
 			return 0;
+		}
+
+		private BlendFuncFlags ParseBlendFunc(string[] split)
+		{
+			switch (split[1].ToLower())
+			{
+				case "add":
+					return BlendFuncFlags.GLS_SRCBLEND_ONE | BlendFuncFlags.GLS_DSTBLEND_ONE;
+				case "filter":
+					return BlendFuncFlags.GLS_SRCBLEND_DST_COLOR | BlendFuncFlags.GLS_DSTBLEND_ZERO;
+				case "blend":
+					return BlendFuncFlags.GLS_SRCBLEND_SRC_ALPHA | BlendFuncFlags.GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA;
+				default:
+					if (split.Length == 3)
+						return ParseSrcBlendMode(split[1]) | ParseDestBlendMode(split[2]);
+					else
+						return 0;
+			}
+		}
+
+		private BlendFuncFlags ParseSrcBlendMode(string src)
+		{
+			switch (src.ToUpper())
+			{
+				case "GL_ONE":
+					return BlendFuncFlags.GLS_SRCBLEND_ONE;
+				case "GL_ZERO":
+					return BlendFuncFlags.GLS_SRCBLEND_ZERO;
+				case "GL_DST_COLOR":
+					return BlendFuncFlags.GLS_SRCBLEND_DST_COLOR;
+				case "GL_ONE_MINUS_DST_COLOR":
+					return BlendFuncFlags.GLS_SRCBLEND_ONE_MINUS_DST_COLOR;
+				case "GL_SRC_ALPHA":
+					return BlendFuncFlags.GLS_SRCBLEND_SRC_ALPHA;
+				case "GL_ONE_MINUS_SRC_ALPHA":
+					return BlendFuncFlags.GLS_SRCBLEND_ONE_MINUS_SRC_ALPHA;
+				case "GL_DST_ALPHA":
+					return BlendFuncFlags.GLS_SRCBLEND_DST_ALPHA;
+				case "GL_ONE_MINUS_DST_ALPHA":
+					return BlendFuncFlags.GLS_SRCBLEND_ONE_MINUS_DST_ALPHA;
+				case "GL_SRC_ALPHA_SATURATE":
+					return BlendFuncFlags.GLS_SRCBLEND_ALPHA_SATURATE;
+				default:
+					Debug.WriteLine($"Warning: Unknown blend mode: {src}");
+					return BlendFuncFlags.GLS_SRCBLEND_ONE;
+			}
+		}
+
+		private BlendFuncFlags ParseDestBlendMode(string dest)
+		{
+			switch (dest.ToUpper())
+			{
+				case "GL_ONE":
+					return BlendFuncFlags.GLS_DSTBLEND_ONE;
+				case "GL_ZERO":
+					return BlendFuncFlags.GLS_DSTBLEND_ZERO;
+				case "GL_SRC_ALPHA":
+					return BlendFuncFlags.GLS_DSTBLEND_SRC_ALPHA;
+				case "GL_ONE_MINUS_SRC_ALPHA":
+					return BlendFuncFlags.GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA;
+				case "GL_DST_ALPHA":
+					return BlendFuncFlags.GLS_DSTBLEND_DST_ALPHA;
+				case "GL_ONE_MINUS_DST_ALPHA":
+					return BlendFuncFlags.GLS_DSTBLEND_ONE_MINUS_DST_ALPHA;
+				case "GL_SRC_COLOR":
+					return BlendFuncFlags.GLS_DSTBLEND_SRC_COLOR;
+				case "GL_ONE_MINUS_SRC_COLOR":
+					return BlendFuncFlags.GLS_DSTBLEND_ONE_MINUS_SRC_COLOR;
+				default:
+					Debug.WriteLine($"Warning: Unknown blend mode: {dest}");
+					return BlendFuncFlags.GLS_DSTBLEND_ONE;
+			}
 		}
 
 		private string TrimLine(string line)

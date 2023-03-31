@@ -37,5 +37,6 @@ namespace BSPConversionLib
 
 		// Shader stage parameters (TODO: Needs to be moved to separate class for handling stages)
 		public AlphaFunc alphaFunc;
+		public BlendFuncFlags blendFunc;
 	}
 }
