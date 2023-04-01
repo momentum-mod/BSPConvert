@@ -767,6 +767,10 @@ namespace BSPConversionLib
 
 		private void ConvertWeapon(Entity weaponEnt)
 		{
+			if (!weaponEnt.TryGetValue("wait", out var wait))
+				weaponEnt["wait"] = "5";
+
+			weaponEnt["resettime"] = weaponEnt["wait"];
 			weaponEnt["weaponname"] = GetMomentumWeaponName(weaponEnt.ClassName);
 			weaponEnt["pickupammo"] = weaponEnt["count"];
 			weaponEnt.ClassName = "momentum_weapon_spawner";
@@ -799,6 +803,10 @@ namespace BSPConversionLib
 
 		private void ConvertAmmo(Entity ammoEnt)
 		{
+			if (!ammoEnt.TryGetValue("wait", out var wait))
+				ammoEnt["wait"] = "40";
+
+			ammoEnt["resettime"] = ammoEnt["wait"];
 			ammoEnt["ammoname"] = GetMomentumAmmoName(ammoEnt.ClassName);
 			ammoEnt["pickupammo"] = ammoEnt["count"];
 			ammoEnt.ClassName = "momentum_pickup_ammo";
@@ -831,6 +839,9 @@ namespace BSPConversionLib
 
 		private void ConvertItem(Entity itemEnt)
 		{
+			if (!itemEnt.TryGetValue("wait", out var wait))
+				itemEnt["wait"] = "120";
+
 			itemEnt["resettime"] = itemEnt["wait"];
 			if (itemEnt.ClassName == "item_haste")
 				itemEnt["hastetime"] = itemEnt["count"];
