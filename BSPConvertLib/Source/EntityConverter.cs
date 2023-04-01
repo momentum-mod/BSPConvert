@@ -767,13 +767,18 @@ namespace BSPConversionLib
 
 		private void ConvertWeapon(Entity weaponEnt)
 		{
-			if (!weaponEnt.TryGetValue("wait", out var wait))
-				weaponEnt["wait"] = "5";
-
-			weaponEnt["resettime"] = weaponEnt["wait"];
+			weaponEnt["resettime"] = GetWeaponRespawnTime(weaponEnt);
 			weaponEnt["weaponname"] = GetMomentumWeaponName(weaponEnt.ClassName);
 			weaponEnt["pickupammo"] = weaponEnt["count"];
 			weaponEnt.ClassName = "momentum_weapon_spawner";
+		}
+
+		private string GetWeaponRespawnTime(Entity weaponEnt)
+		{
+			if (weaponEnt.TryGetValue("wait", out var wait))
+				return wait;
+			
+			return "5";
 		}
 
 		private string GetMomentumWeaponName(string q3WeaponName)
@@ -803,13 +808,18 @@ namespace BSPConversionLib
 
 		private void ConvertAmmo(Entity ammoEnt)
 		{
-			if (!ammoEnt.TryGetValue("wait", out var wait))
-				ammoEnt["wait"] = "40";
-
-			ammoEnt["resettime"] = ammoEnt["wait"];
+			ammoEnt["resettime"] = GetAmmoRespawnTime(ammoEnt);
 			ammoEnt["ammoname"] = GetMomentumAmmoName(ammoEnt.ClassName);
 			ammoEnt["pickupammo"] = ammoEnt["count"];
 			ammoEnt.ClassName = "momentum_pickup_ammo";
+		}
+
+		private string GetAmmoRespawnTime(Entity ammoEnt)
+		{
+			if (ammoEnt.TryGetValue("wait", out var wait))
+				return wait;
+			
+			return "40";
 		}
 
 		private string GetMomentumAmmoName(string q3AmmoName)
@@ -839,16 +849,21 @@ namespace BSPConversionLib
 
 		private void ConvertItem(Entity itemEnt)
 		{
-			if (!itemEnt.TryGetValue("wait", out var wait))
-				itemEnt["wait"] = "120";
-
-			itemEnt["resettime"] = itemEnt["wait"];
+			itemEnt["resettime"] = GetItemRespawnTime(itemEnt);
 			if (itemEnt.ClassName == "item_haste")
 				itemEnt["hastetime"] = itemEnt["count"];
 			else if (itemEnt.ClassName == "item_quad")
 				itemEnt["damageboosttime"] = itemEnt["count"];
 
 			itemEnt.ClassName = GetMomentumItemName(itemEnt.ClassName);
+		}
+
+		private string GetItemRespawnTime(Entity itemEnt)
+		{
+			if (itemEnt.TryGetValue("wait", out var wait))
+				return wait;
+			
+			return "120";
 		}
 
 		private string GetMomentumItemName(string q3ItemName)
