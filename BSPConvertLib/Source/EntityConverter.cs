@@ -571,7 +571,7 @@ namespace BSPConversionLib
 		private void GiveWeaponAmmoOnStartTouch(Entity trigger, Entity weaponEnt)
 		{
 			if (!weaponEnt.TryGetValue("count", out var count) || count == "0") // Every quake weapon has a default ammo count when none is specified
-				weaponEnt["count"] = GetDefaultAmmoCount(weaponEnt.ClassName);
+				count = GetDefaultAmmoCount(weaponEnt.ClassName);
 
 			if (count == "-1")
 				return;
