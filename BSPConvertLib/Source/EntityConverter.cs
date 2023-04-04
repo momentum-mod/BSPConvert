@@ -566,6 +566,17 @@ namespace BSPConversionLib
 			trigger.connections.Add(connection);
 
 			GiveWeaponAmmoOnStartTouch(trigger, weaponEnt);
+
+			var targets = GetTargetEntities(weaponEnt); //TODO: more robust solution for entities targeting other entities inside a trigger_multiple
+			foreach (var target in targets)
+			{
+				switch (target.ClassName)
+				{
+					case "target_give":
+						ConvertGiveTrigger(trigger, target);
+						break;
+				}
+			}
 		}
 
 		private void GiveWeaponAmmoOnStartTouch(Entity trigger, Entity weaponEnt)
@@ -671,7 +682,7 @@ namespace BSPConversionLib
 				target = "!activator",
 				action = ammoOutput,
 				param = ammoEnt["count"],
-				delay = 0f,
+				delay = 0.01f, //hack to make giving ammo happen after setting ammo
 				fireOnce = -1
 			};
 			trigger.connections.Add(connection);
