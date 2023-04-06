@@ -376,7 +376,14 @@ namespace BSPConversionLib
 
 		private void ConvertTriggerMultiple(Entity trigger)
 		{
-			var targets = GetTargetEntities(trigger);
+			ConvertTriggerTargetsRecursive(trigger, trigger);
+
+			trigger["spawnflags"] = "1";
+		}
+
+		private void ConvertTriggerTargetsRecursive(Entity trigger, Entity entity)
+		{
+			var targets = GetTargetEntities(entity);
 			foreach (var target in targets)
 			{
 				switch (target.ClassName)
@@ -404,9 +411,8 @@ namespace BSPConversionLib
 						OpenDoorOnStartTouch(trigger, target);
 						break;
 				}
+				ConvertTriggerTargetsRecursive(trigger, target);
 			}
-
-			trigger["spawnflags"] = "1";
 		}
 
 		private void OpenDoorOnStartTouch(Entity trigger, Entity door)
@@ -442,17 +448,6 @@ namespace BSPConversionLib
 			if (spawnflags.HasFlag(TargetInitFlags.RemoveMachineGun))
 			{
 				RemoveWeaponOnStartTouch(trigger, (int)WeaponSlot.MachineGun);
-			}
-
-			var targets = GetTargetEntities(targetInit);
-			foreach (var target in targets)
-			{
-				switch (target.ClassName)
-				{
-					case "target_give":
-						ConvertGiveTrigger(trigger, target);
-						break;
-				}
 			}
 		}
 
@@ -566,17 +561,6 @@ namespace BSPConversionLib
 			trigger.connections.Add(connection);
 
 			GiveWeaponAmmoOnStartTouch(trigger, weaponEnt);
-
-			var targets = GetTargetEntities(weaponEnt); //TODO: more robust solution for entities targeting other entities inside a trigger_multiple
-			foreach (var target in targets)
-			{
-				switch (target.ClassName)
-				{
-					case "target_give":
-						ConvertGiveTrigger(trigger, target);
-						break;
-				}
-			}
 		}
 
 		private void GiveWeaponAmmoOnStartTouch(Entity trigger, Entity weaponEnt)
@@ -788,7 +772,7 @@ namespace BSPConversionLib
 		{
 			if (weaponEnt.TryGetValue("wait", out var wait))
 				return wait;
-			
+
 			return "5";
 		}
 
@@ -829,7 +813,7 @@ namespace BSPConversionLib
 		{
 			if (ammoEnt.TryGetValue("wait", out var wait))
 				return wait;
-			
+
 			return "40";
 		}
 
@@ -873,7 +857,7 @@ namespace BSPConversionLib
 		{
 			if (itemEnt.TryGetValue("wait", out var wait))
 				return wait;
-			
+
 			return "120";
 		}
 
