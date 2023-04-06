@@ -449,17 +449,6 @@ namespace BSPConversionLib
 			{
 				RemoveWeaponOnStartTouch(trigger, (int)WeaponSlot.MachineGun);
 			}
-
-			var targets = GetTargetEntities(targetInit);
-			foreach (var target in targets)
-			{
-				switch (target.ClassName)
-				{
-					case "target_give":
-						ConvertGiveTrigger(trigger, target);
-						break;
-				}
-			}
 		}
 
 		private static void RemoveWeaponOnStartTouch(Entity trigger, int weaponIndex)
