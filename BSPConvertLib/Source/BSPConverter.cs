@@ -664,29 +664,28 @@ namespace BSPConversionLib
 		private int GetBrushContents(Texture texture)
 		{
 			// TODO: Handle other texture contents flags
-			var contents = (Q3ContentsFlags)texture.Contents;
-			if (contents.HasFlag(Q3ContentsFlags.CONTENTS_PLAYERCLIP))
-				return (int)SourceContentsFlags.CONTENTS_PLAYERCLIP;
+			var sourceContents = SourceContentsFlags.CONTENTS_EMPTY;
+			var q3Contents = (Q3ContentsFlags)texture.Contents;
 
-			if (contents.HasFlag(Q3ContentsFlags.CONTENTS_SLIME))
-				return (int)SourceContentsFlags.CONTENTS_SLIME;
-
-			var flags = (Q3SurfaceFlags)texture.Flags;
-			if (contents == 0 ||
-				contents.HasFlag(Q3ContentsFlags.CONTENTS_FOG) ||
-				contents.HasFlag(Q3ContentsFlags.CONTENTS_STRUCTURAL) ||
-				flags.HasFlag(Q3SurfaceFlags.SURF_NONSOLID))
+			if (q3Contents.HasFlag(Q3ContentsFlags.CONTENTS_SOLID))
+				sourceContents |= SourceContentsFlags.CONTENTS_SOLID;
+			
+			if (q3Contents.HasFlag(Q3ContentsFlags.CONTENTS_LAVA) ||
+				q3Contents.HasFlag(Q3ContentsFlags.CONTENTS_WATER))
 			{
-				return (int)SourceContentsFlags.CONTENTS_EMPTY;
+				sourceContents |= SourceContentsFlags.CONTENTS_WATER;
 			}
+			
+			if (q3Contents.HasFlag(Q3ContentsFlags.CONTENTS_SLIME))
+				sourceContents |= SourceContentsFlags.CONTENTS_SLIME;
+			
+			if (q3Contents.HasFlag(Q3ContentsFlags.CONTENTS_PLAYERCLIP))
+				sourceContents |= SourceContentsFlags.CONTENTS_PLAYERCLIP;
 
-			if (contents.HasFlag(Q3ContentsFlags.CONTENTS_LAVA) ||
-				contents.HasFlag(Q3ContentsFlags.CONTENTS_WATER))
-			{
-				return (int)SourceContentsFlags.CONTENTS_WATER;
-			}
+			if (q3Contents.HasFlag(Q3ContentsFlags.CONTENTS_TRANSLUCENT))
+				sourceContents |= SourceContentsFlags.CONTENTS_TRANSLUCENT;
 
-			return (int)SourceContentsFlags.CONTENTS_SOLID;
+			return (int)sourceContents;
 		}
 
 		private void ConvertBrushSides()
