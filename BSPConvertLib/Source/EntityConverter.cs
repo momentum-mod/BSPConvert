@@ -879,12 +879,12 @@ namespace BSPConversionLib
 		private void ConvertItem(Entity itemEnt)
 		{
 			itemEnt["resettime"] = GetItemRespawnTime(itemEnt);
-			if (string.IsNullOrEmpty(itemEnt["count"]) || itemEnt["count"] == "0")
-				itemEnt["count"] = "30";
+			if (!itemEnt.TryGetValue("count", out var count) || count == "0")
+				count = "30";
 			if (itemEnt.ClassName == "item_haste")
-				itemEnt["hastetime"] = itemEnt["count"];
+				itemEnt["hastetime"] = count;
 			else if (itemEnt.ClassName == "item_quad")
-				itemEnt["damageboosttime"] = itemEnt["count"];
+				itemEnt["damageboosttime"] = count;
 
 			itemEnt.ClassName = GetMomentumItemName(itemEnt.ClassName);
 		}
