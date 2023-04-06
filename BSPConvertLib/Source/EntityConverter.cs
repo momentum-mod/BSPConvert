@@ -376,11 +376,8 @@ namespace BSPConversionLib
 
 		private void ConvertTriggerMultiple(Entity trigger)
 		{
-			var targets = GetTargetEntities(trigger);
-			foreach (var target in targets)
-			{
-				ConvertTriggerTargetsRecursive(trigger, trigger);
-			}
+			ConvertTriggerTargetsRecursive(trigger, trigger);
+
 			trigger["spawnflags"] = "1";
 		}
 
