@@ -404,9 +404,43 @@ namespace BSPConversionLib
 						OpenDoorOnStartTouch(trigger, target);
 						break;
 				}
+				ConvertEntityTargets(trigger, target);
 			}
-
 			trigger["spawnflags"] = "1";
+		}
+
+		private void ConvertEntityTargets(Entity trigger, Entity entity)
+		{
+			var targets = GetTargetEntities(entity);
+			foreach (var target in targets)
+			{
+				switch (target.ClassName)
+				{
+					case "target_stopTimer":
+						ConvertTimerTrigger(trigger, "trigger_momentum_timer_stop", 0);
+						break;
+					case "target_checkpoint":
+						ConvertTimerTrigger(trigger, "trigger_momentum_timer_checkpoint", currentCheckpointIndex);
+						currentCheckpointIndex++;
+						break;
+					case "target_give":
+						ConvertGiveTrigger(trigger, target);
+						break;
+					case "target_teleporter":
+						ConvertTeleportTrigger(trigger, target);
+						break;
+					case "target_kill":
+						ConvertKillTrigger(trigger);
+						break;
+					case "target_init":
+						ConvertInitTrigger(trigger, target);
+						break;
+					case "func_door":
+						OpenDoorOnStartTouch(trigger, target);
+						break;
+				}
+				ConvertEntityTargets(trigger, target);
+			}
 		}
 
 		private void OpenDoorOnStartTouch(Entity trigger, Entity door)
@@ -566,17 +600,6 @@ namespace BSPConversionLib
 			trigger.connections.Add(connection);
 
 			GiveWeaponAmmoOnStartTouch(trigger, weaponEnt);
-
-			var targets = GetTargetEntities(weaponEnt); //TODO: more robust solution for entities targeting other entities inside a trigger_multiple
-			foreach (var target in targets)
-			{
-				switch (target.ClassName)
-				{
-					case "target_give":
-						ConvertGiveTrigger(trigger, target);
-						break;
-				}
-			}
 		}
 
 		private void GiveWeaponAmmoOnStartTouch(Entity trigger, Entity weaponEnt)
@@ -788,7 +811,7 @@ namespace BSPConversionLib
 		{
 			if (weaponEnt.TryGetValue("wait", out var wait))
 				return wait;
-			
+
 			return "5";
 		}
 
@@ -829,7 +852,7 @@ namespace BSPConversionLib
 		{
 			if (ammoEnt.TryGetValue("wait", out var wait))
 				return wait;
-			
+
 			return "40";
 		}
 
@@ -873,7 +896,7 @@ namespace BSPConversionLib
 		{
 			if (itemEnt.TryGetValue("wait", out var wait))
 				return wait;
-			
+
 			return "120";
 		}
 
