@@ -879,6 +879,8 @@ namespace BSPConversionLib
 		private void ConvertItem(Entity itemEnt)
 		{
 			itemEnt["resettime"] = GetItemRespawnTime(itemEnt);
+			if (string.IsNullOrEmpty(itemEnt["count"]) || itemEnt["count"] == "0")
+				itemEnt["count"] = "30";
 			if (itemEnt.ClassName == "item_haste")
 				itemEnt["hastetime"] = itemEnt["count"];
 			else if (itemEnt.ClassName == "item_quad")
