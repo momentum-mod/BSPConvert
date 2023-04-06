@@ -516,6 +516,9 @@ namespace BSPConversionLib
 
 		private void GiveHasteOnStartTouch(Entity trigger, string duration)
 		{
+			if (string.IsNullOrEmpty(duration) || duration == "0")
+				duration = "30";
+
 			var connection = new Entity.EntityConnection()
 			{
 				name = "OnStartTouch",
@@ -530,6 +533,9 @@ namespace BSPConversionLib
 
 		private void GiveQuadOnStartTouch(Entity trigger, string duration)
 		{
+			if (string.IsNullOrEmpty(duration) || duration == "0")
+				duration = "30";
+
 			var connection = new Entity.EntityConnection()
 			{
 				name = "OnStartTouch",
@@ -566,7 +572,7 @@ namespace BSPConversionLib
 		private void GiveWeaponAmmoOnStartTouch(Entity trigger, Entity weaponEnt)
 		{
 			if (!weaponEnt.TryGetValue("count", out var count) || count == "0") // Every quake weapon has a default ammo count when none is specified
-				count = GetDefaultAmmoCount(weaponEnt.ClassName);
+				count = GetDefaultWeaponAmmoCount(weaponEnt.ClassName);
 
 			if (count == "-1")
 				return;
@@ -587,7 +593,7 @@ namespace BSPConversionLib
 			trigger.connections.Add(connection);
 		}
 
-		private string GetDefaultAmmoCount(string weaponName)
+		private string GetDefaultWeaponAmmoCount(string weaponName)
 		{
 			switch (weaponName)
 			{
@@ -659,17 +665,45 @@ namespace BSPConversionLib
 			var ammoOutput = GetAmmoOutput(ammoEnt.ClassName);
 			if (string.IsNullOrEmpty(ammoOutput))
 				return;
+			
+			if (!ammoEnt.TryGetValue("count", out var count) || count == "0")
+				count = GetDefaultAmmoCount(ammoEnt.ClassName);
 
 			var connection = new Entity.EntityConnection()
 			{
 				name = "OnStartTouch",
 				target = "!activator",
 				action = ammoOutput,
-				param = ammoEnt["count"],
+				param = count,
 				delay = 0.01f, //hack to make giving ammo happen after setting ammo
 				fireOnce = -1
 			};
 			trigger.connections.Add(connection);
+		}
+
+		private string GetDefaultAmmoCount(string ammoName)
+		{
+			switch (ammoName)
+			{
+				case "ammo_bfg":
+					return "15";
+				case "ammo_bullets": // Machine gun
+					return "50";
+				case "ammo_cells": // Plasma gun
+					return "30";
+				case "ammo_grenades":
+					return "5";
+				case "ammo_lightning":
+					return "60";
+				case "ammo_rockets":
+					return "5";
+				case "ammo_shells": // Shotgun
+					return "10";
+				case "ammo_slugs": // Railgun
+					return "10";
+				default:
+					return "0";
+			}
 		}
 
 		private string GetAmmoOutput(string ammoName)
