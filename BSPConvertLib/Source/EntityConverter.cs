@@ -379,37 +379,12 @@ namespace BSPConversionLib
 			var targets = GetTargetEntities(trigger);
 			foreach (var target in targets)
 			{
-				switch (target.ClassName)
-				{
-					case "target_stopTimer":
-						ConvertTimerTrigger(trigger, "trigger_momentum_timer_stop", 0);
-						break;
-					case "target_checkpoint":
-						ConvertTimerTrigger(trigger, "trigger_momentum_timer_checkpoint", currentCheckpointIndex);
-						currentCheckpointIndex++;
-						break;
-					case "target_give":
-						ConvertGiveTrigger(trigger, target);
-						break;
-					case "target_teleporter":
-						ConvertTeleportTrigger(trigger, target);
-						break;
-					case "target_kill":
-						ConvertKillTrigger(trigger);
-						break;
-					case "target_init":
-						ConvertInitTrigger(trigger, target);
-						break;
-					case "func_door":
-						OpenDoorOnStartTouch(trigger, target);
-						break;
-				}
-				ConvertEntityTargets(trigger, target);
+				ConvertTriggerTargetsRecursive(trigger, trigger);
 			}
 			trigger["spawnflags"] = "1";
 		}
 
-		private void ConvertEntityTargets(Entity trigger, Entity entity)
+		private void ConvertTriggerTargetsRecursive(Entity trigger, Entity entity)
 		{
 			var targets = GetTargetEntities(entity);
 			foreach (var target in targets)
@@ -439,7 +414,7 @@ namespace BSPConversionLib
 						OpenDoorOnStartTouch(trigger, target);
 						break;
 				}
-				ConvertEntityTargets(trigger, target);
+				ConvertTriggerTargetsRecursive(trigger, target);
 			}
 		}
 
