@@ -1,4 +1,6 @@
-﻿namespace BSPConversionLib
+﻿using System.Numerics;
+
+namespace BSPConversionLib
 {
 	[Flags]
 	public enum ShaderStageFlags
@@ -39,6 +41,17 @@
 		GLS_DEFAULT =							GLS_DEPTHMASK_TRUE
 	}
 
+	public enum TexCoordGen
+	{
+		TCGEN_BAD,
+		TCGEN_IDENTITY,         // clear to 0,0
+		TCGEN_LIGHTMAP,
+		TCGEN_TEXTURE,
+		TCGEN_ENVIRONMENT_MAPPED,
+		TCGEN_FOG,
+		TCGEN_VECTOR            // S and T from world coordinates
+	}
+
 	public enum CullType
 	{
 		FRONT_SIDED,
@@ -49,6 +62,7 @@
 	public class ShaderStage
 	{
 		public string map; // Path to image file
+		public TexCoordGen tcGen;
 		public ShaderStageFlags flags;
 	}
 
@@ -61,7 +75,14 @@
 			public string innerBox;
 		}
 
+		public class FogParms
+		{
+			public Vector3 color;
+			public float depthForOpaque;
+		}
+
 		public SkyParms skyParms;
+		public FogParms fogParms;
 		public Q3SurfaceFlags surfaceFlags;
 		public Q3ContentsFlags contents;
 		public CullType cullType;

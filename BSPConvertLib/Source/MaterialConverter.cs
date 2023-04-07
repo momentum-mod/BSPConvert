@@ -62,10 +62,53 @@ namespace BSPConversionLib
 
 		private void CreateShaderVMT(string texture, Shader shader)
 		{
-			if (shader.skyParms != null && !string.IsNullOrEmpty(shader.skyParms.outerBox))
+			if (shader.fogParms != null)
+				CreateFogVMT(texture, shader);
+			else if (shader.skyParms != null && !string.IsNullOrEmpty(shader.skyParms.outerBox))
 				CreateSkyboxVMT(shader);
 			else if (!string.IsNullOrEmpty(shader.GetFirstValidStage()?.map))
 				CreateBaseShaderVMT(texture, shader);
+		}
+
+		private void CreateFogVMT(string texture, Shader shader)
+		{
+			var fogVmt = GenerateFogVMT(shader);
+			WriteVMT(texture, fogVmt);
+		}
+
+		private string GenerateFogVMT(Shader shader)
+		{
+			var fogParms = shader.fogParms;
+			var fogColor = $"{fogParms.color.X * 255} {fogParms.color.Y * 255} {fogParms.color.Z * 255}";
+
+			return $$"""
+					Water
+					{
+						$forceexpensive 1
+
+						%tooltexture "dev/water_normal"
+
+						$refracttexture "_rt_WaterRefraction"
+						$refractamount 0
+
+						$scale "[1 1]"
+	
+						$bottommaterial "dev/dev_water3_beneath"
+
+						$normalmap "dev/bump_normal"
+
+						%compilewater 1
+						$surfaceprop "water"
+
+						$fogenable 1
+						$fogcolor "{{fogColor}}"
+
+						$fogstart 0
+						$fogend {{fogParms.depthForOpaque}}
+
+						$abovewater 1	
+					}
+					""";
 		}
 
 		private void CreateSkyboxVMT(Shader shader)
@@ -153,44 +196,50 @@ namespace BSPConversionLib
 			}
 		}
 
-		private string GenerateLitVMT(string baseTexture, Shader shader)
+		private string GenerateLitVMT(string texture, Shader shader)
 		{
 			var sb = new StringBuilder();
 			sb.AppendLine("LightmappedGeneric");
 			sb.AppendLine("{");
 
-			sb.AppendLine($"\t$basetexture \"{baseTexture}\"");
-			if (shader != null)
-				AppendShaderParameters(sb, shader);
+			AppendShaderParameters(sb, texture, shader);
 
 			sb.AppendLine("}");
 
 			return sb.ToString();
 		}
 
-		private string GenerateUnlitVMT(string baseTexture, Shader shader)
+		private string GenerateUnlitVMT(string texture, Shader shader)
 		{
 			var sb = new StringBuilder();
 			sb.AppendLine("UnlitGeneric");
 			sb.AppendLine("{");
 
-			sb.AppendLine($"\t$basetexture \"{baseTexture}\"");
-			if (shader != null)
-				AppendShaderParameters(sb, shader);
+			AppendShaderParameters(sb, texture, shader);
 
 			sb.AppendLine("}");
 
 			return sb.ToString();
 		}
 		
-		private void AppendShaderParameters(StringBuilder sb, Shader shader)
+		private void AppendShaderParameters(StringBuilder sb, string texture, Shader shader)
 		{
-			if (shader.cullType == CullType.TWO_SIDED)
-				sb.AppendLine("\t$nocull 1");
+			if (shader == null)
+			{
+				sb.AppendLine($"\t$basetexture \"{texture}\"");
+				return;
+			}
 
 			var stage = shader.GetFirstValidStage();
-			var flags = stage?.flags ?? 0;
+			if (stage != null && stage.tcGen.HasFlag(TexCoordGen.TCGEN_ENVIRONMENT_MAPPED))
+				sb.AppendLine($"\t$envmap \"engine/defaultcubemap\"");
+			else
+				sb.AppendLine($"\t$basetexture \"{texture}\"");
+
+			if (shader.cullType == CullType.TWO_SIDED)
+				sb.AppendLine("\t$nocull 1");
 			
+			var flags = stage?.flags ?? 0;
 			if (flags.HasFlag(ShaderStageFlags.GLS_ATEST_GE_80))
 			{
 				sb.AppendLine("\t$alphatest 1");
@@ -200,7 +249,7 @@ namespace BSPConversionLib
 				sb.AppendLine("\t$translucent 1");
 
 			if (flags.HasFlag(ShaderStageFlags.GLS_SRCBLEND_ONE | ShaderStageFlags.GLS_DSTBLEND_ONE))
-				sb.Append("\t$additive 1");
+				sb.AppendLine("\t$additive 1");
 		}
 
 		private string GenerateSkyboxVMT(string baseTexture)

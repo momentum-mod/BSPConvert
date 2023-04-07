@@ -82,6 +82,7 @@ namespace BSPConversionLib
 					case "entitymergable":
 						break;
 					case "fogparms":
+						shader.fogParms = ParseFogParms(split);
 						break;
 					case "portal":
 						break;
@@ -145,6 +146,8 @@ namespace BSPConversionLib
 					case "alphagen":
 						break;
 					case "texgen":
+					case "tcgen":
+						stage.tcGen = ParseTCGen(split[1]);
 						break;
 					case "tcmod":
 						break;
@@ -159,6 +162,28 @@ namespace BSPConversionLib
 			return stage;
 		}
 
+		private TexCoordGen ParseTCGen(string tcGen)
+		{
+			switch (tcGen.ToLower())
+			{
+				case "environment":
+					return TexCoordGen.TCGEN_ENVIRONMENT_MAPPED;
+				case "lightmap":
+					return TexCoordGen.TCGEN_LIGHTMAP;
+				case "texture":
+				case "base":
+					return TexCoordGen.TCGEN_TEXTURE;
+				case "vector":
+					// TODO: Handle vector parsing
+					break;
+				default:
+					Debug.WriteLine("Warning: Unknown texgen param in shader: " + shaderFile);
+					break;
+			}
+			
+			return TexCoordGen.TCGEN_TEXTURE;
+		}
+
 		private InfoParm ParseSurfaceParm(string surfaceParm)
 		{
 			foreach (var infoParm in Constants.infoParms)
@@ -167,7 +192,40 @@ namespace BSPConversionLib
 					return infoParm;
 			}
 
-			return default(InfoParm);
+			return default;
+		}
+
+		private Shader.FogParms ParseFogParms(string[] split)
+		{
+			var fogParms = new Shader.FogParms();
+
+			if (split[1] != "(")
+			{
+				Debug.WriteLine("Warning: Missing parenthesis in shader: " + shaderFile);
+				return null;
+			}
+
+			if (!float.TryParse(split[2], out fogParms.color.X) ||
+				!float.TryParse(split[3], out fogParms.color.Y) ||
+				!float.TryParse(split[4], out fogParms.color.Z))
+			{
+				Debug.WriteLine("Warning: Missing vector3 element in shader: " + shaderFile);
+				return null;
+			}
+
+			if (split[5] != ")")
+			{
+				Debug.WriteLine("Warning: Missing parenthesis in shader: " + shaderFile);
+				return null;
+			}
+
+			if (!float.TryParse(split[6], out fogParms.depthForOpaque))
+			{
+				Debug.WriteLine("Warning: Missing parm for 'fogParms' keyword in shader: " + shaderFile);
+				return null;
+			}
+
+			return fogParms;
 		}
 
 		private Shader.SkyParms ParseSkyParms(string[] split)
