@@ -25,22 +25,24 @@ namespace BSPConversionLib
 			while ((line = GetNextValidLine(fileEnumerator)) != null)
 			{
 				var textureName = line;
-				var shader = ParseShader(fileEnumerator);
-
-				shaderDict[textureName] = shader;
+				if (TryParseShader(fileEnumerator, out var shader))
+					shaderDict[textureName] = shader;
 			}
 
 			return shaderDict;
 		}
 
-		private Shader ParseShader(IEnumerator<string> fileEnumerator)
+		private bool TryParseShader(IEnumerator<string> fileEnumerator, out Shader shader)
 		{
-			var shader = new Shader();
+			shader = new Shader();
 			var stages = new List<ShaderStage>();
 
 			var line = GetNextValidLine(fileEnumerator);
-			if (!line.StartsWith('{'))
-				throw new Exception("Warning: Expecting '{', found '" + line + "' instead in shader file: " + shaderFile);
+			if (string.IsNullOrEmpty(line) || !line.StartsWith('{'))
+			{
+				Debug.WriteLine("Warning: Expecting '{', found '" + line + "' instead in shader file: " + shaderFile);
+				return false;
+			}
 
 			while ((line = GetNextValidLine(fileEnumerator)) != null)
 			{
@@ -106,7 +108,7 @@ namespace BSPConversionLib
 
 			shader.stages = stages.ToArray();
 
-			return shader;
+			return true;
 		}
 
 		private ShaderStage ParseStage(IEnumerator<string> fileEnumerator)
