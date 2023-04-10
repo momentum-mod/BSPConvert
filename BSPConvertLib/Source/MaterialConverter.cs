@@ -66,7 +66,7 @@ namespace BSPConversionLib
 				CreateFogVMT(texture, shader);
 			else if (shader.skyParms != null && !string.IsNullOrEmpty(shader.skyParms.outerBox))
 				CreateSkyboxVMT(shader);
-			else if (!string.IsNullOrEmpty(shader.GetFirstValidStage()?.map))
+			else if (shader.GetImageStages().Any(x => !string.IsNullOrEmpty(x.bundles[0].images[0])))
 				CreateBaseShaderVMT(texture, shader);
 		}
 
@@ -154,27 +154,31 @@ namespace BSPConversionLib
 
 		private void CreateBaseShaderVMT(string texture, Shader shader)
 		{
-			var baseTexture = Path.ChangeExtension(shader.GetFirstValidStage()?.map, null);
-			TryCopyQ3Content(baseTexture);
+			var images = shader.GetImageStages().SelectMany(x => x.bundles[0].images);
+			foreach (var image in images)
+			{
+				if (string.IsNullOrEmpty(image))
+					continue;
+				
+				var baseTexture = Path.ChangeExtension(image, null);
+				TryCopyQ3Content(baseTexture);
+			}
 
-			var shaderVmt = GenerateVMT(shader, baseTexture);
+			var shaderVmt = GenerateVMT(shader);
 			WriteVMT(texture, shaderVmt);
 		}
 
-		private string GenerateVMT(Shader shader, string baseTexture)
+		private string GenerateVMT(Shader shader)
 		{
 			if (shader.surfaceFlags.HasFlag(Q3SurfaceFlags.SURF_NOLIGHTMAP))
-				return GenerateUnlitVMT(baseTexture, shader);
+			{
+				if (shader.GetImageStages().Count() <= 1)
+					return GenerateUnlitVMT(shader);
+				else
+					return GenerateUnlitTwoTextureVMT(shader);
+			}
 			
-			return GenerateLitVMT(baseTexture, shader);
-		}
-
-		private void CreateDefaultVMT(string texture)
-		{
-			TryCopyQ3Content(texture);
-
-			var vmt = GenerateLitVMT(texture, null);
-			WriteVMT(texture, vmt);
+			return GenerateLitVMT(shader);
 		}
 
 		private void WriteVMT(string texture, string vmt)
@@ -196,45 +200,45 @@ namespace BSPConversionLib
 			}
 		}
 
-		private string GenerateLitVMT(string texture, Shader shader)
-		{
-			var sb = new StringBuilder();
-			sb.AppendLine("LightmappedGeneric");
-			sb.AppendLine("{");
-
-			AppendShaderParameters(sb, texture, shader);
-
-			sb.AppendLine("}");
-
-			return sb.ToString();
-		}
-
-		private string GenerateUnlitVMT(string texture, Shader shader)
+		private string GenerateUnlitVMT(Shader shader)
 		{
 			var sb = new StringBuilder();
 			sb.AppendLine("UnlitGeneric");
 			sb.AppendLine("{");
 
-			AppendShaderParameters(sb, texture, shader);
+			AppendShaderParameters(sb, shader);
 
 			sb.AppendLine("}");
 
 			return sb.ToString();
 		}
-		
-		private void AppendShaderParameters(StringBuilder sb, string texture, Shader shader)
-		{
-			if (shader == null)
-			{
-				sb.AppendLine($"\t$basetexture \"{texture}\"");
-				return;
-			}
 
-			var stage = shader.GetFirstValidStage();
-			if (stage != null && stage.tcGen.HasFlag(TexCoordGen.TCGEN_ENVIRONMENT_MAPPED))
-				sb.AppendLine($"\t$envmap \"engine/defaultcubemap\"");
-			else
-				sb.AppendLine($"\t$basetexture \"{texture}\"");
+		private string GenerateLitVMT(Shader shader)
+		{
+			var sb = new StringBuilder();
+			sb.AppendLine("LightmappedGeneric");
+			sb.AppendLine("{");
+
+			AppendShaderParameters(sb, shader);
+
+			sb.AppendLine("}");
+
+			return sb.ToString();
+		}
+
+		private void AppendShaderParameters(StringBuilder sb, Shader shader)
+		{
+			var stage = shader.GetImageStages().FirstOrDefault();
+			if (stage != null)
+			{
+				if (stage.bundles[0].tcGen.HasFlag(TexCoordGen.TCGEN_ENVIRONMENT_MAPPED))
+					sb.AppendLine($"\t$envmap \"engine/defaultcubemap\"");
+				else
+				{
+					var texture = Path.ChangeExtension(stage.bundles[0].images[0], null);
+					sb.AppendLine($"\t$basetexture \"{texture}\"");
+				}
+			}
 
 			if (shader.cullType == CullType.TWO_SIDED)
 				sb.AppendLine("\t$nocull 1");
@@ -252,6 +256,57 @@ namespace BSPConversionLib
 				sb.AppendLine("\t$additive 1");
 		}
 
+		private string GenerateUnlitTwoTextureVMT(Shader shader)
+		{
+			var sb = new StringBuilder();
+			sb.AppendLine("UnlitTwoTexture");
+			sb.AppendLine("{");
+
+			AppendShaderParametersTwoTexture(shader, sb);
+
+			sb.AppendLine("}");
+
+			return sb.ToString();
+		}
+
+		private void AppendShaderParametersTwoTexture(Shader shader, StringBuilder sb)
+		{
+			var stages = shader.GetImageStages();
+			var textureCount = 0;
+			foreach (var stage in stages)
+			{
+				if (stage != null && stage.bundles[0].tcGen.HasFlag(TexCoordGen.TCGEN_ENVIRONMENT_MAPPED))
+					sb.AppendLine($"\t$envmap \"engine/defaultcubemap\"");
+				else
+				{
+					if (textureCount >= 2)
+						continue;
+
+					var texture = Path.ChangeExtension(stage.bundles[0].images[0], null);
+					if (textureCount == 0)
+						sb.AppendLine($"\t$basetexture \"{texture}\"");
+					else
+						sb.AppendLine($"\t$texture2 \"{texture}\"");
+
+					textureCount++;
+				}
+			}
+
+			if (shader.cullType == CullType.TWO_SIDED)
+				sb.AppendLine("\t$nocull 1");
+
+			if (stages.Any(x => x.flags.HasFlag(ShaderStageFlags.GLS_ATEST_GE_80)))
+			{
+				sb.AppendLine("\t$alphatest 1");
+				sb.AppendLine("\t$alphatestreference 0.5");
+			}
+			else if (shader.contents.HasFlag(Q3ContentsFlags.CONTENTS_TRANSLUCENT))
+				sb.AppendLine("\t$translucent 1");
+
+			if (stages.Any(x => x.flags.HasFlag(ShaderStageFlags.GLS_SRCBLEND_ONE | ShaderStageFlags.GLS_DSTBLEND_ONE)))
+				sb.AppendLine("\t$additive 1");
+		}
+
 		private string GenerateSkyboxVMT(string baseTexture)
 		{
 			var sb = new StringBuilder();
@@ -265,6 +320,24 @@ namespace BSPConversionLib
 			sb.AppendLine("}");
 
 			return sb.ToString();
+		}
+
+		private void CreateDefaultVMT(string texture)
+		{
+			TryCopyQ3Content(texture);
+
+			var vmt = GenerateDefaultLitVMT(texture);
+			WriteVMT(texture, vmt);
+		}
+
+		private string GenerateDefaultLitVMT(string texture)
+		{
+			return $$"""
+				LightmappedGeneric
+				{
+					$basetexture "{{texture}}"
+				}
+				""";
 		}
 	}
 }

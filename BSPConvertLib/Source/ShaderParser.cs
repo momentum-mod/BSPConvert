@@ -123,11 +123,12 @@ namespace BSPConversionLib
 				switch (split[0].ToLower())
 				{
 					case "map":
-						stage.map = split[1];
+						stage.bundles[0].images[0] = split[1];
 						break;
 					case "clampmap":
 						break;
 					case "animmap":
+						stage.bundles[0] = ParseAnimMap(split);
 						break;
 					case "videomap":
 						break;
@@ -147,7 +148,7 @@ namespace BSPConversionLib
 						break;
 					case "texgen":
 					case "tcgen":
-						stage.tcGen = ParseTCGen(split[1]);
+						stage.bundles[0].tcGen = ParseTCGen(split[1]);
 						break;
 					case "tcmod":
 						break;
@@ -162,26 +163,28 @@ namespace BSPConversionLib
 			return stage;
 		}
 
-		private TexCoordGen ParseTCGen(string tcGen)
+		private TextureBundle ParseAnimMap(string[] split)
 		{
-			switch (tcGen.ToLower())
+			var bundle = new TextureBundle();
+
+			if (split.Length < 3)
 			{
-				case "environment":
-					return TexCoordGen.TCGEN_ENVIRONMENT_MAPPED;
-				case "lightmap":
-					return TexCoordGen.TCGEN_LIGHTMAP;
-				case "texture":
-				case "base":
-					return TexCoordGen.TCGEN_TEXTURE;
-				case "vector":
-					// TODO: Handle vector parsing
-					break;
-				default:
-					Debug.WriteLine("Warning: Unknown texgen param in shader: " + shaderFile);
-					break;
+				Debug.WriteLine("Warning: Missing parameters in shader: " + shaderFile);
+				return bundle;
 			}
-			
-			return TexCoordGen.TCGEN_TEXTURE;
+
+			bundle.imageAnimationSpeed = float.Parse(split[1]);
+
+			for (var i = 2; i < split.Length; i++)
+			{
+				if (bundle.numImageAnimations >= TextureBundle.MAX_IMAGE_ANIMATIONS)
+					break;
+				
+				bundle.images[bundle.numImageAnimations] = split[i];
+				bundle.numImageAnimations++;
+			}
+
+			return bundle;
 		}
 
 		private InfoParm ParseSurfaceParm(string surfaceParm)
@@ -342,7 +345,29 @@ namespace BSPConversionLib
 					return ShaderStageFlags.GLS_DSTBLEND_ONE;
 			}
 		}
-		
+
+		private TexCoordGen ParseTCGen(string tcGen)
+		{
+			switch (tcGen.ToLower())
+			{
+				case "environment":
+					return TexCoordGen.TCGEN_ENVIRONMENT_MAPPED;
+				case "lightmap":
+					return TexCoordGen.TCGEN_LIGHTMAP;
+				case "texture":
+				case "base":
+					return TexCoordGen.TCGEN_TEXTURE;
+				case "vector":
+					// TODO: Handle vector parsing
+					break;
+				default:
+					Debug.WriteLine("Warning: Unknown texgen param in shader: " + shaderFile);
+					break;
+			}
+
+			return TexCoordGen.TCGEN_TEXTURE;
+		}
+
 		// TODO: Get next valid token instead of line
 		private string GetNextValidLine(IEnumerator<string> fileEnumerator)
 		{

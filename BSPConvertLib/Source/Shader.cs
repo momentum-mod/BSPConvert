@@ -61,9 +61,28 @@ namespace BSPConversionLib
 
 	public class ShaderStage
 	{
-		public string map; // Path to image file
-		public TexCoordGen tcGen;
+		public const int NUM_TEXTURE_BUNDLES = 2;
+
+		public TextureBundle[] bundles = new TextureBundle[NUM_TEXTURE_BUNDLES]; // Path to image file
 		public ShaderStageFlags flags;
+
+		public ShaderStage()
+		{
+			for (var i = 0; i < NUM_TEXTURE_BUNDLES; i++)
+				bundles[i] = new TextureBundle();
+		}
+	}
+
+	public class TextureBundle
+	{
+		public const int MAX_IMAGE_ANIMATIONS = 8;
+
+		public string[] images = new string[MAX_IMAGE_ANIMATIONS]; // Path to image files
+		public int numImageAnimations;
+		public float imageAnimationSpeed;
+
+		public TexCoordGen tcGen;
+		public Vector3[] tcGenVectors = new Vector3[2];
 	}
 
 	public class Shader
@@ -89,17 +108,12 @@ namespace BSPConversionLib
 		public ShaderStage[] stages;
 
 		/// <summary>
-		/// Returns the first stage with a valid texture map
+		/// Returns all stages with images (ignores $lightmap and $whiteimage)
 		/// </summary>
-		public ShaderStage GetFirstValidStage()
+		public IEnumerable<ShaderStage> GetImageStages()
 		{
-			foreach (var stage in stages)
-			{
-				if (!string.IsNullOrEmpty(stage.map) && !stage.map.StartsWith('$'))
-					return stage;
-			}
-
-			return null;
+			return stages.Where(s => !string.IsNullOrEmpty(s.bundles[0].images[0]) &&
+				!s.bundles[0].images[0].StartsWith('$'));
 		}
 	}
 }
