@@ -798,13 +798,15 @@ namespace BSPConversionLib
 		{
 			weaponEnt["resettime"] = GetWeaponRespawnTime(weaponEnt);
 			weaponEnt["weaponname"] = GetMomentumWeaponName(weaponEnt.ClassName);
-			weaponEnt["pickupammo"] = GetDefaultWeaponAmmoCount(weaponEnt.ClassName);
+			if (!weaponEnt.TryGetValue("count", out var count) || count == "0") // Every quake weapon has a default ammo count when none is specified
+				count = GetDefaultWeaponAmmoCount(weaponEnt.ClassName);
+			weaponEnt["pickupammo"] = count;
 			weaponEnt.ClassName = "momentum_weapon_spawner";
 		}
 
 		private string GetWeaponRespawnTime(Entity weaponEnt)
 		{
-			if (weaponEnt.TryGetValue("wait", out var wait) && !(wait == "0"))
+			if (weaponEnt.TryGetValue("wait", out var wait) && wait != "0")
 				return wait;
 
 			return "5";
@@ -845,7 +847,7 @@ namespace BSPConversionLib
 
 		private string GetAmmoRespawnTime(Entity ammoEnt)
 		{
-			if (ammoEnt.TryGetValue("wait", out var wait) && !(wait == "0"))
+			if (ammoEnt.TryGetValue("wait", out var wait) && wait != "0")
 				return wait;
 
 			return "40";
@@ -891,7 +893,7 @@ namespace BSPConversionLib
 
 		private string GetItemRespawnTime(Entity itemEnt)
 		{
-			if (itemEnt.TryGetValue("wait", out var wait) && !(wait == "0"))
+			if (itemEnt.TryGetValue("wait", out var wait) && wait != "0")
 				return wait;
 
 			return "120";
