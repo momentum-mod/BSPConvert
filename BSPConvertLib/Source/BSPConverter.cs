@@ -75,6 +75,20 @@ namespace BSPConversionLib
 		private Dictionary<string, int> textureDataLookup = new Dictionary<string, int>();
 		private Dictionary<int, int[]> splitFaceDict = new Dictionary<int, int[]>(); // Maps the original face index to the new face indices split by triangles
 
+		// TODO: Replace weapon clip textures
+		private static readonly Dictionary<string, string> replacementTextures = new Dictionary<string, string>()
+		{
+			{ "textures/common/caulk", "tools/toolsnodraw" },
+			{ "textures/common/nodraw", "tools/toolsnodraw" },
+			{ "textures/common/clip", "tools/toolsplayerclip" },
+			{ "textures/common/full_clip", "tools/clip" },
+			{ "textures/common/trigger", "tools/toolstrigger" },
+			{ "textures/common/hint", "tools/toolshint" },
+			{ "textures/common/skip", "tools/toolsskip" },
+			{ "textures/common/areaportal", "tools/toolsareaportal" }
+		};
+
+
 		private const int Q3_LIGHTMAP_SIZE = 128;
 		private const int LIGHTMAP_PADDING = 1; // Pixel padding to prevent lightmap bleeding
 
@@ -86,49 +100,64 @@ namespace BSPConversionLib
 
 		public void Convert()
 		{
-			logger.Log($"Converting {Path.GetFileName(options.inputFile)}...");
+			CheckQ3Content();
 			
 			contentManager = new ContentManager(options.inputFile);
-			
-			LoadBSP();
-			
-			CheckQ3Content();
-			ReplaceToolTextures();
-			ConvertShaders();
-			ConvertTextureFiles();
+			shaderDict = LoadShaderDictionary();
 
-			ConvertEntities();
-			ConvertTextures();
-			ConvertPlanes();
-			//ConvertFaces_SplitFaces();
-			ConvertFaces();
-			ConvertLeaves_SplitFaces();
-			ConvertLeafFaces_SplitFaces();
-			//ConvertLeaves();
-			//ConvertLeafFaces();
-			ConvertLeafBrushes();
-			ConvertNodes();
-			ConvertModels();
-			ConvertBrushes();
-			ConvertBrushSides();
-			ConvertLightmaps();
-			ConvertVisData();
-			ConvertAreas();
-			ConvertAreaPortals();
-			ConvertWorldLights();
+			foreach (var bsp in contentManager.BSPFiles)
+			{
+				ClearDictionaries();
 
-			WriteBSP();
-			
+				LoadBSP(bsp);
+
+				ReplaceToolTextures();
+				ConvertMaterials();
+				ConvertTextureFiles();
+
+				ConvertEntities();
+				ConvertTextures();
+				ConvertPlanes();
+				//ConvertFaces_SplitFaces();
+				ConvertFaces();
+				ConvertLeaves_SplitFaces();
+				ConvertLeafFaces_SplitFaces();
+				//ConvertLeaves();
+				//ConvertLeafFaces();
+				ConvertLeafBrushes();
+				ConvertNodes();
+				ConvertModels();
+				ConvertBrushes();
+				ConvertBrushSides();
+				ConvertLightmaps();
+				ConvertVisData();
+				ConvertAreas();
+				ConvertAreaPortals();
+				ConvertWorldLights();
+
+				WriteBSP();
+			}
+
 			contentManager.Dispose();
 		}
-		
-		private void LoadBSP()
+
+		private void ClearDictionaries()
 		{
-			// TODO: Support converting multiple bsp's (some pk3's contain multiple bsp's)
-			quakeBsp = contentManager.BSPFiles.First();
+			textureInfoHashCodeDict.Clear();
+			textureInfoLookup.Clear();
+			textureDataLookup.Clear();
+			splitFaceDict.Clear();
+		}
+
+		private void LoadBSP(BSP bsp)
+		{
+			var bspName = bsp.MapName + ".bsp";
+			logger.Log($"Converting {bspName}...");
+
+			quakeBsp = bsp;
 
 			var mapType = options.oldBSP ? MapType.Source20 : MapType.Source25;
-			sourceBsp = new BSP(Path.GetFileName(options.inputFile), mapType);
+			sourceBsp = new BSP(bspName, mapType);
 		}
 
 		private void CheckQ3Content()
@@ -140,19 +169,6 @@ namespace BSPConversionLib
 
 		private void ReplaceToolTextures()
 		{
-			// TODO: Replace weapon clip textures
-			var replacementTextures = new Dictionary<string, string>()
-			{
-				{ "textures/common/caulk", "tools/toolsnodraw" },
-				{ "textures/common/nodraw", "tools/toolsnodraw" },
-				{ "textures/common/clip", "tools/toolsplayerclip" },
-				{ "textures/common/full_clip", "tools/clip" },
-				{ "textures/common/trigger", "tools/toolstrigger" },
-				{ "textures/common/hint", "tools/toolshint" },
-				{ "textures/common/skip", "tools/toolsskip" },
-				{ "textures/common/areaportal", "tools/toolsareaportal" }
-			};
-
 			for (var i = 0; i < quakeBsp.Textures.Count; i++)
 			{
 				var texture = quakeBsp.Textures[i];
@@ -161,10 +177,8 @@ namespace BSPConversionLib
 			}
 		}
 
-		private void ConvertShaders()
+		private void ConvertMaterials()
 		{
-			shaderDict = LoadShaderDictionary();
-			
 			var materialConverter = new MaterialConverter(contentManager.ContentDir, shaderDict);
 			foreach (var texture in quakeBsp.Textures)
 				materialConverter.Convert(texture.Name);
