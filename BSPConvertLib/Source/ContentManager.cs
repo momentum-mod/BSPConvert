@@ -6,7 +6,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace BSPConversionLib
+namespace BSPConvertLib
 {
 	public class ContentManager : IDisposable
 	{

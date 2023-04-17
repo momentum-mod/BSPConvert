@@ -5,7 +5,7 @@ using System.Numerics;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace BSPConversionLib
+namespace BSPConvertLib
 {
 #if UNITY
 	using Vector3 = UnityEngine.Vector3;

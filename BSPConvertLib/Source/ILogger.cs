@@ -1,4 +1,4 @@
-﻿namespace BSPConversionLib
+﻿namespace BSPConvertLib
 {
 	public interface ILogger
 	{

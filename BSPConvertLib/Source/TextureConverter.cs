@@ -8,7 +8,7 @@ using LibBSP;
 using SharpCompress.Archives.Zip;
 using SharpCompress.Archives;
 
-namespace BSPConversionLib
+namespace BSPConvertLib
 {
 	public class TextureConverter
 	{

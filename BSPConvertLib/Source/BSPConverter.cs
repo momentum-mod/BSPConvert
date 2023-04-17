@@ -15,7 +15,7 @@ using System.Diagnostics;
 using System.Collections;
 using System.Xml.Linq;
 
-namespace BSPConversionLib
+namespace BSPConvertLib
 {
 #if UNITY
 	using Plane = UnityEngine.Plane;
