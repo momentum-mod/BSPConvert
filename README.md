@@ -20,7 +20,7 @@ Available command line arguments:
 ```
 
 Example usage:
-`.\BSPConv.exe "C:\Users\<username>\Documents\BSPConvert\nood-aDr.pk3" --output "C:\Program Files (x86)\Steam\steamapps\common\Momentum Mod Playtest\momentum" --prefix "df_"`
+`.\BSPConv.exe "C:\Users\<username>\Documents\BSPConvert\nood-aDr.pk3" --output "C:\Program Files (x86)\Steam\steamapps\common\Momentum Mod Playtest\momentum"`
 
 # Supported BSP conversions
 - Quake 3 -> Source Engine **(WIP)**
