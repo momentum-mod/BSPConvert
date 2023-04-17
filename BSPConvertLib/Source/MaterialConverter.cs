@@ -228,22 +228,22 @@ namespace BSPConversionLib
 
 		private void AppendShaderParameters(StringBuilder sb, Shader shader)
 		{
-			var stage = shader.GetImageStages().FirstOrDefault();
-			if (stage != null)
+			var stages = shader.GetImageStages();
+			var textureStage = stages.FirstOrDefault(x => x.bundles[0].tcGen != TexCoordGen.TCGEN_ENVIRONMENT_MAPPED);
+			if (textureStage != null)
 			{
-				if (stage.bundles[0].tcGen.HasFlag(TexCoordGen.TCGEN_ENVIRONMENT_MAPPED))
-					sb.AppendLine($"\t$envmap \"engine/defaultcubemap\"");
-				else
-				{
-					var texture = Path.ChangeExtension(stage.bundles[0].images[0], null);
-					sb.AppendLine($"\t$basetexture \"{texture}\"");
-				}
+				var texture = Path.ChangeExtension(textureStage.bundles[0].images[0], null);
+				sb.AppendLine($"\t$basetexture \"{texture}\"");
 			}
+			
+			var envMapStage = stages.FirstOrDefault(x => x.bundles[0].tcGen == TexCoordGen.TCGEN_ENVIRONMENT_MAPPED);
+			if (envMapStage != null)
+				sb.AppendLine($"\t$envmap \"engine/defaultcubemap\"");
 
 			if (shader.cullType == CullType.TWO_SIDED)
 				sb.AppendLine("\t$nocull 1");
 			
-			var flags = stage?.flags ?? 0;
+			var flags = (textureStage?.flags ?? 0) | (envMapStage?.flags ?? 0);
 			if (flags.HasFlag(ShaderStageFlags.GLS_ATEST_GE_80))
 			{
 				sb.AppendLine("\t$alphatest 1");
@@ -272,25 +272,22 @@ namespace BSPConversionLib
 		private void AppendShaderParametersTwoTexture(Shader shader, StringBuilder sb)
 		{
 			var stages = shader.GetImageStages();
-			var textureCount = 0;
-			foreach (var stage in stages)
+			var textureStages = stages.Where(x => x.bundles[0].tcGen != TexCoordGen.TCGEN_ENVIRONMENT_MAPPED).ToList();
+			if (textureStages.Count > 0)
 			{
-				if (stage != null && stage.bundles[0].tcGen.HasFlag(TexCoordGen.TCGEN_ENVIRONMENT_MAPPED))
-					sb.AppendLine($"\t$envmap \"engine/defaultcubemap\"");
-				else
-				{
-					if (textureCount >= 2)
-						continue;
-
-					var texture = Path.ChangeExtension(stage.bundles[0].images[0], null);
-					if (textureCount == 0)
-						sb.AppendLine($"\t$basetexture \"{texture}\"");
-					else
-						sb.AppendLine($"\t$texture2 \"{texture}\"");
-
-					textureCount++;
-				}
+				var texture = Path.ChangeExtension(textureStages[0].bundles[0].images[0], null);
+				sb.AppendLine($"\t$basetexture \"{texture}\"");
 			}
+
+			if (textureStages.Count > 1)
+			{
+				var texture = Path.ChangeExtension(textureStages[1].bundles[0].images[0], null);
+				sb.AppendLine($"\t$texture2 \"{texture}\"");
+			}
+
+			var envMapStage = stages.FirstOrDefault(x => x.bundles[0].tcGen == TexCoordGen.TCGEN_ENVIRONMENT_MAPPED);
+			if (envMapStage != null)
+				sb.AppendLine($"\t$envmap \"engine/defaultcubemap\"");
 
 			if (shader.cullType == CullType.TWO_SIDED)
 				sb.AppendLine("\t$nocull 1");
