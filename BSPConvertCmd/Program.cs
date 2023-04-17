@@ -72,7 +72,7 @@ namespace BSPConvertCmd
 
 		static void DisplayHelp(IEnumerable<Error> errors, ParserResult<Options> parserResult)
 		{
-			const string version = "BSP Convert 0.0.1-alpha";
+			const string version = "BSP Convert 0.0.2-alpha";
 			if (errors.IsVersion())
 			{
 				Console.WriteLine(version);
