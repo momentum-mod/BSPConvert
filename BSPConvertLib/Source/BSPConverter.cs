@@ -1523,10 +1523,12 @@ namespace BSPConvertLib
 
 		private void ConvertWorldLights()
 		{
+			SetLumpVersionNumber(WorldLight.GetIndexForLump(sourceBsp.MapType), 1);
+
 			// Add worldlight to disable fullbright
 			// TODO: How to check for fullbright maps?
 			var worldLightBytes = new byte[WorldLight.GetStructLength(sourceBsp.MapType)];
-			var worldLight = new WorldLight(worldLightBytes, sourceBsp.Areas);
+			var worldLight = new WorldLight(worldLightBytes, sourceBsp.WorldLights);
 			sourceBsp.WorldLights.Add(worldLight);
 		}
 
