@@ -111,6 +111,7 @@ namespace BSPConvertLib
 						ConvertTeleportDestination(entity);
 						break;
 					case "target_position":
+					case "target_push":
 						entity.ClassName = "info_target";
 						break;
 					case "func_door":
