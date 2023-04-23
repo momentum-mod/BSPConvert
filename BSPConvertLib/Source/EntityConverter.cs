@@ -37,6 +37,23 @@ namespace BSPConversionLib
 			KeepSpeed = 2
 		}
 
+		[Flags]
+		private enum TargetSpeakerFlags
+		{
+			LoopedOn = 1,
+			LoopedOff = 2,
+			Global = 4,
+			Activator = 8
+		}
+
+		[Flags]
+		private enum AmbientGenericFlags
+		{
+			InfiniteRange = 1,
+			StartSilent = 16,
+			IsNotLooped = 32
+		}
+
 		private enum WeaponSlot
 		{
 			MachineGun = 2,
@@ -120,6 +137,7 @@ namespace BSPConversionLib
 						ConvertFuncButton(entity);
 						break;
 					// Ignore these entities since they have no use in Source engine
+					case "target_speaker": // converting this entity without a trigger input currently does nothing, convert during trigger_multiple conversion instead for now
 					case "target_startTimer":
 					case "target_stopTimer":
 					case "target_checkpoint":
@@ -145,6 +163,32 @@ namespace BSPConversionLib
 
 			foreach (var entity in removeEntities)
 				sourceEntities.Remove(entity);
+		}
+
+		private void ConvertTargetSpeaker(Entity targetSpeaker)
+		{
+			targetSpeaker.ClassName = "ambient_generic";
+			targetSpeaker["message"] = targetSpeaker["noise"];
+			targetSpeaker["health"] = "10"; // Volume
+			targetSpeaker["radius"] = "1250";
+			targetSpeaker["pitch"] = "100";
+			SetAmbientGenericFlags(targetSpeaker);
+		}
+
+		private void SetAmbientGenericFlags(Entity targetSpeaker)
+		{
+			var q3flags = (TargetSpeakerFlags)targetSpeaker.Spawnflags;
+			var sourceflags = 0;
+
+			if (q3flags.HasFlag(TargetSpeakerFlags.LoopedOff))
+				sourceflags |= (int)AmbientGenericFlags.StartSilent;
+			else if (!q3flags.HasFlag(TargetSpeakerFlags.LoopedOn))
+				sourceflags |= (int)AmbientGenericFlags.IsNotLooped;
+
+			if (q3flags.HasFlag(TargetSpeakerFlags.Global) || q3flags.HasFlag(TargetSpeakerFlags.Activator))
+				sourceflags |= (int)AmbientGenericFlags.InfiniteRange;
+
+			targetSpeaker["spawnflags"] = sourceflags.ToString();
 		}
 
 		private void ConvertTeleportDestination(Entity entity)
@@ -407,12 +451,30 @@ namespace BSPConversionLib
 					case "target_init":
 						ConvertInitTrigger(trigger, target);
 						break;
+					case "target_speaker":
+						ConvertTargetSpeakerTrigger(trigger, target);
+						break;
 					case "func_door":
 						OpenDoorOnStartTouch(trigger, target);
 						break;
 				}
 				ConvertTriggerTargetsRecursive(trigger, target);
 			}
+		}
+
+		private void ConvertTargetSpeakerTrigger(Entity trigger, Entity targetSpeaker)
+		{
+			var connection = new Entity.EntityConnection()
+			{
+				name = "OnStartTouch",
+				target = targetSpeaker["targetname"],
+				action = "PlaySound",
+				param = null,
+				delay = 0,
+				fireOnce = -1
+			};
+			trigger.connections.Add(connection);
+			ConvertTargetSpeaker(targetSpeaker);
 		}
 
 		private void OpenDoorOnStartTouch(Entity trigger, Entity door)
