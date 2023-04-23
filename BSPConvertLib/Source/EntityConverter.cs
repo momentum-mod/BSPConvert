@@ -150,8 +150,8 @@ namespace BSPConvertLib
 
 		private void ConvertTeleportDestination(Entity entity)
 		{
-			entity.ClassName = "info_teleport_destination";
 			SetTeleportOrigin(entity);
+			entity.ClassName = "info_teleport_destination";
 		}
 
 		private HashSet<string> GetGiveTargets()
@@ -924,8 +924,14 @@ namespace BSPConvertLib
 
 		private void SetTeleportOrigin(Entity teleDest)
 		{
+			var offset = 0;
+			if (teleDest.ClassName == "misc_teleporter_dest")
+				offset = 24;
+			else if (teleDest.ClassName == "target_position")
+				offset = 8;
+
 			var origin = teleDest.Origin;
-			origin.Z -= 24; // misc_teleporter_dest entities are 24 units higher than they should be
+			origin.Z -= offset;
 			teleDest.Origin = origin;
 		}
 
