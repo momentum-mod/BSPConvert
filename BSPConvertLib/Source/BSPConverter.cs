@@ -609,7 +609,10 @@ namespace BSPConvertLib
 				sModel.Minimums = mins;
 				sModel.Maximums = maxs;
 				sModel.Origin = new Vector3(0f, 0f, 0f); // Recalculate origin?
-				sModel.FirstFaceIndex = qModel.FirstFaceIndex;
+				if (qModel.FirstFaceIndex < splitFaceDict.Count)
+					sModel.FirstFaceIndex = splitFaceDict[qModel.FirstFaceIndex][0];
+				else
+					sModel.FirstFaceIndex = qModel.FirstFaceIndex;
 				sModel.NumFaces = qModel.NumFaces;
 
 				sourceBsp.Models.Add(sModel);
