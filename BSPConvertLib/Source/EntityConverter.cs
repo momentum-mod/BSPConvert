@@ -457,6 +457,7 @@ namespace BSPConvertLib
 						ConvertTargetSpeakerTrigger(trigger, target);
 						break;
 					case "target_print":
+					case "target_smallprint":
 						ConvertTargetPrintTrigger(trigger, target);
 						break;
 					case "func_door":
