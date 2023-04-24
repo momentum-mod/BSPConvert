@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 namespace BSPConvertLib
@@ -455,12 +456,45 @@ namespace BSPConvertLib
 					case "target_speaker":
 						ConvertTargetSpeakerTrigger(trigger, target);
 						break;
+					case "target_print":
+						ConvertTargetPrintTrigger(trigger, target);
+						break;
 					case "func_door":
 						OpenDoorOnStartTouch(trigger, target);
 						break;
 				}
 				ConvertTriggerTargetsRecursive(trigger, target);
 			}
+		}
+
+		private void ConvertTargetPrintTrigger(Entity trigger, Entity targetPrint)
+		{
+			var connection = new Entity.EntityConnection()
+			{
+				name = "OnStartTouch",
+				target = targetPrint["targetname"],
+				action = "Display",
+				param = null,
+				delay = 0,
+				fireOnce = -1
+			};
+			trigger.connections.Add(connection);
+			ConvertTargetPrint(targetPrint);
+		}
+
+		private void ConvertTargetPrint(Entity targetPrint)
+		{
+			var regex = new Regex("\\^[1-9]");
+			targetPrint["message"] = regex.Replace(targetPrint["message"].Replace("\\n", "\n"), ""); // Removes q3 colour codes from string and fixes broken newline character
+			targetPrint.ClassName = "game_text";
+			targetPrint["color"] = "255 255 255";
+			targetPrint["color2"] = "255 255 255";
+			targetPrint["effect"] = "0";
+			targetPrint["fadein"] = "0.5";
+			targetPrint["fadeout"] = "0.5";
+			targetPrint["holdtime"] = "3";
+			targetPrint["x"] = "-1";
+			targetPrint["y"] = "0.2";
 		}
 
 		private void ConvertTargetSpeakerTrigger(Entity trigger, Entity targetSpeaker)
