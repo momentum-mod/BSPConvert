@@ -776,6 +776,9 @@ namespace BSPConvertLib
 				delay = 0.01f, //hack to make giving ammo happen after setting ammo
 				fireOnce = -1
 			};
+			if (float.Parse(count) < 0)
+				connection.action = connection.action.Replace("Add", "Set"); // Applies infinite ammo when count is set to a negative value to mimic q3 behaviour
+
 			trigger.connections.Add(connection);
 		}
 
