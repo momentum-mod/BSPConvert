@@ -779,7 +779,6 @@ namespace BSPConvertLib
 				delay = 0.01f, //hack to make giving ammo happen after setting ammo
 				fireOnce = -1
 			};
-
 			trigger.connections.Add(connection);
 		}
 
