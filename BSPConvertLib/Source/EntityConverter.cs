@@ -767,6 +767,9 @@ namespace BSPConvertLib
 			if (!ammoEnt.TryGetValue("count", out var count) || count == "0")
 				count = GetDefaultAmmoCount(ammoEnt.ClassName);
 
+			if (float.Parse(count) < 0)
+				ammoOutput = ammoOutput.Replace("Add", "Set"); // Applies infinite ammo when count is set to a negative value to mimic q3 behaviour
+
 			var connection = new Entity.EntityConnection()
 			{
 				name = "OnStartTouch",
@@ -776,8 +779,6 @@ namespace BSPConvertLib
 				delay = 0.01f, //hack to make giving ammo happen after setting ammo
 				fireOnce = -1
 			};
-			if (float.Parse(count) < 0)
-				connection.action = connection.action.Replace("Add", "Set"); // Applies infinite ammo when count is set to a negative value to mimic q3 behaviour
 
 			trigger.connections.Add(connection);
 		}
