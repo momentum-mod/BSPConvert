@@ -792,6 +792,7 @@ namespace BSPConvertLib
 			var edge = new Edge(data, sourceBsp.Edges);
 			sourceBsp.Edges.Add(edge);
 			sourceBsp.FaceEdges.Add(0);
+			sourceBsp.Vertices.Add(default);
 		}
 
 		private void ConvertPolygon(int faceIndex)
