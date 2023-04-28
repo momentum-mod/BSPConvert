@@ -167,32 +167,6 @@ namespace BSPConvertLib
 				sourceEntities.Remove(entity);
 		}
 
-		private void ConvertTargetSpeaker(Entity targetSpeaker)
-		{
-			targetSpeaker.ClassName = "ambient_generic";
-			targetSpeaker["message"] = targetSpeaker["noise"];
-			targetSpeaker["health"] = "10"; // Volume
-			targetSpeaker["radius"] = "1250";
-			targetSpeaker["pitch"] = "100";
-			SetAmbientGenericFlags(targetSpeaker);
-		}
-
-		private void SetAmbientGenericFlags(Entity targetSpeaker)
-		{
-			var q3flags = (TargetSpeakerFlags)targetSpeaker.Spawnflags;
-			var sourceflags = 0;
-
-			if (q3flags.HasFlag(TargetSpeakerFlags.LoopedOff))
-				sourceflags |= (int)AmbientGenericFlags.StartSilent;
-			else if (!q3flags.HasFlag(TargetSpeakerFlags.LoopedOn))
-				sourceflags |= (int)AmbientGenericFlags.IsNotLooped;
-
-			if (q3flags.HasFlag(TargetSpeakerFlags.Global) || q3flags.HasFlag(TargetSpeakerFlags.Activator))
-				sourceflags |= (int)AmbientGenericFlags.InfiniteRange;
-
-			targetSpeaker["spawnflags"] = sourceflags.ToString();
-		}
-
 		private void ConvertTeleportDestination(Entity entity)
 		{
 			SetTeleportOrigin(entity);
@@ -480,6 +454,7 @@ namespace BSPConvertLib
 				fireOnce = -1
 			};
 			trigger.connections.Add(connection);
+			
 			ConvertTargetPrint(targetPrint);
 		}
 
@@ -510,7 +485,35 @@ namespace BSPConvertLib
 				fireOnce = -1
 			};
 			trigger.connections.Add(connection);
+			
 			ConvertTargetSpeaker(targetSpeaker);
+		}
+
+		private void ConvertTargetSpeaker(Entity targetSpeaker)
+		{
+			targetSpeaker.ClassName = "ambient_generic";
+			targetSpeaker["message"] = targetSpeaker["noise"];
+			targetSpeaker["health"] = "10"; // Volume
+			targetSpeaker["radius"] = "1250";
+			targetSpeaker["pitch"] = "100";
+
+			SetAmbientGenericFlags(targetSpeaker);
+		}
+
+		private void SetAmbientGenericFlags(Entity targetSpeaker)
+		{
+			var q3flags = (TargetSpeakerFlags)targetSpeaker.Spawnflags;
+			var sourceflags = 0;
+
+			if (q3flags.HasFlag(TargetSpeakerFlags.LoopedOff))
+				sourceflags |= (int)AmbientGenericFlags.StartSilent;
+			else if (!q3flags.HasFlag(TargetSpeakerFlags.LoopedOn))
+				sourceflags |= (int)AmbientGenericFlags.IsNotLooped;
+
+			if (q3flags.HasFlag(TargetSpeakerFlags.Global) || q3flags.HasFlag(TargetSpeakerFlags.Activator))
+				sourceflags |= (int)AmbientGenericFlags.InfiniteRange;
+
+			targetSpeaker["spawnflags"] = sourceflags.ToString();
 		}
 
 		private void OpenDoorOnStartTouch(Entity trigger, Entity door)
@@ -570,7 +573,7 @@ namespace BSPConvertLib
 			trigger["mode"] = "1";
 		}
 
-		private static void ConvertTimerTrigger(Entity trigger, string className, int zoneNumber)
+		private void ConvertTimerTrigger(Entity trigger, string className, int zoneNumber)
 		{
 			trigger.ClassName = className;
 			//trigger["track_number"] = "0";
