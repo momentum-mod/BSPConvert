@@ -606,9 +606,10 @@ namespace BSPConvertLib
 					logger.Log("Exceeded max extents: " + mins);
 				}
 
+				// TODO: Re-center mins/maxs and set trigger entity origin?
 				sModel.Minimums = mins;
 				sModel.Maximums = maxs;
-				sModel.Origin = new Vector3(0f, 0f, 0f); // Recalculate origin?
+				sModel.Origin = new Vector3(0f, 0f, 0f);
 				if (qModel.FirstFaceIndex < splitFaceDict.Count)
 					sModel.FirstFaceIndex = splitFaceDict[qModel.FirstFaceIndex][0];
 				else
