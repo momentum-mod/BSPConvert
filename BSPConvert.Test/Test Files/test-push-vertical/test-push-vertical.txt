@@ -1,0 +1,2 @@
+﻿- Left trigger_push should not reach the top
+- Right trigger_push should reach the top

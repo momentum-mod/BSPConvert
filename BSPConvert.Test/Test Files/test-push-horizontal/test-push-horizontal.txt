@@ -1,0 +1,2 @@
+﻿- Left trigger_push should not pass the gap
+- Right trigger_push should pass the gap
