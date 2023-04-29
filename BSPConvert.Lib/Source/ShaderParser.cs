@@ -5,7 +5,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace BSPConvertLib
+namespace BSPConvert.Lib
 {
 	public class ShaderParser
 	{

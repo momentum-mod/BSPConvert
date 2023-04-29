@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace BSPConvertLib
+namespace BSPConvert.Lib
 {
 	[Flags]
 	public enum Q3ContentsFlags : uint

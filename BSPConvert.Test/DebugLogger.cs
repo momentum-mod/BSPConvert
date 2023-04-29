@@ -1,4 +1,4 @@
-﻿using BSPConvertLib;
+﻿using BSPConvert.Lib;
 using System.Diagnostics;
 
 namespace BSPConvert.Test

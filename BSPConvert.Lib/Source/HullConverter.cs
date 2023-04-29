@@ -2,7 +2,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace BSPConvertLib
+namespace BSPConvert.Lib
 {
 #if UNITY
 	using Vector3 = UnityEngine.Vector3;

@@ -18,7 +18,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\BSPConvertLib\BSPConvertLib.csproj" />
+    <ProjectReference Include="..\BSPConvert.Lib\BSPConvert.Lib.csproj" />
   </ItemGroup>
 
   <ItemGroup>

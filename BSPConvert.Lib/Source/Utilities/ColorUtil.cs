@@ -1,4 +1,4 @@
-﻿namespace BSPConvertLib
+﻿namespace BSPConvert.Lib
 {
 	public static class ColorUtil
 	{

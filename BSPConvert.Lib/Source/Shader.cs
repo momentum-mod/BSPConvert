@@ -1,6 +1,6 @@
 ﻿using System.Numerics;
 
-namespace BSPConvertLib
+namespace BSPConvert.Lib
 {
 	[Flags]
 	public enum ShaderStageFlags

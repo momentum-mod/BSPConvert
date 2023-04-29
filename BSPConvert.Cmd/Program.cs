@@ -1,8 +1,8 @@
-﻿using BSPConvertLib;
+﻿using BSPConvert.Lib;
 using CommandLine;
 using CommandLine.Text;
 
-namespace BSPConvertCmd
+namespace BSPConvert.Cmd
 {
 	internal class Program
 	{

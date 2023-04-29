@@ -3,9 +3,9 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.2.32630.192
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "BSPConvertLib", "BSPConvertLib\BSPConvertLib.csproj", "{6A369C04-C7A1-4F9C-AA95-C13F81052494}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "BSPConvert.Lib", "BSPConvert.Lib\BSPConvert.Lib.csproj", "{6A369C04-C7A1-4F9C-AA95-C13F81052494}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "BSPConv", "BSPConvertCmd\BSPConv.csproj", "{BB53D427-9FD9-4CDE-B6C5-03988FA9B5D3}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "BSPConv", "BSPConvert.Cmd\BSPConv.csproj", "{BB53D427-9FD9-4CDE-B6C5-03988FA9B5D3}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BSPConvert.Test", "BSPConvert.Test\BSPConvert.Test.csproj", "{BBDB0A09-6B83-46CC-983B-349ECFD8BB6B}"
 EndProject

@@ -8,7 +8,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
-namespace BSPConvertLib
+namespace BSPConvert.Lib
 {
 	public class EntityConverter
 	{

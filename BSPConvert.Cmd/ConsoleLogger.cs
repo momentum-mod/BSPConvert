@@ -1,6 +1,6 @@
-﻿using BSPConvertLib;
+﻿using BSPConvert.Lib;
 
-namespace BSPConvertCmd
+namespace BSPConvert.Cmd
 {
 	public class ConsoleLogger : ILogger
 	{

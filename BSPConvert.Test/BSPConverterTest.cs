@@ -1,7 +1,4 @@
-using BSPConvertLib;
-using System.Diagnostics;
-using System.IO.Compression;
-using System.Reflection;
+using BSPConvert.Lib;
 
 namespace BSPConvert.Test
 {
