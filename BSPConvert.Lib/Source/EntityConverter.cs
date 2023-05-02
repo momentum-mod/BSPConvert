@@ -578,8 +578,6 @@ namespace BSPConvert.Lib
 			trigger.ClassName = className;
 			//trigger["track_number"] = "0";
 			trigger["zone_number"] = zoneNumber.ToString();
-
-			trigger.Remove("target");
 		}
 
 		// TODO: Convert target_give for player spawn entities
@@ -611,8 +609,6 @@ namespace BSPConvert.Lib
 
 				removeEntities.Add(target);
 			}
-
-			trigger.Remove("target");
 		}
 
 		private void GiveHasteOnStartTouch(Entity trigger, string duration)
@@ -862,8 +858,6 @@ namespace BSPConvert.Lib
 				trigger["launchtarget"] = targets.First().Name;
 				trigger["spawnflags"] = "1";
 				trigger["playerspeed"] = "450";
-
-				trigger.Remove("target");
 			}
 		}
 
