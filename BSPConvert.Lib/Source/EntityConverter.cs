@@ -536,8 +536,8 @@ namespace BSPConvert.Lib
 			var spawnflags = (TargetInitFlags)targetInit.Spawnflags;
 			if (!spawnflags.HasFlag(TargetInitFlags.KeepPowerUps))
 			{
-				GiveHasteOnStartTouch(trigger, "0");
-				GiveQuadOnStartTouch(trigger, "0");
+				GiveHasteOnStartTouch(trigger, "0", true);
+				GiveQuadOnStartTouch(trigger, "0", true);
 			}
 			if (!spawnflags.HasFlag(TargetInitFlags.KeepWeapons))
 			{
@@ -594,14 +594,14 @@ namespace BSPConvert.Lib
 				switch (target.ClassName)
 				{
 					case "item_haste":
-						GiveHasteOnStartTouch(trigger, target["count"]);
+						GiveHasteOnStartTouch(trigger, target["count"], false);
 						break;
 					case "item_enviro": // TODO: Not supported yet
 						break;
 					case "item_flight": // TODO: Not supported yet
 						break;
 					case "item_quad":
-						GiveQuadOnStartTouch(trigger, target["count"]);
+						GiveQuadOnStartTouch(trigger, target["count"], false);
 						break;
 					default:
 						if (target.ClassName.StartsWith("weapon_"))
@@ -615,9 +615,9 @@ namespace BSPConvert.Lib
 			}
 		}
 
-		private void GiveHasteOnStartTouch(Entity trigger, string duration)
+		private void GiveHasteOnStartTouch(Entity trigger, string duration, bool removeHaste)
 		{
-			if (string.IsNullOrEmpty(duration) || duration == "0")
+			if (string.IsNullOrEmpty(duration) || (duration == "0" && !removeHaste))
 				duration = "30";
 
 			var connection = new Entity.EntityConnection()
@@ -632,9 +632,9 @@ namespace BSPConvert.Lib
 			trigger.connections.Add(connection);
 		}
 
-		private void GiveQuadOnStartTouch(Entity trigger, string duration)
+		private void GiveQuadOnStartTouch(Entity trigger, string duration, bool removeQuad)
 		{
-			if (string.IsNullOrEmpty(duration) || duration == "0")
+			if (string.IsNullOrEmpty(duration) || (duration == "0" && !removeQuad))
 				duration = "30";
 
 			var connection = new Entity.EntityConnection()
