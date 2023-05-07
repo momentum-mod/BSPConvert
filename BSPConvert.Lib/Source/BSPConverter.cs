@@ -62,15 +62,6 @@ namespace BSPConvert.Lib
 
 	public class BSPConverter
 	{
-		[Flags]
-		public enum DisplacementFlags
-		{
-			SURF_BUMPED = 1,
-			SURF_NOPHYSICS_COLL = 2,
-			SURF_NOHULL_COLL = 4,
-			SURF_NORAY_COLL = 8
-		}
-
 		private BSPConverterOptions options;
 		private ILogger logger;
 
@@ -1005,17 +996,12 @@ namespace BSPConvert.Lib
 			var displacement = new Displacement(data, sourceBsp.Displacements);
 
 			var power = options.DisplacementPower;
-			var texture = qFace.Texture.Name;
-			var minTess = -2147483648;
-
-			if (shaderDict.TryGetValue(texture, out var shader) && shader.surfaceFlags.HasFlag(Q3SurfaceFlags.SURF_NONSOLID))
-				minTess |= (int)DisplacementFlags.SURF_NOHULL_COLL | (int)DisplacementFlags.SURF_NORAY_COLL;
 
 			displacement.StartPosition = quakeBsp.Vertices[patchStartVertex].position;
 			displacement.FirstVertexIndex = CreateDisplacementVertices(faceVerts, patchWidth, patchStartVertex, power);
 			displacement.FirstTriangleIndex = CreateDisplacementTriangles(power);
 			displacement.Power = power;
-			displacement.MinimumTesselation = minTess;
+			displacement.MinimumTesselation = GetMinTesselation(qFace);
 			displacement.SmoothingAngle = 0f;
 			displacement.Contents = 1;
 			displacement.FaceIndex = sFaceIndex;
@@ -1029,6 +1015,16 @@ namespace BSPConvert.Lib
 			displacement.AllowedVertices = allowedVerts;
 
 			sourceBsp.Displacements.Add(displacement);
+		}
+
+		private int GetMinTesselation(Face qFace)
+		{
+			var texture = qFace.Texture.Name;
+			var minTess = -2147483648;
+
+			if (shaderDict.TryGetValue(texture, out var shader) && shader.surfaceFlags.HasFlag(Q3SurfaceFlags.SURF_NONSOLID))
+				minTess |= (int)DisplacementFlags.SURF_NOHULL_COLL | (int)DisplacementFlags.SURF_NORAY_COLL;
+			return minTess;
 		}
 
 		private int CreateDisplacementVertices(Vertex[] faceVerts, int patchWidth, int patchStartVertex, int power)
