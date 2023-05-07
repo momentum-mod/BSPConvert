@@ -62,6 +62,15 @@ namespace BSPConvert.Lib
 
 	public class BSPConverter
 	{
+		[Flags]
+		public enum DisplacementFlags
+		{
+			SURF_BUMPED = 1,
+			SURF_NOPHYSICS_COLL = 2,
+			SURF_NOHULL_COLL = 4,
+			SURF_NORAY_COLL = 8
+		}
+
 		private BSPConverterOptions options;
 		private ILogger logger;
 
@@ -952,7 +961,7 @@ namespace BSPConvert.Lib
 			};
 
 			var sFaceIndex = CreatePatchFace(faceVerts, qFaceIndex);
-			CreatePatchDisplacement(sFaceIndex, faceVerts, patchWidth, patchStartVertex);
+			CreatePatchDisplacement(sFaceIndex, faceVerts, patchWidth, patchStartVertex, qFace);
 
 			return sFaceIndex;
 		}
@@ -990,21 +999,26 @@ namespace BSPConvert.Lib
 			return sourceBsp.Faces.Count - 1;
 		}
 
-		private void CreatePatchDisplacement(int faceIndex, Vertex[] faceVerts, int patchWidth, int patchStartVertex)
+		private void CreatePatchDisplacement(int sFaceIndex, Vertex[] faceVerts, int patchWidth, int patchStartVertex, Face qFace)
 		{
 			var data = new byte[Displacement.GetStructLength(sourceBsp.MapType)];
 			var displacement = new Displacement(data, sourceBsp.Displacements);
 
 			var power = options.DisplacementPower;
+			var texture = qFace.Texture.Name;
+			var minTess = -2147483648;
+
+			if (shaderDict.TryGetValue(texture, out var shader) && shader.surfaceFlags.HasFlag(Q3SurfaceFlags.SURF_NONSOLID))
+				minTess |= (int)DisplacementFlags.SURF_NOHULL_COLL | (int)DisplacementFlags.SURF_NORAY_COLL;
 
 			displacement.StartPosition = quakeBsp.Vertices[patchStartVertex].position;
 			displacement.FirstVertexIndex = CreateDisplacementVertices(faceVerts, patchWidth, patchStartVertex, power);
 			displacement.FirstTriangleIndex = CreateDisplacementTriangles(power);
 			displacement.Power = power;
-			displacement.MinimumTesselation = 0;
+			displacement.MinimumTesselation = minTess;
 			displacement.SmoothingAngle = 0f;
 			displacement.Contents = 1;
-			displacement.FaceIndex = faceIndex;
+			displacement.FaceIndex = sFaceIndex;
 			displacement.LightmapAlphaStart = 0;
 			displacement.LightmapSamplePositionStart = 0;
 
@@ -1083,7 +1097,7 @@ namespace BSPConvert.Lib
 
 			var numTriangles = (1 << (power)) * (1 << (power)) * 2;
 			for (var i = 0; i < numTriangles; i++)
-				sourceBsp.DisplacementTriangles.Add(0); // TODO: Set displacement flags?
+				sourceBsp.DisplacementTriangles.Add(6); // TODO: Set displacement flags?
 
 			return firstTriangle;
 		}
