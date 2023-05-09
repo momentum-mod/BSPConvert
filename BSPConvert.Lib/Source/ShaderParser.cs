@@ -55,7 +55,7 @@ namespace BSPConvert.Lib
 				}
 
 				// Parse shader parameter
-				var split = line.Split(' ');
+				var split = line.Split();
 				switch (split[0].ToLower())
 				{
 					case "q3map_sun":
@@ -121,7 +121,7 @@ namespace BSPConvert.Lib
 				if (line == "}") // End of shader pass definition
 					break;
 				
-				var split = line.Split(' ');
+				var split = line.Split();
 				switch (split[0].ToLower())
 				{
 					case "map":
