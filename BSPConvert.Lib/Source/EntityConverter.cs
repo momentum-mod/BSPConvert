@@ -191,7 +191,10 @@ namespace BSPConvert.Lib
 			SetMoveDir(entity);
 
 			if (float.TryParse(entity["health"], out var health))
+			{
 				entity.ClassName = "func_button"; // Health is obsolete on func_door, maybe fix in engine and update this
+				ConvertFuncButton(entity);
+			}
 		}
 
 		private void ConvertFuncButton(Entity entity)
@@ -210,6 +213,9 @@ namespace BSPConvert.Lib
 					case "func_door":
 						OpenDoorOnPressed(entity, target);
 						break;
+					case "target_speed":
+						TargetSpeedOnPressed(entity, target);
+						break;
 				}
 			}
 		}
@@ -226,6 +232,22 @@ namespace BSPConvert.Lib
 				fireOnce = -1
 			};
 			button.connections.Add(connection);
+		}
+
+		private void TargetSpeedOnPressed(Entity button, Entity targetSpeed)
+		{
+			var connection = new Entity.EntityConnection()
+			{
+				name = "OnPressed",
+				target = targetSpeed["targetname"],
+				action = "Fire",
+				param = null,
+				delay = 0,
+				fireOnce = -1
+			};
+			button.connections.Add(connection);
+
+			ConvertTargetSpeed(targetSpeed);
 		}
 
 		private static void SetButtonFlags(Entity button)
@@ -435,12 +457,42 @@ namespace BSPConvert.Lib
 					case "target_smallprint":
 						ConvertTargetPrintTrigger(trigger, target);
 						break;
+					case "target_speed":
+						ConvertTargetSpeedTrigger(trigger, target);
+						break;
 					case "func_door":
 						OpenDoorOnStartTouch(trigger, target);
 						break;
 				}
 				ConvertTriggerTargetsRecursive(trigger, target);
 			}
+		}
+
+		private void ConvertTargetSpeedTrigger(Entity trigger, Entity targetSpeed)
+		{
+			var connection = new Entity.EntityConnection()
+			{
+				name = "OnStartTouch",
+				target = targetSpeed["targetname"],
+				action = "Fire",
+				param = null,
+				delay = 0,
+				fireOnce = -1
+			};
+			trigger.connections.Add(connection);
+
+			ConvertTargetSpeed(targetSpeed);
+		}
+
+		private void ConvertTargetSpeed(Entity targetSpeed)
+		{
+			if (targetSpeed["notcpm"] == "1") // TODO: Figure out how to handle gamemode specific entities more robustly
+				return;
+
+			targetSpeed.ClassName = "player_speed";
+
+			if (!targetSpeed.TryGetValue("speed", out var speed))
+				targetSpeed["speed"] = "100";
 		}
 
 		private void ConvertTargetPrintTrigger(Entity trigger, Entity targetPrint)
