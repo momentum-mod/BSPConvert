@@ -214,7 +214,7 @@ namespace BSPConvert.Lib
 						OpenDoorOnPressed(entity, target);
 						break;
 					case "target_speed":
-						TargetSpeedOnPressed(entity, target);
+						FireTargetSpeedOnOutput(entity, target, "OnPressed");
 						break;
 				}
 			}
@@ -234,18 +234,18 @@ namespace BSPConvert.Lib
 			button.connections.Add(connection);
 		}
 
-		private void TargetSpeedOnPressed(Entity button, Entity targetSpeed)
+		private void FireTargetSpeedOnOutput(Entity entity, Entity targetSpeed, string output)
 		{
 			var connection = new Entity.EntityConnection()
 			{
-				name = "OnPressed",
+				name = output,
 				target = targetSpeed["targetname"],
 				action = "Fire",
 				param = null,
 				delay = 0,
 				fireOnce = -1
 			};
-			button.connections.Add(connection);
+			entity.connections.Add(connection);
 
 			ConvertTargetSpeed(targetSpeed);
 		}
@@ -458,7 +458,7 @@ namespace BSPConvert.Lib
 						ConvertTargetPrintTrigger(trigger, target);
 						break;
 					case "target_speed":
-						ConvertTargetSpeedTrigger(trigger, target);
+						FireTargetSpeedOnOutput(entity, target, "OnStartTouch");
 						break;
 					case "func_door":
 						OpenDoorOnStartTouch(trigger, target);
@@ -466,22 +466,6 @@ namespace BSPConvert.Lib
 				}
 				ConvertTriggerTargetsRecursive(trigger, target);
 			}
-		}
-
-		private void ConvertTargetSpeedTrigger(Entity trigger, Entity targetSpeed)
-		{
-			var connection = new Entity.EntityConnection()
-			{
-				name = "OnStartTouch",
-				target = targetSpeed["targetname"],
-				action = "Fire",
-				param = null,
-				delay = 0,
-				fireOnce = -1
-			};
-			trigger.connections.Add(connection);
-
-			ConvertTargetSpeed(targetSpeed);
 		}
 
 		private void ConvertTargetSpeed(Entity targetSpeed)
