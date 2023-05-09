@@ -572,8 +572,8 @@ namespace BSPConvert.Lib
 			var spawnflags = (TargetInitFlags)targetInit.Spawnflags;
 			if (!spawnflags.HasFlag(TargetInitFlags.KeepPowerUps))
 			{
-				GiveHasteOnStartTouch(trigger, "0");
-				GiveQuadOnStartTouch(trigger, "0");
+				SetHasteOnStartTouch(trigger, "0");
+				SetQuadOnStartTouch(trigger, "0");
 			}
 			if (!spawnflags.HasFlag(TargetInitFlags.KeepWeapons))
 			{
@@ -656,6 +656,11 @@ namespace BSPConvert.Lib
 			if (string.IsNullOrEmpty(duration) || duration == "0")
 				duration = "30";
 
+			SetHasteOnStartTouch(trigger, duration);
+		}
+
+		private void SetHasteOnStartTouch(Entity trigger, string duration)
+		{
 			var connection = new Entity.EntityConnection()
 			{
 				name = "OnStartTouch",
@@ -673,6 +678,11 @@ namespace BSPConvert.Lib
 			if (string.IsNullOrEmpty(duration) || duration == "0")
 				duration = "30";
 
+			SetQuadOnStartTouch(trigger, duration);
+		}
+
+		private static void SetQuadOnStartTouch(Entity trigger, string duration)
+		{
 			var connection = new Entity.EntityConnection()
 			{
 				name = "OnStartTouch",
