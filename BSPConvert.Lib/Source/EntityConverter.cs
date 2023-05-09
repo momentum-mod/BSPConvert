@@ -894,10 +894,9 @@ namespace BSPConvert.Lib
 			var targets = GetTargetEntities(trigger);
 			if (targets.Any())
 			{
-				trigger.ClassName = "trigger_catapult";
+				trigger.ClassName = "trigger_jumppad";
 				trigger["launchtarget"] = targets.First().Name;
 				trigger["spawnflags"] = "1";
-				trigger["playerspeed"] = "450";
 			}
 		}
 
