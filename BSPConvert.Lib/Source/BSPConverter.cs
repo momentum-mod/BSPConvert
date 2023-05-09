@@ -1024,6 +1024,7 @@ namespace BSPConvert.Lib
 
 			if (shaderDict.TryGetValue(texture, out var shader) && shader.surfaceFlags.HasFlag(Q3SurfaceFlags.SURF_NONSOLID))
 				minTess |= (int)DisplacementFlags.SURF_NOHULL_COLL | (int)DisplacementFlags.SURF_NORAY_COLL;
+			
 			return minTess;
 		}
 
