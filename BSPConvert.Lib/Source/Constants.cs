@@ -7,6 +7,15 @@ using System.Threading.Tasks;
 namespace BSPConvert.Lib
 {
 	[Flags]
+	public enum DisplacementFlags
+	{
+		SURF_BUMPED = 1,
+		SURF_NOPHYSICS_COLL = 2,
+		SURF_NOHULL_COLL = 4,
+		SURF_NORAY_COLL = 8
+	}
+
+	[Flags]
 	public enum Q3ContentsFlags : uint
 	{
 		CONTENTS_SOLID = 1,     // an eye is never valid in a solid
