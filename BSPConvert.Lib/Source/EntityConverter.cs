@@ -75,16 +75,18 @@ namespace BSPConvert.Lib
 		private Dictionary<string, List<Entity>> entityDict = new Dictionary<string, List<Entity>>();
 		private List<Entity> removeEntities = new List<Entity>(); // Entities to remove after conversion (ex: remove weapons after converting a trigger_multiple that references target_give). TODO: It might be better to convert entities by priority, such as trigger_multiples first so that target_give weapons can be ignored after
 		private int currentCheckpointIndex = 2;
+		private Lump<Model> q3Models;
 
 		private const string MOMENTUM_START_ENTITY = "_momentum_player_start_";
 
-		public EntityConverter(Entities q3Entities, Entities sourceEntities, Dictionary<string, Shader> shaderDict, int minDamageToConvertTrigger, bool ignoreZones)
+		public EntityConverter(Lump<Model> q3Models, Entities q3Entities, Entities sourceEntities, Dictionary<string, Shader> shaderDict, int minDamageToConvertTrigger, bool ignoreZones)
 		{
 			this.q3Entities = q3Entities;
 			this.sourceEntities = sourceEntities;
 			this.shaderDict = shaderDict;
 			this.minDamageToConvertTrigger = minDamageToConvertTrigger;
 			this.ignoreZones = ignoreZones;
+			this.q3Models = q3Models;
 
 			foreach (var entity in q3Entities)
 			{
@@ -128,10 +130,6 @@ namespace BSPConvert.Lib
 						break;
 					case "misc_teleporter_dest":
 						ConvertTeleportDestination(entity);
-						break;
-					case "target_position":
-					case "target_push":
-						entity.ClassName = "info_target";
 						break;
 					case "func_door":
 						ConvertFuncDoor(entity);
@@ -476,27 +474,48 @@ namespace BSPConvert.Lib
 			var targets = GetTargetEntities(targetPush);
 			if (targets.Any())
 			{
+				var targetPosition = targets.First();
+
+				targetPosition.Origin = GetNewOrigin(trigger, targetPush, targetPosition);
+				targetPosition.ClassName = "target_position";
+
 				trigger.ClassName = "trigger_jumppad";
-				trigger["launchtarget"] = targets.First().Name;
+				trigger["launchtarget"] = targetPosition.Name;
 				trigger["spawnflags"] = "1";
 			}
 			else
-			{
-				var launchVector = GetLaunchVector(targetPush);
-				var connection = new Entity.EntityConnection()
-				{
-					name = "OnStartTouch",
-					target = "player",
-					action = "SetLocalVelocity",
-					param = $"{launchVector.X} {launchVector.Y} {launchVector.Z}",
-					delay = 0,
-					fireOnce = -1
-				};
-				trigger.connections.Add(connection); ;
-			}
+				SetLocalVelocityTrigger(trigger, targetPush);
 		}
 
-		private static Vector3 GetLaunchVector(Entity targetPush)
+		private static void SetLocalVelocityTrigger(Entity trigger, Entity targetPush)
+		{
+			var connection = new Entity.EntityConnection()
+			{
+				name = "OnStartTouch",
+				target = "player",
+				action = "SetLocalVelocity",
+				param = GetLaunchVector(targetPush),
+				delay = 0,
+				fireOnce = -1
+			};
+			trigger.connections.Add(connection); ;
+		}
+
+		private Vector3 GetNewOrigin(Entity trigger, Entity targetPush, Entity targetPosition)
+		{
+			var modelIndexStr = trigger["model"].Substring(1); // Removes * from model index
+			if (!int.TryParse(modelIndexStr, out var modelIndex))
+				return targetPosition.Origin;
+
+			var model = q3Models[modelIndex];
+			var center = (model.Minimums + model.Maximums) / 2f;
+
+			var originDiff = targetPosition.Origin - targetPush.Origin;
+			var newOrigin = center + originDiff;
+			return newOrigin;
+		}
+
+		private static string GetLaunchVector(Entity targetPush)
 		{
 			var angles = "0 0 0";
 
@@ -506,28 +525,31 @@ namespace BSPConvert.Lib
 				angles = $"0 {angle} 0";
 
 			var angleString = angles.Split(' ');
-			
+
 			var pitchDegrees = float.Parse(angleString[0]);
 			var yawDegrees = float.Parse(angleString[1]);
-			var rollDegrees = float.Parse(angleString[2]);
 
-			var yaw = Math.PI * yawDegrees / 180.0;
-			var pitch = Math.PI * -pitchDegrees / 180.0;
-			var roll = Math.PI * rollDegrees / 180.0;
-
-			var x = Math.Cos(yaw) * Math.Cos(pitch);
-			var y = Math.Sin(yaw) * Math.Cos(pitch);
-			var z = Math.Sin(pitch);
-
-			var unitVector = new Vector3((float)x, (float)y, (float)z);
+			Vector3 launchDir = ConvertAnglesToVector(pitchDegrees, yawDegrees);
 
 			if (!float.TryParse(targetPush["speed"], out var speed))
 				speed = 1000;
 			else
 				speed = float.Parse(targetPush["speed"]);
 
-			var launchVector = unitVector * speed;
-			return launchVector;
+			var launchVector = launchDir * speed;
+			return $"{launchVector.X} {launchVector.Y} {launchVector.Z}";
+		}
+
+		private static Vector3 ConvertAnglesToVector(float pitchDegrees, float yawDegrees)
+		{
+			var yaw = Math.PI * yawDegrees / 180.0;
+			var pitch = Math.PI * -pitchDegrees / 180.0;
+
+			var x = Math.Cos(yaw) * Math.Cos(pitch);
+			var y = Math.Sin(yaw) * Math.Cos(pitch);
+			var z = Math.Sin(pitch);
+
+			return new Vector3((float)x, (float)y, (float)z);
 		}
 
 		private void ConvertTargetSpeed(Entity targetSpeed)
@@ -969,6 +991,7 @@ namespace BSPConvert.Lib
 				trigger.ClassName = "trigger_jumppad";
 				trigger["launchtarget"] = targets.First().Name;
 				trigger["spawnflags"] = "1";
+				targets.First().ClassName = "info_target";
 			}
 		}
 

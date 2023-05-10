@@ -223,7 +223,7 @@ namespace BSPConvert.Lib
 
 		private void ConvertEntities()
 		{
-			var converter = new EntityConverter(quakeBsp.Entities, sourceBsp.Entities, shaderDict, options.minDamageToConvertTrigger, options.ignoreZones);
+			var converter = new EntityConverter(quakeBsp.Models, quakeBsp.Entities, sourceBsp.Entities, shaderDict, options.minDamageToConvertTrigger, options.ignoreZones);
 			converter.Convert();
 		}
 
