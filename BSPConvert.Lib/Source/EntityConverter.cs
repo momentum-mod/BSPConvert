@@ -121,6 +121,7 @@ namespace BSPConvert.Lib
 						ConvertTriggerMultiple(entity);
 						break;
 					case "trigger_push":
+					case "trigger_push_velocity":
 						ConvertTriggerPush(entity);
 						break;
 					case "trigger_teleport":
