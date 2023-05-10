@@ -480,27 +480,54 @@ namespace BSPConvert.Lib
 				trigger["launchtarget"] = targets.First().Name;
 				trigger["spawnflags"] = "1";
 			}
-			else ConvertCatapult(trigger, targetPush);
+			else
+			{
+				var launchVector = GetLaunchVector(targetPush);
+				var connection = new Entity.EntityConnection()
+				{
+					name = "OnStartTouch",
+					target = "player",
+					action = "SetLocalVelocity",
+					param = $"{launchVector.X} {launchVector.Y} {launchVector.Z}",
+					delay = 0,
+					fireOnce = -1
+				};
+				trigger.connections.Add(connection); ;
+			}
 		}
 
-		private static void ConvertCatapult(Entity trigger, Entity targetPush)
+		private static Vector3 GetLaunchVector(Entity targetPush)
 		{
-			trigger.ClassName = "trigger_catapult";
-			trigger["spawnflags"] = "1";
+			var angles = "0 0 0";
 
 			if (!String.IsNullOrEmpty(targetPush["angles"]))
-				trigger["launchdir"] = trigger["angles"];
+				angles = targetPush["angles"];
 			else if (float.TryParse(targetPush["angle"], out var angle))
-				trigger["launchdir"] = $"0 {angle} 0";
-			else
-				trigger["launchdir"] = "0 0 0";
+				angles = $"0 {angle} 0";
+
+			var angleString = angles.Split(' ');
+			
+			var pitchDegrees = float.Parse(angleString[0]);
+			var yawDegrees = float.Parse(angleString[1]);
+			var rollDegrees = float.Parse(angleString[2]);
+
+			var yaw = Math.PI * yawDegrees / 180.0;
+			var pitch = Math.PI * -pitchDegrees / 180.0;
+			var roll = Math.PI * rollDegrees / 180.0;
+
+			var x = Math.Cos(yaw) * Math.Cos(pitch);
+			var y = Math.Sin(yaw) * Math.Cos(pitch);
+			var z = Math.Sin(pitch);
+
+			var unitVector = new Vector3((float)x, (float)y, (float)z);
 
 			if (!float.TryParse(targetPush["speed"], out var speed))
-				trigger["playerspeed"] = "1000";
+				speed = 1000;
 			else
-				trigger["playerspeed"] = speed.ToString();
+				speed = float.Parse(targetPush["speed"]);
 
-			trigger.Remove("angles");
+			var launchVector = unitVector * speed;
+			return launchVector;
 		}
 
 		private void ConvertTargetSpeed(Entity targetSpeed)
