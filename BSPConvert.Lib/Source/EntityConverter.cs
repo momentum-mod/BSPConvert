@@ -190,7 +190,7 @@ namespace BSPConvert.Lib
 		{
 			SetMoveDir(entity);
 
-			if (String.IsNullOrEmpty(entity["wait"]))
+			if (string.IsNullOrEmpty(entity["wait"]))
 				entity["wait"] = "2";
 
 			if (float.TryParse(entity["health"], out var health))
