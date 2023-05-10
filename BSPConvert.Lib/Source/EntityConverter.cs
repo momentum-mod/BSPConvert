@@ -472,12 +472,11 @@ namespace BSPConvert.Lib
 		private void ConvertTargetPushTrigger(Entity trigger, Entity targetPush)
 		{
 			var targets = GetTargetEntities(targetPush);
-			if (targets.Any())
+			var targetPosition = targets.FirstOrDefault();
+			if (targetPosition != null)
 			{
-				var targetPosition = targets.First();
-
-				targetPosition.Origin = GetNewOrigin(trigger, targetPush, targetPosition);
-				targetPosition.ClassName = "target_position";
+				targetPosition.Origin = CalculateTargetOrigin(trigger, targetPush, targetPosition);
+				targetPosition.ClassName = "info_target";
 
 				trigger.ClassName = "trigger_jumppad";
 				trigger["launchtarget"] = targetPosition.Name;
@@ -498,10 +497,10 @@ namespace BSPConvert.Lib
 				delay = 0,
 				fireOnce = -1
 			};
-			trigger.connections.Add(connection); ;
+			trigger.connections.Add(connection);
 		}
 
-		private Vector3 GetNewOrigin(Entity trigger, Entity targetPush, Entity targetPosition)
+		private Vector3 CalculateTargetOrigin(Entity trigger, Entity targetPush, Entity targetPosition)
 		{
 			var modelIndexStr = trigger["model"].Substring(1); // Removes * from model index
 			if (!int.TryParse(modelIndexStr, out var modelIndex))
@@ -511,15 +510,14 @@ namespace BSPConvert.Lib
 			var center = (model.Minimums + model.Maximums) / 2f;
 
 			var originDiff = targetPosition.Origin - targetPush.Origin;
-			var newOrigin = center + originDiff;
-			return newOrigin;
+			return center + originDiff;
 		}
 
 		private static string GetLaunchVector(Entity targetPush)
 		{
 			var angles = "0 0 0";
 
-			if (!String.IsNullOrEmpty(targetPush["angles"]))
+			if (!string.IsNullOrEmpty(targetPush["angles"]))
 				angles = targetPush["angles"];
 			else if (float.TryParse(targetPush["angle"], out var angle))
 				angles = $"0 {angle} 0";
@@ -529,7 +527,7 @@ namespace BSPConvert.Lib
 			var pitchDegrees = float.Parse(angleString[0]);
 			var yawDegrees = float.Parse(angleString[1]);
 
-			Vector3 launchDir = ConvertAnglesToVector(pitchDegrees, yawDegrees);
+			var launchDir = ConvertAnglesToVector(pitchDegrees, yawDegrees);
 
 			if (!float.TryParse(targetPush["speed"], out var speed))
 				speed = 1000;
@@ -986,12 +984,13 @@ namespace BSPConvert.Lib
 		private void ConvertTriggerPush(Entity trigger)
 		{
 			var targets = GetTargetEntities(trigger);
-			if (targets.Any())
+			var firstTarget = targets.FirstOrDefault();
+			if (firstTarget != null)
 			{
 				trigger.ClassName = "trigger_jumppad";
-				trigger["launchtarget"] = targets.First().Name;
+				trigger["launchtarget"] = firstTarget.Name;
 				trigger["spawnflags"] = "1";
-				targets.First().ClassName = "info_target";
+				firstTarget.ClassName = "info_target";
 			}
 		}
 
