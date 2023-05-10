@@ -190,6 +190,9 @@ namespace BSPConvert.Lib
 		{
 			SetMoveDir(entity);
 
+			if (String.IsNullOrEmpty(entity["wait"]))
+				entity["wait"] = "2";
+
 			if (float.TryParse(entity["health"], out var health))
 			{
 				entity.ClassName = "func_button"; // Health is obsolete on func_door, maybe fix in engine and update this
