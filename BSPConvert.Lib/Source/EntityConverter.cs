@@ -460,12 +460,47 @@ namespace BSPConvert.Lib
 					case "target_speed":
 						FireTargetSpeedOnOutput(entity, target, "OnStartTouch");
 						break;
+					case "target_push":
+						ConvertTargetPushTrigger(trigger, target);
+						break;
 					case "func_door":
 						OpenDoorOnStartTouch(trigger, target);
 						break;
 				}
 				ConvertTriggerTargetsRecursive(trigger, target);
 			}
+		}
+
+		private void ConvertTargetPushTrigger(Entity trigger, Entity targetPush)
+		{
+			var targets = GetTargetEntities(targetPush);
+			if (targets.Any())
+			{
+				trigger.ClassName = "trigger_jumppad";
+				trigger["launchtarget"] = targets.First().Name;
+				trigger["spawnflags"] = "1";
+			}
+			else ConvertCatapult(trigger, targetPush);
+		}
+
+		private static void ConvertCatapult(Entity trigger, Entity targetPush)
+		{
+			trigger.ClassName = "trigger_catapult";
+			trigger["spawnflags"] = "1";
+
+			if (!String.IsNullOrEmpty(targetPush["angles"]))
+				trigger["launchdir"] = trigger["angles"];
+			else if (float.TryParse(targetPush["angle"], out var angle))
+				trigger["launchdir"] = $"0 {angle} 0";
+			else
+				trigger["launchdir"] = "0 0 0";
+
+			if (!float.TryParse(targetPush["speed"], out var speed))
+				trigger["playerspeed"] = "1000";
+			else
+				trigger["playerspeed"] = speed.ToString();
+
+			trigger.Remove("angles");
 		}
 
 		private void ConvertTargetSpeed(Entity targetSpeed)
