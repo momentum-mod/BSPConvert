@@ -918,6 +918,9 @@ namespace BSPConvert.Lib
 				trigger["mode"] = "3";
 			else
 			{
+				if (spawnflags.HasFlag(Q3TriggerTeleportFlags.Spectator))
+					return;
+
 				trigger["mode"] = "5";
 				trigger["setspeed"] = "400";
 			}
