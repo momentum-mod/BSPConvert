@@ -376,26 +376,26 @@ namespace BSPConvert.Lib
 			switch (tcMod[1].ToLower())
 			{
 				case "turb":
-					return ParseTModInfoTurb(tcMod);
+					return ParseTCModInfoTurb(tcMod);
 				case "scale":
-					return ParseTModInfoScale(tcMod);
+					return ParseTCModInfoScale(tcMod);
 				case "scroll":
-					return ParseTModInfoScroll(tcMod);
+					return ParseTCModInfoScroll(tcMod);
 				case "stretch":
-					return ParseTModInfoStretch(tcMod);
+					return ParseTCModInfoStretch(tcMod);
 				case "transform":
-					return ParseTModInfoTransform(tcMod);
+					return ParseTCModInfoTransform(tcMod);
 				case "rotate":
-					return ParseTModInfoRotate(tcMod);
+					return ParseTCModInfoRotate(tcMod);
 				case "entitytranslate":
-					return ParseTModInfoTranslate(tcMod);
+					return ParseTCModInfoTranslate(tcMod);
 				default:
 					Debug.WriteLine("Warning: Unknown texmod param in shader: " + shaderFile);
 					return new TexModInfo();
 			}
 		}
 
-		private TexModInfo ParseTModInfoTurb(string[] tcMod)
+		private TexModInfo ParseTCModInfoTurb(string[] tcMod)
 		{
 			var texModInfo = new TexModInfo();
 			if (tcMod.Length < 6)
@@ -411,7 +411,7 @@ namespace BSPConvert.Lib
 			return texModInfo;
 		}
 
-		private TexModInfo ParseTModInfoScale(string[] tcMod)
+		private TexModInfo ParseTCModInfoScale(string[] tcMod)
 		{
 			var texModInfo = new TexModInfo();
 			if (tcMod.Length < 4)
@@ -425,7 +425,7 @@ namespace BSPConvert.Lib
 			return texModInfo;
 		}
 
-		private TexModInfo ParseTModInfoScroll(string[] tcMod)
+		private TexModInfo ParseTCModInfoScroll(string[] tcMod)
 		{
 			var texModInfo = new TexModInfo();
 			if (tcMod.Length < 4)
@@ -439,7 +439,7 @@ namespace BSPConvert.Lib
 			return texModInfo;
 		}
 
-		private TexModInfo ParseTModInfoStretch(string[] tcMod)
+		private TexModInfo ParseTCModInfoStretch(string[] tcMod)
 		{
 			var texModInfo = new TexModInfo();
 			if (tcMod.Length < 7)
@@ -456,7 +456,7 @@ namespace BSPConvert.Lib
 			return texModInfo;
 		}
 
-		private TexModInfo ParseTModInfoTransform(string[] tcMod)
+		private TexModInfo ParseTCModInfoTransform(string[] tcMod)
 		{
 			var texModInfo = new TexModInfo();
 			if (tcMod.Length < 8)
@@ -474,7 +474,7 @@ namespace BSPConvert.Lib
 			return texModInfo;
 		}
 
-		private TexModInfo ParseTModInfoRotate(string[] tcMod)
+		private TexModInfo ParseTCModInfoRotate(string[] tcMod)
 		{
 			var texModInfo = new TexModInfo();
 			if (tcMod.Length < 3)
@@ -487,7 +487,7 @@ namespace BSPConvert.Lib
 			return texModInfo;
 		}
 
-		private TexModInfo ParseTModInfoTranslate(string[] tcMod)
+		private TexModInfo ParseTCModInfoTranslate(string[] tcMod)
 		{
 			var texModInfo = new TexModInfo();
 			texModInfo.type = TexMod.TMOD_ENTITY_TRANSLATE;
