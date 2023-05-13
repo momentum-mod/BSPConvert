@@ -120,8 +120,8 @@ namespace BSPConvert.Lib
 			{
 				if (line == "}") // End of shader pass definition
 					break;
-				
-				var split = line.Split();
+
+				var split = line.Split((char[])null, StringSplitOptions.RemoveEmptyEntries);
 				switch (split[0].ToLower())
 				{
 					case "map":
@@ -153,6 +153,7 @@ namespace BSPConvert.Lib
 						stage.bundles[0].tcGen = ParseTCGen(split[1]);
 						break;
 					case "tcmod":
+						stage.bundles[0].texMods.Add(ParseTCModInfo(split));
 						break;
 					case "depthwrite":
 						break;
@@ -368,6 +369,151 @@ namespace BSPConvert.Lib
 			}
 
 			return TexCoordGen.TCGEN_TEXTURE;
+		}
+
+		private TexModInfo ParseTCModInfo(string[] tcMod)
+		{
+			switch (tcMod[1].ToLower())
+			{
+				case "turb":
+					return ParseTCModInfoTurb(tcMod);
+				case "scale":
+					return ParseTCModInfoScale(tcMod);
+				case "scroll":
+					return ParseTCModInfoScroll(tcMod);
+				case "stretch":
+					return ParseTCModInfoStretch(tcMod);
+				case "transform":
+					return ParseTCModInfoTransform(tcMod);
+				case "rotate":
+					return ParseTCModInfoRotate(tcMod);
+				case "entitytranslate":
+					return ParseTCModInfoTranslate(tcMod);
+				default:
+					Debug.WriteLine("Warning: Unknown texmod param in shader: " + shaderFile);
+					return new TexModInfo();
+			}
+		}
+
+		private TexModInfo ParseTCModInfoTurb(string[] tcMod)
+		{
+			var texModInfo = new TexModInfo();
+			if (tcMod.Length < 6)
+			{
+				Debug.WriteLine("Warning: missing tcMod turb in shader: " + shaderFile);
+				return texModInfo;
+			}
+			float.TryParse(tcMod[2], out texModInfo.wave.base_);
+			float.TryParse(tcMod[3], out texModInfo.wave.amplitude);
+			float.TryParse(tcMod[4], out texModInfo.wave.phase);
+			float.TryParse(tcMod[5], out texModInfo.wave.frequency);
+			texModInfo.type = TexMod.TMOD_TURBULENT;
+			return texModInfo;
+		}
+
+		private TexModInfo ParseTCModInfoScale(string[] tcMod)
+		{
+			var texModInfo = new TexModInfo();
+			if (tcMod.Length < 4)
+			{
+				Debug.WriteLine("Warning: missing scale parms in shader: " + shaderFile);
+				return texModInfo;
+			}
+			float.TryParse(tcMod[2], out texModInfo.scale[0]);
+			float.TryParse(tcMod[3], out texModInfo.scale[1]);
+			texModInfo.type = TexMod.TMOD_SCALE;
+			return texModInfo;
+		}
+
+		private TexModInfo ParseTCModInfoScroll(string[] tcMod)
+		{
+			var texModInfo = new TexModInfo();
+			if (tcMod.Length < 4)
+			{
+				Debug.WriteLine("Warning: missing scale scroll parms in shader: " + shaderFile);
+				return texModInfo;
+			}
+			float.TryParse(tcMod[2], out texModInfo.scroll[0]);
+			float.TryParse(tcMod[3], out texModInfo.scroll[1]);
+			texModInfo.type = TexMod.TMOD_SCROLL;
+			return texModInfo;
+		}
+
+		private TexModInfo ParseTCModInfoStretch(string[] tcMod)
+		{
+			var texModInfo = new TexModInfo();
+			if (tcMod.Length < 7)
+			{
+				Debug.WriteLine("Warning: missing stretch parms in shader: " + shaderFile);
+				return texModInfo;
+			}
+			texModInfo.wave.func = NameToGenFunc(tcMod[2]);
+			float.TryParse(tcMod[3], out texModInfo.wave.base_);
+			float.TryParse(tcMod[4], out texModInfo.wave.amplitude);
+			float.TryParse(tcMod[5], out texModInfo.wave.phase);
+			float.TryParse(tcMod[6], out texModInfo.wave.frequency);
+			texModInfo.type = TexMod.TMOD_STRETCH;
+			return texModInfo;
+		}
+
+		private TexModInfo ParseTCModInfoTransform(string[] tcMod)
+		{
+			var texModInfo = new TexModInfo();
+			if (tcMod.Length < 8)
+			{
+				Debug.WriteLine("Warning: missing transform parms in shader: " + shaderFile);
+				return texModInfo;
+			}
+			float.TryParse(tcMod[2], out texModInfo.matrix[0][0]);
+			float.TryParse(tcMod[3], out texModInfo.matrix[0][1]);
+			float.TryParse(tcMod[4], out texModInfo.matrix[1][0]);
+			float.TryParse(tcMod[5], out texModInfo.matrix[1][1]);
+			float.TryParse(tcMod[6], out texModInfo.translate[0]);
+			float.TryParse(tcMod[7], out texModInfo.translate[1]);
+			texModInfo.type = TexMod.TMOD_TRANSFORM;
+			return texModInfo;
+		}
+
+		private TexModInfo ParseTCModInfoRotate(string[] tcMod)
+		{
+			var texModInfo = new TexModInfo();
+			if (tcMod.Length < 3)
+			{
+				Debug.WriteLine("Warning: missing scale parms in shader: " + shaderFile);
+				return texModInfo;
+			}
+			texModInfo.rotateSpeed = float.Parse(tcMod[2]);
+			texModInfo.type = TexMod.TMOD_ROTATE;
+			return texModInfo;
+		}
+
+		private TexModInfo ParseTCModInfoTranslate(string[] tcMod)
+		{
+			var texModInfo = new TexModInfo();
+			texModInfo.type = TexMod.TMOD_ENTITY_TRANSLATE;
+			return texModInfo;
+		}
+
+		private GenFunc NameToGenFunc(string funcName)
+		{
+			switch (funcName)
+			{
+				case "sin":
+					return GenFunc.GF_SIN;
+				case "square":
+					return GenFunc.GF_SQUARE;
+				case "triangle":
+					return GenFunc.GF_TRIANGLE;
+				case "sawtooth":
+					return GenFunc.GF_SAWTOOTH;
+				case "inversesawtooth":
+					return GenFunc.GF_INVERSE_SAWTOOTH;
+				case "noise":
+					return GenFunc.GF_NOISE;
+				default:
+					Debug.WriteLine("Warning: invalid genfunc name in shader " + shaderFile);
+					return GenFunc.GF_SIN;
+			}
 		}
 
 		// TODO: Get next valid token instead of line

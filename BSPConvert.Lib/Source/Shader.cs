@@ -52,11 +52,61 @@ namespace BSPConvert.Lib
 		TCGEN_VECTOR            // S and T from world coordinates
 	}
 
+	public enum TexMod
+	{
+		TMOD_NONE,
+		TMOD_TRANSFORM,
+		TMOD_TURBULENT,
+		TMOD_SCROLL,
+		TMOD_SCALE,
+		TMOD_STRETCH,
+		TMOD_ROTATE,
+		TMOD_ENTITY_TRANSLATE
+	}
+
 	public enum CullType
 	{
 		FRONT_SIDED,
 		BACK_SIDED,
 		TWO_SIDED
+	}
+
+	public enum GenFunc
+	{
+		GF_NONE,
+		GF_SIN,
+		GF_SQUARE,
+		GF_TRIANGLE,
+		GF_SAWTOOTH,
+		GF_INVERSE_SAWTOOTH,
+		GF_NOISE
+	}
+
+	public class WaveForm
+	{
+		public GenFunc func;
+
+		public float base_;
+		public float amplitude;
+		public float phase;
+		public float frequency;
+	}
+
+	public class TexModInfo
+	{
+		public TexMod type;
+		public WaveForm wave = new WaveForm();
+		public float[][] matrix = new float[2][];
+		public float[] translate = new float[2];
+		public float[] scale = new float[2];
+		public float[] scroll = new float[2];
+		public float rotateSpeed;
+
+		public TexModInfo()
+		{
+			for (var i = 0; i < 2; i++)
+				matrix[i] = new float[2];
+		}
 	}
 
 	public class ShaderStage
@@ -83,6 +133,7 @@ namespace BSPConvert.Lib
 
 		public TexCoordGen tcGen;
 		public Vector3[] tcGenVectors = new Vector3[2];
+		public List<TexModInfo> texMods = new List<TexModInfo>();
 	}
 
 	public class Shader
