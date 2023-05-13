@@ -482,9 +482,7 @@ namespace BSPConvert.Lib
 				targetPosition.Origin = CalculateTargetOrigin(trigger, targetPush, targetPosition);
 				targetPosition.ClassName = "info_target";
 
-				trigger.ClassName = "trigger_jumppad";
-				trigger["launchtarget"] = targetPosition.Name;
-				trigger["spawnflags"] = "1";
+				ConvertTriggerJumppad(trigger, targetPosition.Name);
 			}
 			else
 				SetLocalVelocityTrigger(trigger, targetPush);
@@ -991,11 +989,17 @@ namespace BSPConvert.Lib
 			var firstTarget = targets.FirstOrDefault();
 			if (firstTarget != null)
 			{
-				trigger.ClassName = "trigger_jumppad";
-				trigger["launchtarget"] = firstTarget.Name;
-				trigger["spawnflags"] = "1";
 				firstTarget.ClassName = "info_target";
+				ConvertTriggerJumppad(trigger, firstTarget.Name);
 			}
+		}
+
+		private static void ConvertTriggerJumppad(Entity trigger, string target)
+		{
+			trigger.ClassName = "trigger_jumppad";
+			trigger["launchtarget"] = target;
+			trigger["launchsound"] = "world/jumppad.wav";
+			trigger["spawnflags"] = "1";
 		}
 
 		private void ConvertTriggerTeleport(Entity trigger)

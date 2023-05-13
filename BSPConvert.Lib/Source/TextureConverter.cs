@@ -57,17 +57,14 @@ namespace BSPConvert.Lib
 		// Embed vtf/vmt files into BSP pak lump
 		private void EmbedFiles(IEnumerable<string> textureFiles)
 		{
-			// TODO: Only create a zip archive if one doesn't exist
-			using (var archive = ZipArchive.Create())
+			var archive = bsp.PakFile.GetZipArchive();
+			foreach (var file in textureFiles)
 			{
-				foreach (var file in textureFiles)
-				{
-					var newPath = file.Replace(pk3Dir, "materials");
-					archive.AddEntry(newPath, new FileInfo(file));
-				}
-
-				bsp.PakFile.SetZipArchive(archive, true);
+				var newPath = file.Replace(pk3Dir, "materials");
+				archive.AddEntry(newPath, new FileInfo(file));
 			}
+
+			bsp.PakFile.SetZipArchive(archive, true);
 		}
 
 		// Move vtf/vmt files into output directory

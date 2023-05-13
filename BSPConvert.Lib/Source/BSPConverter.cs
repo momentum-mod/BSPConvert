@@ -10,10 +10,12 @@ using System;
 using System.IO;
 using System.Collections.Generic;
 using System.Linq;
-using System.IO.Compression;
 using System.Diagnostics;
 using System.Collections;
 using System.Xml.Linq;
+using SharpCompress.Archives.Zip;
+using SharpCompress.Archives;
+using BSPConvert.Lib.Source;
 
 namespace BSPConvert.Lib
 {
@@ -113,10 +115,12 @@ namespace BSPConvert.Lib
 				LoadBSP(bsp);
 
 				ReplaceToolTextures();
+				CreatePakFile();
 				ConvertMaterials();
 				ConvertTextureFiles();
 
 				ConvertEntities();
+				ConvertSounds();
 				ConvertTextures();
 				ConvertPlanes();
 				//ConvertFaces_SplitFaces();
@@ -178,6 +182,17 @@ namespace BSPConvert.Lib
 			}
 		}
 
+		private void CreatePakFile()
+		{
+			if (options.noPak)
+				return;
+
+			using (var archive = ZipArchive.Create())
+			{
+				sourceBsp.PakFile.SetZipArchive(archive, true);
+			}
+		}
+
 		private void ConvertMaterials()
 		{
 			var materialConverter = new MaterialConverter(contentManager.ContentDir, shaderDict);
@@ -215,15 +230,23 @@ namespace BSPConvert.Lib
 
 		private void ConvertTextureFiles()
 		{
-			var textureConverter = options.noPak ?
+			var converter = options.noPak ?
 				new TextureConverter(contentManager.ContentDir, options.outputDir) :
 				new TextureConverter(contentManager.ContentDir, sourceBsp);
-			textureConverter.Convert();
+			converter.Convert();
 		}
 
 		private void ConvertEntities()
 		{
 			var converter = new EntityConverter(quakeBsp.Models, quakeBsp.Entities, sourceBsp.Entities, shaderDict, options.minDamageToConvertTrigger, options.ignoreZones);
+			converter.Convert();
+		}
+
+		private void ConvertSounds()
+		{
+			var converter = options.noPak ?
+				new SoundConverter(contentManager.ContentDir, options.outputDir, sourceBsp.Entities) :
+				new SoundConverter(contentManager.ContentDir, sourceBsp, sourceBsp.Entities);
 			converter.Convert();
 		}
 
