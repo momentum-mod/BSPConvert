@@ -1,4 +1,5 @@
-﻿using System;
+﻿using LibBSP;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -269,10 +270,10 @@ namespace BSPConvert.Lib
 				if (texModInfo.type == TexMod.TMOD_ROTATE)
 					ConvertTCModRotate(sb, texModInfo);
 
-				if (texModInfo.type == TexMod.TMOD_SCROLL)
+				else if (texModInfo.type == TexMod.TMOD_SCROLL)
 					ConvertTCModScroll(sb, texModInfo);
 
-				if (texModInfo.type == TexMod.TMOD_STRETCH)
+				else if (texModInfo.type == TexMod.TMOD_STRETCH)
 					ConvertTCModStretch(sb, texModInfo);
 
 				if (texModInfo.type == TexMod.TMOD_ROTATE || texModInfo.type == TexMod.TMOD_SCROLL)
@@ -303,10 +304,10 @@ namespace BSPConvert.Lib
 					sb.AppendLine("\t$center \"[0.5 0.5]\"");
 				}
 
-				if (texModInfo.type == TexMod.TMOD_SCROLL)
+				else if (texModInfo.type == TexMod.TMOD_SCROLL)
 					sb.AppendLine("\t$translate \"[0.0 0.0]\"");
 
-				if (texModInfo.type == TexMod.TMOD_STRETCH)
+				else if (texModInfo.type == TexMod.TMOD_STRETCH)
 					sb.AppendLine("\t$scale 0");
 
 				if (texModInfo.wave.func == GenFunc.GF_SQUARE)
@@ -323,14 +324,18 @@ namespace BSPConvert.Lib
 		//TODO: Convert other waveforms
 		private static void ConvertTCModStretch(StringBuilder sb, TexModInfo texModInfo)
 		{
-			if (texModInfo.wave.func == GenFunc.GF_SIN)
-				ConvertSineWaveStretch(sb, texModInfo);
-			if (texModInfo.wave.func == GenFunc.GF_SQUARE)
-				ConvertSquareWaveStretch(sb, texModInfo);
-			if (texModInfo.wave.func == GenFunc.GF_SAWTOOTH)
-				return;
-			if (texModInfo.wave.func == GenFunc.GF_INVERSE_SAWTOOTH)
-				return;
+			switch (texModInfo.wave.func)
+			{
+				case GenFunc.GF_SIN:
+					ConvertSineWaveStretch(sb, texModInfo);
+					break;
+				case GenFunc.GF_SQUARE:
+					ConvertSquareWaveStretch(sb, texModInfo);
+					break;
+				case GenFunc.GF_SAWTOOTH:
+				case GenFunc.GF_INVERSE_SAWTOOTH:
+					break;
+			}
 		}
 
 		private static void ConvertSineWaveStretch(StringBuilder sb, TexModInfo texModInfo)
