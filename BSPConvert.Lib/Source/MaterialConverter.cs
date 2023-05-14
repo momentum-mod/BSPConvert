@@ -133,7 +133,7 @@ namespace BSPConvert.Lib
 			{
 				var newPath = pk3Path.Replace(pk3Dir, skyboxDir);
 				var destFile = newPath.Remove(newPath.LastIndexOf('_'), 1); // Remove underscore from skybox suffix
-				
+
 				FileUtil.MoveFile(pk3Path, destFile);
 
 				return true;
@@ -143,7 +143,7 @@ namespace BSPConvert.Lib
 				var q3ContentDir = ContentManager.GetQ3ContentDir();
 				var newPath = q3Path.Replace(q3ContentDir, skyboxDir);
 				var destFile = newPath.Remove(newPath.LastIndexOf('_'), 1); // Remove underscore from skybox suffix
-				
+
 				FileUtil.CopyFile(q3Path, destFile);
 
 				return true;
@@ -159,7 +159,7 @@ namespace BSPConvert.Lib
 			{
 				if (string.IsNullOrEmpty(image))
 					continue;
-				
+
 				var baseTexture = Path.ChangeExtension(image, null);
 				TryCopyQ3Content(baseTexture);
 			}
@@ -177,7 +177,7 @@ namespace BSPConvert.Lib
 				else
 					return GenerateUnlitTwoTextureVMT(shader);
 			}
-			
+
 			return GenerateLitVMT(shader);
 		}
 
@@ -235,14 +235,14 @@ namespace BSPConvert.Lib
 				var texture = Path.ChangeExtension(textureStage.bundles[0].images[0], null);
 				sb.AppendLine($"\t$basetexture \"{texture}\"");
 			}
-			
+
 			var envMapStage = stages.FirstOrDefault(x => x.bundles[0].tcGen == TexCoordGen.TCGEN_ENVIRONMENT_MAPPED);
 			if (envMapStage != null)
 				sb.AppendLine($"\t$envmap \"engine/defaultcubemap\"");
 
 			if (shader.cullType == CullType.TWO_SIDED)
 				sb.AppendLine("\t$nocull 1");
-			
+
 			var flags = (textureStage?.flags ?? 0) | (envMapStage?.flags ?? 0);
 			if (flags.HasFlag(ShaderStageFlags.GLS_ATEST_GE_80))
 			{
@@ -254,6 +254,153 @@ namespace BSPConvert.Lib
 
 			if (flags.HasFlag(ShaderStageFlags.GLS_SRCBLEND_ONE | ShaderStageFlags.GLS_DSTBLEND_ONE))
 				sb.AppendLine("\t$additive 1");
+
+			var texModStage = stages.FirstOrDefault(x => x.bundles[0].texMods.Any(y => y.type == TexMod.TMOD_SCROLL || y.type == TexMod.TMOD_ROTATE || y.type == TexMod.TMOD_STRETCH));
+			if (texModStage != null)
+				ConvertTCMods(sb, texModStage);
+		}
+
+		private void ConvertTCMods(StringBuilder sb, ShaderStage texModStage)
+		{
+			AppendProxyVars(sb, texModStage);
+
+			foreach (var texModInfo in texModStage.bundles[0].texMods)
+			{
+				if (texModInfo.type == TexMod.TMOD_ROTATE)
+					ConvertTCModRotate(sb, texModInfo);
+				else if (texModInfo.type == TexMod.TMOD_SCROLL)
+					ConvertTCModScroll(sb, texModInfo);
+				else if (texModInfo.type == TexMod.TMOD_STRETCH)
+					ConvertTCModStretch(sb, texModInfo);
+
+				if (texModInfo.type == TexMod.TMOD_ROTATE || texModInfo.type == TexMod.TMOD_SCROLL || texModInfo.type == TexMod.TMOD_STRETCH)
+					AppendTextureTransform(sb, texModStage);
+			}
+			sb.AppendLine("\t}");
+		}
+
+		private static void AppendTextureTransform(StringBuilder sb, ShaderStage texModStage)
+		{
+			sb.AppendLine("\t\tTextureTransform");
+			sb.AppendLine("\t\t{");
+
+			foreach (var texModInfo in texModStage.bundles[0].texMods)
+			{
+				if (texModInfo.type == TexMod.TMOD_ROTATE)
+				{
+					sb.AppendLine("\t\t\trotateVar $angle");
+					sb.AppendLine("\t\t\tcenterVar $center");
+				}
+				else if (texModInfo.type == TexMod.TMOD_SCROLL)
+					sb.AppendLine("\t\t\ttranslateVar $translate");
+				else if (texModInfo.type == TexMod.TMOD_STRETCH)
+					sb.AppendLine("\t\t\tscaleVar $scale");
+			}
+			sb.AppendLine("\t\t\tinitialValue 0");
+			sb.AppendLine("\t\t\tresultVar $basetexturetransform");
+			sb.AppendLine("\t\t}");
+		}
+
+		private static void AppendProxyVars(StringBuilder sb, ShaderStage texModStage)
+		{
+			foreach (var texModInfo in texModStage.bundles[0].texMods)
+			{
+				if (texModInfo.type == TexMod.TMOD_ROTATE)
+				{
+					sb.AppendLine("\t$angle 0.0");
+					sb.AppendLine("\t$center \"[0.5 0.5]\"");
+				}
+				else if (texModInfo.type == TexMod.TMOD_SCROLL)
+					sb.AppendLine("\t$translate \"[0.0 0.0]\"");
+				else if (texModInfo.type == TexMod.TMOD_STRETCH)
+					sb.AppendLine("\t$scale 1");
+
+				if (texModInfo.wave.func == GenFunc.GF_SQUARE)
+				{
+					sb.AppendLine($"\t$min {texModInfo.wave.base_}");
+					sb.AppendLine($"\t$max {texModInfo.wave.amplitude}");
+					sb.AppendLine($"\t$mid {(texModInfo.wave.amplitude + texModInfo.wave.base_) / 2}");
+				}
+			}
+			sb.AppendLine("\tProxies");
+			sb.AppendLine("\t{");
+		}
+
+		//TODO: Convert other waveforms
+		private static void ConvertTCModStretch(StringBuilder sb, TexModInfo texModInfo)
+		{
+			switch (texModInfo.wave.func)
+			{
+				case GenFunc.GF_SIN:
+					ConvertSineWaveStretch(sb, texModInfo);
+					break;
+				case GenFunc.GF_SQUARE:
+					ConvertSquareWaveStretch(sb, texModInfo);
+					break;
+				case GenFunc.GF_SAWTOOTH:
+				case GenFunc.GF_INVERSE_SAWTOOTH:
+					break;
+			}
+		}
+
+		private static void ConvertSineWaveStretch(StringBuilder sb, TexModInfo texModInfo)
+		{
+			sb.AppendLine("\t\tSine");
+			sb.AppendLine("\t\t{");
+			sb.AppendLine($"\t\t\tsinemin {texModInfo.wave.base_}");
+			sb.AppendLine($"\t\t\tsinemax {texModInfo.wave.amplitude}");
+			sb.AppendLine($"\t\t\tsineperiod {1 / texModInfo.wave.frequency}");
+			sb.AppendLine("\t\t\tinitialValue 0.0");
+			sb.AppendLine("\t\t\tresultVar $scale");
+			sb.AppendLine("\t\t}");
+		}
+
+		private static void ConvertSquareWaveStretch(StringBuilder sb, TexModInfo texModInfo)
+		{
+			sb.AppendLine("\t\tSine");
+			sb.AppendLine("\t\t{");
+			sb.AppendLine($"\t\t\tsinemin {texModInfo.wave.base_}");
+			sb.AppendLine($"\t\t\tsinemax {texModInfo.wave.amplitude}");
+			sb.AppendLine($"\t\t\tsineperiod {1 / texModInfo.wave.frequency}");
+			sb.AppendLine("\t\t\tinitialValue 0.0");
+			sb.AppendLine("\t\t\tresultVar $sineOutput");
+			sb.AppendLine("\t\t}");
+
+			sb.AppendLine("\t\tLessOrEqual");
+			sb.AppendLine("\t\t{");
+			sb.AppendLine($"\t\t\tlessEqualVar $min");
+			sb.AppendLine($"\t\t\tgreaterVar $max");
+			sb.AppendLine($"\t\t\tsrcVar1 $sineOutput");
+			sb.AppendLine($"\t\t\tsrcVar2 $mid");
+			sb.AppendLine($"\t\t\tresultVar $scale");
+			sb.AppendLine("\t\t}");
+		}
+
+		private static void ConvertTCModScroll(StringBuilder sb, TexModInfo texModInfo)
+		{
+			sb.AppendLine("\t\tLinearRamp");
+			sb.AppendLine("\t\t{");
+			sb.AppendLine($"\t\t\trate {texModInfo.scroll[0]}");
+			sb.AppendLine("\t\t\tinitialValue 0.0");
+			sb.AppendLine("\t\t\tresultVar \"$translate[0]\"");
+			sb.AppendLine("\t\t}");
+
+			sb.AppendLine("\t\tLinearRamp");
+			sb.AppendLine("\t\t{");
+			sb.AppendLine($"\t\t\trate {texModInfo.scroll[1]}");
+			sb.AppendLine("\t\t\tinitialValue 0.0");
+			sb.AppendLine("\t\t\tresultVar \"$translate[1]\"");
+			sb.AppendLine("\t\t}");
+		}
+
+		private static void ConvertTCModRotate(StringBuilder sb, TexModInfo texModInfo)
+		{
+			sb.AppendLine("\t\tLinearRamp");
+			sb.AppendLine("\t\t{");
+			sb.AppendLine($"\t\t\trate {texModInfo.rotateSpeed}");
+			sb.AppendLine("\t\t\tinitialValue 0.0");
+			sb.AppendLine("\t\t\tresultVar $angle");
+			sb.AppendLine("\t\t}");
 		}
 
 		private string GenerateUnlitTwoTextureVMT(Shader shader)
