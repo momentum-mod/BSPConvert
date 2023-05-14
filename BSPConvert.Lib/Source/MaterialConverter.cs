@@ -268,29 +268,37 @@ namespace BSPConvert.Lib
 			{
 				if (texModInfo.type == TexMod.TMOD_ROTATE)
 					ConvertTCModRotate(sb, texModInfo);
-
 				else if (texModInfo.type == TexMod.TMOD_SCROLL)
 					ConvertTCModScroll(sb, texModInfo);
-
 				else if (texModInfo.type == TexMod.TMOD_STRETCH)
 					ConvertTCModStretch(sb, texModInfo);
 
-				if (texModInfo.type == TexMod.TMOD_ROTATE || texModInfo.type == TexMod.TMOD_SCROLL)
-					AppendTextureTransform(sb);
+				if (texModInfo.type == TexMod.TMOD_ROTATE || texModInfo.type == TexMod.TMOD_SCROLL || texModInfo.type == TexMod.TMOD_STRETCH)
+					AppendTextureTransform(sb, texModStage);
 			}
+			sb.AppendLine("\t}");
 		}
 
-		private static void AppendTextureTransform(StringBuilder sb)
+		private static void AppendTextureTransform(StringBuilder sb, ShaderStage texModStage)
 		{
 			sb.AppendLine("\t\tTextureTransform");
 			sb.AppendLine("\t\t{");
-			sb.AppendLine("\t\t\ttranslateVar $translate");
-			sb.AppendLine("\t\t\tinitialValue 0.0");
-			sb.AppendLine("\t\t\trotateVar $angle");
-			sb.AppendLine("\t\t\tcenterVar $center");
+
+			foreach (var texModInfo in texModStage.bundles[0].texMods)
+			{
+				if (texModInfo.type == TexMod.TMOD_ROTATE)
+				{
+					sb.AppendLine("\t\t\trotateVar $angle");
+					sb.AppendLine("\t\t\tcenterVar $center");
+				}
+				else if (texModInfo.type == TexMod.TMOD_SCROLL)
+					sb.AppendLine("\t\t\ttranslateVar $translate");
+				else if (texModInfo.type == TexMod.TMOD_STRETCH)
+					sb.AppendLine("\t\t\tscaleVar $scale");
+			}
+			sb.AppendLine("\t\t\tinitialValue 0");
 			sb.AppendLine("\t\t\tresultVar $basetexturetransform");
 			sb.AppendLine("\t\t}");
-			sb.AppendLine("\t}");
 		}
 
 		private static void AppendProxyVars(StringBuilder sb, ShaderStage texModStage)
@@ -302,12 +310,10 @@ namespace BSPConvert.Lib
 					sb.AppendLine("\t$angle 0.0");
 					sb.AppendLine("\t$center \"[0.5 0.5]\"");
 				}
-
 				else if (texModInfo.type == TexMod.TMOD_SCROLL)
 					sb.AppendLine("\t$translate \"[0.0 0.0]\"");
-
 				else if (texModInfo.type == TexMod.TMOD_STRETCH)
-					sb.AppendLine("\t$scale 0");
+					sb.AppendLine("\t$scale 1");
 
 				if (texModInfo.wave.func == GenFunc.GF_SQUARE)
 				{
