@@ -5,21 +5,21 @@ namespace BSPConvert.Lib.Source
 {
 	public class SoundConverter
 	{
-		private string pk3SoundDir;
+		private string pk3Dir;
 		private BSP bsp;
 		private string outputDir;
 		private Entities sourceEntities;
 
 		public SoundConverter(string pk3Dir, BSP bsp, Entities sourceEntities)
 		{
-			pk3SoundDir = Path.Combine(pk3Dir, "sound");
+			this.pk3Dir = pk3Dir;
 			this.bsp = bsp;
 			this.sourceEntities = sourceEntities;
 		}
 
 		public SoundConverter(string pk3Dir, string outputDir, Entities sourceEntities)
 		{
-			pk3SoundDir = Path.Combine(pk3Dir, "sound");
+			this.pk3Dir = pk3Dir;
 			this.outputDir = outputDir;
 			this.sourceEntities = sourceEntities;
 		}
@@ -33,7 +33,9 @@ namespace BSPConvert.Lib.Source
 			foreach (var sound in customSounds)
 				MoveToPk3SoundDir(sound);
 
-			var soundFiles = Directory.GetFiles(pk3SoundDir, "*.wav", SearchOption.AllDirectories);
+			var soundFiles = Directory.GetFiles(pk3Dir, "*.wav", SearchOption.AllDirectories);
+			FixSoundPaths(soundFiles);
+
 			if (bsp != null)
 				EmbedFiles(soundFiles);
 			else
@@ -50,6 +52,9 @@ namespace BSPConvert.Lib.Source
 					case "trigger_jumppad":
 						soundHashSet.Add(entity["launchsound"].Replace('/', Path.DirectorySeparatorChar));
 						break;
+					case "ambient_generic":
+						soundHashSet.Add(entity["message"].Replace('/', Path.DirectorySeparatorChar));
+						break;
 				}
 			}
 
@@ -60,11 +65,31 @@ namespace BSPConvert.Lib.Source
 		{
 			var q3ContentDir = ContentManager.GetQ3ContentDir();
 			var launchSoundPath = Path.Combine(q3ContentDir, "sound", sound);
+			if (!File.Exists(launchSoundPath))
+				return;
 			
-			var newPath = Path.Combine(pk3SoundDir, sound);
+			var newPath = Path.Combine(pk3Dir, "sound", sound);
 			Directory.CreateDirectory(Path.GetDirectoryName(newPath));
 
 			File.Copy(launchSoundPath, newPath, true);
+		}
+
+		// Move sound files that are not in the "sound" folder (music, custom sounds)
+		private void FixSoundPaths(string[] soundFiles)
+		{
+			for (var i = 0; i < soundFiles.Length; i++)
+			{
+				var file = soundFiles[i];
+				var relativePath = file.Replace(pk3Dir + Path.DirectorySeparatorChar, "");
+				if (!relativePath.StartsWith("sound" + Path.DirectorySeparatorChar)) // Sound file is not in "sound" folder
+				{
+					var newPath = Path.Combine(pk3Dir, "sound", relativePath);
+					Directory.CreateDirectory(Path.GetDirectoryName(newPath));
+
+					File.Move(file, newPath, true);
+					soundFiles[i] = newPath;
+				}
+			}
 		}
 
 		private void EmbedFiles(string[] soundFiles)
@@ -72,7 +97,7 @@ namespace BSPConvert.Lib.Source
 			var archive = bsp.PakFile.GetZipArchive();
 			foreach (var file in soundFiles)
 			{
-				var newPath = file.Replace(pk3SoundDir, "sound");
+				var newPath = file.Replace(pk3Dir + Path.DirectorySeparatorChar, "");
 				archive.AddEntry(newPath, new FileInfo(file));
 			}
 
@@ -83,8 +108,7 @@ namespace BSPConvert.Lib.Source
 		{
 			foreach (var file in soundFiles)
 			{
-				var outputSoundDir = Path.Combine(outputDir, "sound");
-				var newPath = file.Replace(pk3SoundDir, outputSoundDir);
+				var newPath = file.Replace(pk3Dir, outputDir);
 				FileUtil.MoveFile(file, newPath);
 			}
 		}
