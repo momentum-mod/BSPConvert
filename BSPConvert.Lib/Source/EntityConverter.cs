@@ -612,8 +612,19 @@ namespace BSPConvert.Lib
 
 		private void ConvertTargetSpeaker(Entity targetSpeaker)
 		{
+			var noise = targetSpeaker["noise"];
+			if (noise.StartsWith("sound/"))
+			{
+				var removeString = "sound/";
+				var index = noise.IndexOf(removeString);
+				var trimmedString = (index < 0)
+					? noise
+					: noise.Remove(index, removeString.Length);
+				noise = trimmedString;
+			}
+
 			targetSpeaker.ClassName = "ambient_generic";
-			targetSpeaker["message"] = targetSpeaker["noise"];
+			targetSpeaker["message"] = noise;
 			targetSpeaker["health"] = "10"; // Volume
 			targetSpeaker["radius"] = "1250";
 			targetSpeaker["pitch"] = "100";
