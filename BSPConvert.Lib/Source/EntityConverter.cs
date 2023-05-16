@@ -628,12 +628,8 @@ namespace BSPConvert.Lib
 		{
 			if (!noise.StartsWith(removeStr))
 				return noise;
-
-			var index = noise.IndexOf(removeStr);
-			if (index < 0)
-				return noise;
-				
-			return noise.Remove(index, removeStr.Length);
+			
+			return noise.Remove(0, removeStr.Length);
 		}
 
 		private void SetAmbientGenericFlags(Entity targetSpeaker)
