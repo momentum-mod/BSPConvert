@@ -613,15 +613,7 @@ namespace BSPConvert.Lib
 		private void ConvertTargetSpeaker(Entity targetSpeaker)
 		{
 			var noise = targetSpeaker["noise"];
-			if (noise.StartsWith("sound/"))
-			{
-				var removeString = "sound/";
-				var index = noise.IndexOf(removeString);
-				var trimmedString = (index < 0)
-					? noise
-					: noise.Remove(index, removeString.Length);
-				noise = trimmedString;
-			}
+			noise = RemoveFirstOccurrence(noise, "sound/");
 
 			targetSpeaker.ClassName = "ambient_generic";
 			targetSpeaker["message"] = noise;
@@ -630,6 +622,18 @@ namespace BSPConvert.Lib
 			targetSpeaker["pitch"] = "100";
 
 			SetAmbientGenericFlags(targetSpeaker);
+		}
+
+		private string RemoveFirstOccurrence(string noise, string removeStr)
+		{
+			if (!noise.StartsWith(removeStr))
+				return noise;
+
+			var index = noise.IndexOf(removeStr);
+			if (index < 0)
+				return noise;
+				
+			return noise.Remove(index, removeStr.Length);
 		}
 
 		private void SetAmbientGenericFlags(Entity targetSpeaker)
