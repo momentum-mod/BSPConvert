@@ -403,11 +403,14 @@ namespace BSPConvert.Lib
 				Debug.WriteLine("Warning: missing tcMod turb in shader: " + shaderFile);
 				return texModInfo;
 			}
+			
 			float.TryParse(tcMod[2], out texModInfo.wave.base_);
 			float.TryParse(tcMod[3], out texModInfo.wave.amplitude);
 			float.TryParse(tcMod[4], out texModInfo.wave.phase);
 			float.TryParse(tcMod[5], out texModInfo.wave.frequency);
+			
 			texModInfo.type = TexMod.TMOD_TURBULENT;
+			
 			return texModInfo;
 		}
 
@@ -419,9 +422,12 @@ namespace BSPConvert.Lib
 				Debug.WriteLine("Warning: missing scale parms in shader: " + shaderFile);
 				return texModInfo;
 			}
+			
 			float.TryParse(tcMod[2], out texModInfo.scale[0]);
 			float.TryParse(tcMod[3], out texModInfo.scale[1]);
+			
 			texModInfo.type = TexMod.TMOD_SCALE;
+			
 			return texModInfo;
 		}
 
@@ -433,9 +439,12 @@ namespace BSPConvert.Lib
 				Debug.WriteLine("Warning: missing scale scroll parms in shader: " + shaderFile);
 				return texModInfo;
 			}
+			
 			float.TryParse(tcMod[2], out texModInfo.scroll[0]);
 			float.TryParse(tcMod[3], out texModInfo.scroll[1]);
+			
 			texModInfo.type = TexMod.TMOD_SCROLL;
+			
 			return texModInfo;
 		}
 
@@ -447,12 +456,15 @@ namespace BSPConvert.Lib
 				Debug.WriteLine("Warning: missing stretch parms in shader: " + shaderFile);
 				return texModInfo;
 			}
+			
 			texModInfo.wave.func = NameToGenFunc(tcMod[2]);
 			float.TryParse(tcMod[3], out texModInfo.wave.base_);
 			float.TryParse(tcMod[4], out texModInfo.wave.amplitude);
 			float.TryParse(tcMod[5], out texModInfo.wave.phase);
 			float.TryParse(tcMod[6], out texModInfo.wave.frequency);
+			
 			texModInfo.type = TexMod.TMOD_STRETCH;
+			
 			return texModInfo;
 		}
 
@@ -464,13 +476,16 @@ namespace BSPConvert.Lib
 				Debug.WriteLine("Warning: missing transform parms in shader: " + shaderFile);
 				return texModInfo;
 			}
+			
 			float.TryParse(tcMod[2], out texModInfo.matrix[0][0]);
 			float.TryParse(tcMod[3], out texModInfo.matrix[0][1]);
 			float.TryParse(tcMod[4], out texModInfo.matrix[1][0]);
 			float.TryParse(tcMod[5], out texModInfo.matrix[1][1]);
 			float.TryParse(tcMod[6], out texModInfo.translate[0]);
 			float.TryParse(tcMod[7], out texModInfo.translate[1]);
+			
 			texModInfo.type = TexMod.TMOD_TRANSFORM;
+			
 			return texModInfo;
 		}
 
@@ -482,15 +497,20 @@ namespace BSPConvert.Lib
 				Debug.WriteLine("Warning: missing scale parms in shader: " + shaderFile);
 				return texModInfo;
 			}
+			
 			texModInfo.rotateSpeed = float.Parse(tcMod[2]);
+			
 			texModInfo.type = TexMod.TMOD_ROTATE;
+			
 			return texModInfo;
 		}
 
 		private TexModInfo ParseTCModInfoTranslate(string[] tcMod)
 		{
 			var texModInfo = new TexModInfo();
+			
 			texModInfo.type = TexMod.TMOD_ENTITY_TRANSLATE;
+			
 			return texModInfo;
 		}
 
