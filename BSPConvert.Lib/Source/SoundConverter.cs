@@ -94,14 +94,16 @@ namespace BSPConvert.Lib.Source
 
 		private void EmbedFiles(string[] soundFiles)
 		{
-			var archive = bsp.PakFile.GetZipArchive();
-			foreach (var file in soundFiles)
+			using (var archive = bsp.PakFile.GetZipArchive())
 			{
-				var newPath = file.Replace(pk3Dir + Path.DirectorySeparatorChar, "");
-				archive.AddEntry(newPath, new FileInfo(file));
-			}
+				foreach (var file in soundFiles)
+				{
+					var newPath = file.Replace(pk3Dir + Path.DirectorySeparatorChar, "");
+					archive.AddEntry(newPath, new FileInfo(file));
+				}
 
-			bsp.PakFile.SetZipArchive(archive, true);
+				bsp.PakFile.SetZipArchive(archive, true);
+			}
 		}
 
 		private void MoveFilesToOutputDir(string[] soundFiles)
