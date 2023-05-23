@@ -783,7 +783,7 @@ namespace BSPConvert.Lib
 				SetLumpVersionNumber(Face.GetIndexForLump(sourceBsp.MapType), 1);
 
 			// Map needs at least one surface edge to load
-			CreateDefaultSurfaceEdge();
+			//CreateEdge(default, default, 0);
 
 			for (var faceIndex = 0; faceIndex < quakeBsp.Faces.Count; faceIndex++)
 			{
@@ -817,15 +817,6 @@ namespace BSPConvert.Lib
 			sourceBsp.GameLump.Add(GameLumpType.pmti, lumpInfo);
 		}
 
-		private void CreateDefaultSurfaceEdge()
-		{
-			var data = new byte[Edge.GetStructLength(sourceBsp.MapType)];
-			var edge = new Edge(data, sourceBsp.Edges);
-			sourceBsp.Edges.Add(edge);
-			sourceBsp.FaceEdges.Add(0);
-			sourceBsp.Vertices.Add(default);
-		}
-
 		private void ConvertPolygon(int faceIndex)
 		{
 			var qFace = quakeBsp.Faces[faceIndex];
@@ -837,11 +828,9 @@ namespace BSPConvert.Lib
 			sFace.DisplacementIndex = -1;
 
 			// Surface edges
-			//(var surfEdgeIndex, var numEdges) = CreateSurfaceEdges(faceIndex);
-			//sFace.FirstEdgeIndexIndex = surfEdgeIndex;
-			//sFace.NumEdgeIndices = numEdges;
-			sFace.FirstEdgeIndexIndex = 0;
-			sFace.NumEdgeIndices = 0;
+			(var surfEdgeIndex, var numEdges) = CreateSurfaceEdges(faceIndex);
+			sFace.FirstEdgeIndexIndex = surfEdgeIndex;
+			sFace.NumEdgeIndices = numEdges;
 
 			// Primitives
 			sFace.FirstPrimitive = CreatePrimitive(qFace.Vertices.ToArray(), qFace.Indices.ToArray());
