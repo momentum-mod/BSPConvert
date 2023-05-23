@@ -103,6 +103,12 @@ namespace BSPConvert.Lib
 
 		public void Convert()
 		{
+			if (!File.Exists(options.inputFile))
+			{
+				logger.Log("Error: Input BSP file does not exist");
+				return;
+			}
+
 			CheckQ3Content();
 			
 			contentManager = new ContentManager(options.inputFile);
