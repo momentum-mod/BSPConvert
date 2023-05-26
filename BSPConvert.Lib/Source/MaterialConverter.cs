@@ -255,23 +255,22 @@ namespace BSPConvert.Lib
 			if (flags.HasFlag(ShaderStageFlags.GLS_SRCBLEND_ONE | ShaderStageFlags.GLS_DSTBLEND_ONE))
 				sb.AppendLine("\t$additive 1");
 
-			var texModStage = stages.FirstOrDefault(x => x.bundles[0].texMods.Any(y => y.type == TexMod.TMOD_SCROLL || y.type == TexMod.TMOD_ROTATE || y.type == TexMod.TMOD_STRETCH));
-			if (texModStage != null)
-				ConvertTCMods(sb, texModStage);
+			if (textureStage != null && textureStage.bundles[0].texMods.Any(y => y.type == TexMod.TMOD_SCROLL || y.type == TexMod.TMOD_ROTATE || y.type == TexMod.TMOD_STRETCH))
+				ConvertTexMods(sb, textureStage);
 		}
 
-		private void ConvertTCMods(StringBuilder sb, ShaderStage texModStage)
+		private void ConvertTexMods(StringBuilder sb, ShaderStage texModStage)
 		{
 			AppendProxyVars(sb, texModStage);
 
 			foreach (var texModInfo in texModStage.bundles[0].texMods)
 			{
 				if (texModInfo.type == TexMod.TMOD_ROTATE)
-					ConvertTCModRotate(sb, texModInfo);
+					ConvertTexModRotate(sb, texModInfo);
 				else if (texModInfo.type == TexMod.TMOD_SCROLL)
-					ConvertTCModScroll(sb, texModInfo);
+					ConvertTexModScroll(sb, texModInfo);
 				else if (texModInfo.type == TexMod.TMOD_STRETCH)
-					ConvertTCModStretch(sb, texModInfo);
+					ConvertTexModStretch(sb, texModInfo);
 
 				if (texModInfo.type == TexMod.TMOD_ROTATE || texModInfo.type == TexMod.TMOD_SCROLL || texModInfo.type == TexMod.TMOD_STRETCH)
 					AppendTextureTransform(sb, texModStage);
@@ -296,6 +295,7 @@ namespace BSPConvert.Lib
 				else if (texModInfo.type == TexMod.TMOD_STRETCH)
 					sb.AppendLine("\t\t\tscaleVar $scale");
 			}
+			
 			sb.AppendLine("\t\t\tinitialValue 0");
 			sb.AppendLine("\t\t\tresultVar $basetexturetransform");
 			sb.AppendLine("\t\t}");
@@ -322,12 +322,13 @@ namespace BSPConvert.Lib
 					sb.AppendLine($"\t$mid {(texModInfo.wave.amplitude + texModInfo.wave.base_) / 2}");
 				}
 			}
+			
 			sb.AppendLine("\tProxies");
 			sb.AppendLine("\t{");
 		}
 
-		//TODO: Convert other waveforms
-		private static void ConvertTCModStretch(StringBuilder sb, TexModInfo texModInfo)
+		// TODO: Convert other waveforms
+		private static void ConvertTexModStretch(StringBuilder sb, TexModInfo texModInfo)
 		{
 			switch (texModInfo.wave.func)
 			{
@@ -376,7 +377,7 @@ namespace BSPConvert.Lib
 			sb.AppendLine("\t\t}");
 		}
 
-		private static void ConvertTCModScroll(StringBuilder sb, TexModInfo texModInfo)
+		private static void ConvertTexModScroll(StringBuilder sb, TexModInfo texModInfo)
 		{
 			sb.AppendLine("\t\tLinearRamp");
 			sb.AppendLine("\t\t{");
@@ -393,7 +394,7 @@ namespace BSPConvert.Lib
 			sb.AppendLine("\t\t}");
 		}
 
-		private static void ConvertTCModRotate(StringBuilder sb, TexModInfo texModInfo)
+		private static void ConvertTexModRotate(StringBuilder sb, TexModInfo texModInfo)
 		{
 			sb.AppendLine("\t\tLinearRamp");
 			sb.AppendLine("\t\t{");
