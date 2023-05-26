@@ -244,15 +244,20 @@ namespace BSPConvert.Lib
 				sb.AppendLine("\t$nocull 1");
 
 			var flags = (textureStage?.flags ?? 0) | (envMapStage?.flags ?? 0);
+			var alphaEnabled = false;
 			if (flags.HasFlag(ShaderStageFlags.GLS_ATEST_GE_80))
 			{
 				sb.AppendLine("\t$alphatest 1");
 				sb.AppendLine("\t$alphatestreference 0.5");
+				alphaEnabled = true;
 			}
 			else if (shader.contents.HasFlag(Q3ContentsFlags.CONTENTS_TRANSLUCENT))
+			{
 				sb.AppendLine("\t$translucent 1");
+				alphaEnabled = true;
+			}
 
-			if (flags.HasFlag(ShaderStageFlags.GLS_SRCBLEND_ONE | ShaderStageFlags.GLS_DSTBLEND_ONE))
+			if (flags.HasFlag(ShaderStageFlags.GLS_SRCBLEND_ONE | ShaderStageFlags.GLS_DSTBLEND_ONE) && alphaEnabled)
 				sb.AppendLine("\t$additive 1");
 
 			if (textureStage != null && textureStage.bundles[0].texMods.Any(y => y.type == TexMod.TMOD_SCROLL || y.type == TexMod.TMOD_ROTATE || y.type == TexMod.TMOD_STRETCH))
