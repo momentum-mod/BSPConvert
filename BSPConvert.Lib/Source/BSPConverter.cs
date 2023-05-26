@@ -670,6 +670,15 @@ namespace BSPConvert.Lib
 			node.Child1Index = -leafIndex - 1;
 			node.Child2Index = -leafIndex - 1;
 
+			// Note: This fixes translucent brush entities not rendering
+			var leaf = sourceBsp.Leaves[leafIndex];
+			if (leaf.NumMarkFaceIndices > 0)
+			{
+				// For some reason the faces are in reverse order
+				node.FirstFaceIndex = (int)sourceBsp.LeafFaces[leaf.FirstMarkFaceIndex] - (leaf.NumMarkFaceIndices - 1);
+				node.NumFaceIndices = leaf.NumMarkFaceIndices;
+			}
+
 			sourceBsp.Nodes.Add(node);
 
 			nodeIndex = sourceBsp.Nodes.Count - 1;
