@@ -138,6 +138,9 @@ namespace BSPConvert.Lib
 					case "func_button":
 						ConvertFuncButton(entity);
 						break;
+					case "func_rotating":
+						ConvertFuncRotating(entity);
+						break;
 					// Ignore these entities since they have no use in Source engine
 					case "target_speaker": // converting this entity without a trigger input currently does nothing, convert during trigger_multiple conversion instead for now
 					case "target_startTimer":
@@ -183,6 +186,14 @@ namespace BSPConvert.Lib
 			}
 
 			return targets;
+		}
+
+		private void ConvertFuncRotating(Entity funcRotating)
+		{
+			if (!float.TryParse(funcRotating["speed"], out var speed))
+				speed = 100;
+			funcRotating["spawnflags"] = "1";
+			funcRotating["maxspeed"] = speed.ToString();
 		}
 
 		private void ConvertFuncDoor(Entity entity)
