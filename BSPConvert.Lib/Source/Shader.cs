@@ -41,6 +41,36 @@ namespace BSPConvert.Lib
 		GLS_DEFAULT =							GLS_DEPTHMASK_TRUE
 	}
 
+	public enum AlphaGen
+	{
+		AGEN_IDENTITY,
+		AGEN_SKIP,
+		AGEN_ENTITY,
+		AGEN_ONE_MINUS_ENTITY,
+		AGEN_VERTEX,
+		AGEN_ONE_MINUS_VERTEX,
+		AGEN_LIGHTING_SPECULAR,
+		AGEN_WAVEFORM,
+		AGEN_PORTAL,
+		AGEN_CONST
+	}
+
+	public enum ColorGen
+	{
+		CGEN_BAD,
+		CGEN_IDENTITY_LIGHTING, // tr.identityLight
+		CGEN_IDENTITY,          // always (1,1,1,1)
+		CGEN_ENTITY,            // grabbed from entity's modulate field
+		CGEN_ONE_MINUS_ENTITY,  // grabbed from 1 - entity.modulate
+		CGEN_EXACT_VERTEX,      // tess.vertexColors
+		CGEN_VERTEX,            // tess.vertexColors * tr.identityLight
+		CGEN_ONE_MINUS_VERTEX,
+		CGEN_WAVEFORM,          // programmatically generated
+		CGEN_LIGHTING_DIFFUSE,
+		CGEN_FOG,               // standard fog
+		CGEN_CONST              // fixed color
+	}
+
 	public enum TexCoordGen
 	{
 		TCGEN_BAD,
@@ -115,6 +145,12 @@ namespace BSPConvert.Lib
 
 		public TextureBundle[] bundles = new TextureBundle[NUM_TEXTURE_BUNDLES]; // Path to image file
 		public ShaderStageFlags flags;
+
+		public WaveForm rgbWave;
+		public ColorGen rgbGen;
+
+		public WaveForm alphaWave;
+		public AlphaGen alphaGen;
 
 		public ShaderStage()
 		{

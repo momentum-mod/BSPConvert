@@ -145,8 +145,10 @@ namespace BSPConvert.Lib
 						stage.flags |= ParseBlendFunc(split);
 						break;
 					case "rgbgen":
+						stage.rgbGen = ParseRGBGen(split);
 						break;
 					case "alphagen":
+						stage.alphaGen = ParseAlphaGen(split);
 						break;
 					case "texgen":
 					case "tcgen":
@@ -347,6 +349,74 @@ namespace BSPConvert.Lib
 					Debug.WriteLine($"Warning: Unknown blend mode: {dest}");
 					return ShaderStageFlags.GLS_DSTBLEND_ONE;
 			}
+		}
+
+		private ColorGen ParseRGBGen(string[] split)
+		{
+			switch (split[1].ToLower())
+			{
+				case "wave":
+					// TODO: Parse wave form
+					return ColorGen.CGEN_WAVEFORM;
+				case "const":
+					// TODO: Parse constant color
+					return ColorGen.CGEN_CONST;
+				case "identity":
+					return ColorGen.CGEN_IDENTITY;
+				case "identitylighting":
+					return ColorGen.CGEN_IDENTITY_LIGHTING;
+				case "entity":
+					return ColorGen.CGEN_ENTITY;
+				case "oneminusentity":
+					return ColorGen.CGEN_ONE_MINUS_ENTITY;
+				case "vertex":
+					// TODO: Set alphagen
+					return ColorGen.CGEN_VERTEX;
+				case "exactvertex":
+					return ColorGen.CGEN_EXACT_VERTEX;
+				case "lightingdiffuse":
+					return ColorGen.CGEN_LIGHTING_DIFFUSE;
+				case "oneminusvertex":
+					return ColorGen.CGEN_ONE_MINUS_VERTEX;
+				default:
+					Debug.WriteLine("Warning: Unknown rgbGen param in shader: " + shaderFile);
+					break;
+			}
+
+			return ColorGen.CGEN_BAD;
+		}
+
+		private AlphaGen ParseAlphaGen(string[] split)
+		{
+			switch (split[1].ToLower())
+			{
+				case "wave":
+					// TODO: Parse wave form
+					return AlphaGen.AGEN_WAVEFORM;
+				case "const":
+					// TODO: Parse constant color
+					return AlphaGen.AGEN_CONST;
+				case "identity":
+					return AlphaGen.AGEN_IDENTITY;
+				case "entity":
+					return AlphaGen.AGEN_ENTITY;
+				case "oneminusentity":
+					return AlphaGen.AGEN_ONE_MINUS_ENTITY;
+				case "vertex":
+					return AlphaGen.AGEN_VERTEX;
+				case "lightingspecular":
+					return AlphaGen.AGEN_LIGHTING_SPECULAR;
+				case "oneminusvertex":
+					return AlphaGen.AGEN_ONE_MINUS_VERTEX;
+				case "portal":
+					// TODO: Parse portal
+					return AlphaGen.AGEN_PORTAL;
+				default:
+					Debug.WriteLine("Warning: Unknown alphaGen param in shader: " + shaderFile);
+					break;
+			}
+
+			return AlphaGen.AGEN_IDENTITY;
 		}
 
 		private TexCoordGen ParseTCGen(string tcGen)
