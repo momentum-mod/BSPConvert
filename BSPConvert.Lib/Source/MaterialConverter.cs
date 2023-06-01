@@ -234,6 +234,9 @@ namespace BSPConvert.Lib
 			{
 				var texture = Path.ChangeExtension(textureStage.bundles[0].images[0], null);
 				sb.AppendLine($"\t$basetexture \"{texture}\"");
+
+				if (textureStage.alphaGen.HasFlag(AlphaGen.AGEN_CONST))
+					sb.AppendLine("\t$alpha 0.25"); // TODO: Convert actual alpha value from AGEN_CONST
 			}
 
 			var envMapStage = stages.FirstOrDefault(x => x.bundles[0].tcGen == TexCoordGen.TCGEN_ENVIRONMENT_MAPPED);
@@ -249,12 +252,12 @@ namespace BSPConvert.Lib
 				sb.AppendLine("\t$alphatest 1");
 				sb.AppendLine("\t$alphatestreference 0.5");
 			}
-			else if (shader.contents.HasFlag(Q3ContentsFlags.CONTENTS_TRANSLUCENT))
-				sb.AppendLine("\t$translucent 1");
 
-			if (flags.HasFlag(ShaderStageFlags.GLS_SRCBLEND_ONE | ShaderStageFlags.GLS_DSTBLEND_ONE) &&
-				(textureStage?.rgbGen != ColorGen.CGEN_IDENTITY || flags.HasFlag(ShaderStageFlags.GLS_SRCBLEND_DST_COLOR)))
+			if (shader.stages[0].flags.HasFlag(ShaderStageFlags.GLS_SRCBLEND_ONE | ShaderStageFlags.GLS_DSTBLEND_ONE)) // blendFunc add
 				sb.AppendLine("\t$additive 1");
+
+			if (shader.stages[0].flags.HasFlag(ShaderStageFlags.GLS_SRCBLEND_SRC_ALPHA | ShaderStageFlags.GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA)) // blendFunc blend
+				sb.AppendLine("\t$translucent 1");
 
 			if (textureStage != null && textureStage.bundles[0].texMods.Any(y => y.type == TexMod.TMOD_SCROLL || y.type == TexMod.TMOD_ROTATE || y.type == TexMod.TMOD_STRETCH))
 				ConvertTexMods(sb, textureStage);
