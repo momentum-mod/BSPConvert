@@ -256,7 +256,8 @@ namespace BSPConvert.Lib
 				(textureStage?.rgbGen != ColorGen.CGEN_IDENTITY || flags.HasFlag(ShaderStageFlags.GLS_SRCBLEND_DST_COLOR)))
 				sb.AppendLine("\t$additive 1");
 
-			if (textureStage != null && textureStage.bundles[0].texMods.Any(y => y.type == TexMod.TMOD_SCROLL || y.type == TexMod.TMOD_ROTATE || y.type == TexMod.TMOD_STRETCH))
+			if (textureStage != null && textureStage.bundles[0].texMods.Any(y => y.type == TexMod.TMOD_SCROLL || y.type == TexMod.TMOD_ROTATE ||
+				y.type == TexMod.TMOD_STRETCH || y.type == TexMod.TMOD_SCALE))
 				ConvertTexMods(sb, textureStage);
 		}
 
@@ -273,7 +274,8 @@ namespace BSPConvert.Lib
 				else if (texModInfo.type == TexMod.TMOD_STRETCH)
 					ConvertTexModStretch(sb, texModInfo);
 
-				if (texModInfo.type == TexMod.TMOD_ROTATE || texModInfo.type == TexMod.TMOD_SCROLL || texModInfo.type == TexMod.TMOD_STRETCH)
+				if (texModInfo.type == TexMod.TMOD_ROTATE || texModInfo.type == TexMod.TMOD_SCROLL ||
+					texModInfo.type == TexMod.TMOD_STRETCH || texModInfo.type == TexMod.TMOD_SCALE)
 					AppendTextureTransform(sb, texModStage);
 			}
 			sb.AppendLine("\t}");
@@ -293,7 +295,7 @@ namespace BSPConvert.Lib
 				}
 				else if (texModInfo.type == TexMod.TMOD_SCROLL)
 					sb.AppendLine("\t\t\ttranslateVar $translate");
-				else if (texModInfo.type == TexMod.TMOD_STRETCH)
+				else if (texModInfo.type == TexMod.TMOD_STRETCH || texModInfo.type == TexMod.TMOD_SCALE)
 					sb.AppendLine("\t\t\tscaleVar $scale");
 			}
 			
@@ -313,6 +315,8 @@ namespace BSPConvert.Lib
 				}
 				else if (texModInfo.type == TexMod.TMOD_SCROLL)
 					sb.AppendLine("\t$translate \"[0.0 0.0]\"");
+				else if (texModInfo.type == TexMod.TMOD_SCALE)
+					sb.AppendLine($"\t$scale \"[{texModInfo.scale[0]} {texModInfo.scale[1]}]\"");
 				else if (texModInfo.type == TexMod.TMOD_STRETCH)
 					sb.AppendLine("\t$scale 1");
 
@@ -323,7 +327,7 @@ namespace BSPConvert.Lib
 					sb.AppendLine($"\t$mid {(texModInfo.wave.amplitude + texModInfo.wave.base_) / 2}");
 				}
 			}
-			
+
 			sb.AppendLine("\tProxies");
 			sb.AppendLine("\t{");
 		}
