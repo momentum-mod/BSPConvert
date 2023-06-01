@@ -171,14 +171,9 @@ namespace BSPConvert.Lib
 		private string GenerateVMT(Shader shader)
 		{
 			if (shader.surfaceFlags.HasFlag(Q3SurfaceFlags.SURF_NOLIGHTMAP))
-			{
-				if (shader.GetImageStages().Count() <= 1)
-					return GenerateUnlitVMT(shader);
-				else
-					return GenerateUnlitTwoTextureVMT(shader);
-			}
-
-			return GenerateLitVMT(shader);
+				return GenerateUnlitVMT(shader);
+			else
+				return GenerateLitVMT(shader);
 		}
 
 		private void WriteVMT(string texture, string vmt)
@@ -403,54 +398,6 @@ namespace BSPConvert.Lib
 			sb.AppendLine("\t\t\tinitialValue 0.0");
 			sb.AppendLine("\t\t\tresultVar $angle");
 			sb.AppendLine("\t\t}");
-		}
-
-		private string GenerateUnlitTwoTextureVMT(Shader shader)
-		{
-			var sb = new StringBuilder();
-			sb.AppendLine("UnlitTwoTexture");
-			sb.AppendLine("{");
-
-			AppendShaderParametersTwoTexture(shader, sb);
-
-			sb.AppendLine("}");
-
-			return sb.ToString();
-		}
-
-		private void AppendShaderParametersTwoTexture(Shader shader, StringBuilder sb)
-		{
-			var stages = shader.GetImageStages();
-			var textureStages = stages.Where(x => x.bundles[0].tcGen != TexCoordGen.TCGEN_ENVIRONMENT_MAPPED).ToList();
-			if (textureStages.Count > 0)
-			{
-				var texture = Path.ChangeExtension(textureStages[0].bundles[0].images[0], null);
-				sb.AppendLine($"\t$basetexture \"{texture}\"");
-			}
-
-			if (textureStages.Count > 1)
-			{
-				var texture = Path.ChangeExtension(textureStages[1].bundles[0].images[0], null);
-				sb.AppendLine($"\t$texture2 \"{texture}\"");
-			}
-
-			var envMapStage = stages.FirstOrDefault(x => x.bundles[0].tcGen == TexCoordGen.TCGEN_ENVIRONMENT_MAPPED);
-			if (envMapStage != null)
-				sb.AppendLine($"\t$envmap \"engine/defaultcubemap\"");
-
-			if (shader.cullType == CullType.TWO_SIDED)
-				sb.AppendLine("\t$nocull 1");
-
-			if (stages.Any(x => x.flags.HasFlag(ShaderStageFlags.GLS_ATEST_GE_80)))
-			{
-				sb.AppendLine("\t$alphatest 1");
-				sb.AppendLine("\t$alphatestreference 0.5");
-			}
-			else if (shader.contents.HasFlag(Q3ContentsFlags.CONTENTS_TRANSLUCENT))
-				sb.AppendLine("\t$translucent 1");
-
-			if (stages.Any(x => x.flags.HasFlag(ShaderStageFlags.GLS_SRCBLEND_ONE | ShaderStageFlags.GLS_DSTBLEND_ONE)))
-				sb.AppendLine("\t$additive 1");
 		}
 
 		private string GenerateSkyboxVMT(string baseTexture)
