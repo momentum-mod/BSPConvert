@@ -253,11 +253,14 @@ namespace BSPConvert.Lib
 				sb.AppendLine("\t$alphatestreference 0.5");
 			}
 
-			if (shader.stages[0].flags.HasFlag(ShaderStageFlags.GLS_SRCBLEND_ONE | ShaderStageFlags.GLS_DSTBLEND_ONE)) // blendFunc add
-				sb.AppendLine("\t$additive 1");
+			if (shader.stages.Length > 0)
+			{
+				if (shader.stages[0].flags.HasFlag(ShaderStageFlags.GLS_SRCBLEND_ONE | ShaderStageFlags.GLS_DSTBLEND_ONE)) // blendFunc add
+					sb.AppendLine("\t$additive 1");
 
-			if (shader.stages[0].flags.HasFlag(ShaderStageFlags.GLS_SRCBLEND_SRC_ALPHA | ShaderStageFlags.GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA)) // blendFunc blend
-				sb.AppendLine("\t$translucent 1");
+				if (shader.stages[0].flags.HasFlag(ShaderStageFlags.GLS_SRCBLEND_SRC_ALPHA | ShaderStageFlags.GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA)) // blendFunc blend
+					sb.AppendLine("\t$translucent 1");
+			}
 
 			if (textureStage != null && textureStage.bundles[0].texMods.Any(y => y.type == TexMod.TMOD_SCROLL || y.type == TexMod.TMOD_ROTATE || y.type == TexMod.TMOD_STRETCH))
 				ConvertTexMods(sb, textureStage);
