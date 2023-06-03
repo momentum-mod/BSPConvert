@@ -1105,7 +1105,11 @@ namespace BSPConvert.Lib
 		{
 			ammoEnt["resettime"] = GetAmmoRespawnTime(ammoEnt);
 			ammoEnt["ammoname"] = GetMomentumAmmoName(ammoEnt.ClassName);
-			ammoEnt["pickupammo"] = ammoEnt["count"];
+
+			if (!ammoEnt.TryGetValue("count", out var count) || count == "0")
+				count = GetDefaultAmmoCount(ammoEnt.ClassName);
+
+			ammoEnt["pickupammo"] = count;
 			ammoEnt.ClassName = "momentum_pickup_ammo";
 		}
 
