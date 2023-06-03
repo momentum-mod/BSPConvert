@@ -214,37 +214,48 @@ namespace BSPConvert.Lib
 		{
 			SetMoveDir(entity);
 			SetButtonFlags(entity);
+			ConvertButtonTargetsRecursive(entity, entity);
 
 			if (entity["wait"] == "-1") // A value of -1 in quake is instantly reset position, in source it is don't reset position.
 				entity["wait"] = "0.001"; // exactly 0 also behaves as don't reset in source, so the delay is as short as possible without being 0.
+		}
 
+		private void ConvertButtonTargetsRecursive(Entity button, Entity entity)
+		{
 			var targets = GetTargetEntities(entity);
 			foreach (var target in targets)
 			{
 				switch (target.ClassName)
 				{
 					case "func_door":
-						OpenDoorOnPressed(entity, target);
+						OpenDoorOnOutput(button, target, "OnPressed");
 						break;
 					case "target_speed":
-						FireTargetSpeedOnOutput(entity, target, "OnPressed");
+						FireTargetSpeedOnOutput(button, target, "OnPressed");
+						break;
+					case "target_give":
+						FireTargetGiveOnOutput(button, target, "OnPressed");
+						break;
+					case "target_init":
+						FireTargetInitOnOutput(button, target, "OnPressed");
 						break;
 				}
+				ConvertButtonTargetsRecursive(button, target);
 			}
 		}
 
-		private static void OpenDoorOnPressed(Entity button, Entity door)
+		private static void OpenDoorOnOutput(Entity entity, Entity door, string output)
 		{
 			var connection = new Entity.EntityConnection()
 			{
-				name = "OnPressed",
+				name = output,
 				target = door["targetname"],
 				action = "Open",
 				param = null,
 				delay = 0,
 				fireOnce = -1
 			};
-			button.connections.Add(connection);
+			entity.connections.Add(connection);
 		}
 
 		private void FireTargetSpeedOnOutput(Entity entity, Entity targetSpeed, string output)
@@ -452,7 +463,7 @@ namespace BSPConvert.Lib
 						currentCheckpointIndex++;
 						break;
 					case "target_give":
-						ConvertGiveTrigger(trigger, target);
+						FireTargetGiveOnOutput(trigger, target, "OnStartTouch");
 						break;
 					case "target_teleporter":
 						ConvertTeleportTrigger(trigger, target);
@@ -461,7 +472,7 @@ namespace BSPConvert.Lib
 						ConvertKillTrigger(trigger);
 						break;
 					case "target_init":
-						ConvertInitTrigger(trigger, target);
+						FireTargetInitOnOutput(trigger, target, "OnStartTouch");
 						break;
 					case "target_speaker":
 						ConvertTargetSpeakerTrigger(trigger, target);
@@ -477,7 +488,7 @@ namespace BSPConvert.Lib
 						ConvertTargetPushTrigger(trigger, target);
 						break;
 					case "func_door":
-						OpenDoorOnStartTouch(trigger, target);
+						OpenDoorOnOutput(trigger, target, "OnStartTouch");
 						break;
 				}
 				ConvertTriggerTargetsRecursive(trigger, target);
@@ -659,54 +670,40 @@ namespace BSPConvert.Lib
 			targetSpeaker["spawnflags"] = sourceflags.ToString();
 		}
 
-		private void OpenDoorOnStartTouch(Entity trigger, Entity door)
-		{
-			var connection = new Entity.EntityConnection()
-			{
-				name = "OnStartTouch",
-				target = door["targetname"],
-				action = "Open",
-				param = null,
-				delay = 0,
-				fireOnce = -1
-			};
-			trigger.connections.Add(connection);
-		}
-
-		private void ConvertInitTrigger(Entity trigger, Entity targetInit)
+		private void FireTargetInitOnOutput(Entity entity, Entity targetInit, string output)
 		{
 			var spawnflags = (TargetInitFlags)targetInit.Spawnflags;
 			if (!spawnflags.HasFlag(TargetInitFlags.KeepPowerUps))
 			{
-				SetHasteOnStartTouch(trigger, "0");
-				SetQuadOnStartTouch(trigger, "0");
+				SetHasteOnOutput(entity, "0", output);
+				SetQuadOnOutput(entity, "0", output);
 			}
 			if (!spawnflags.HasFlag(TargetInitFlags.KeepWeapons))
 			{
-				RemoveWeaponOnStartTouch(trigger, (int)WeaponSlot.Gauntlet);
-				RemoveWeaponOnStartTouch(trigger, (int)WeaponSlot.GrenadeLauncher);
-				RemoveWeaponOnStartTouch(trigger, (int)WeaponSlot.RocketLauncher);
-				RemoveWeaponOnStartTouch(trigger, (int)WeaponSlot.PlasmaGun);
-				RemoveWeaponOnStartTouch(trigger, (int)WeaponSlot.BFG);
+				RemoveWeaponOnOutput(entity, (int)WeaponSlot.Gauntlet, output);
+				RemoveWeaponOnOutput(entity, (int)WeaponSlot.GrenadeLauncher, output);
+				RemoveWeaponOnOutput(entity, (int)WeaponSlot.RocketLauncher, output);
+				RemoveWeaponOnOutput(entity, (int)WeaponSlot.PlasmaGun, output);
+				RemoveWeaponOnOutput(entity, (int)WeaponSlot.BFG, output);
 			}
 			if (spawnflags.HasFlag(TargetInitFlags.RemoveMachineGun))
 			{
-				RemoveWeaponOnStartTouch(trigger, (int)WeaponSlot.MachineGun);
+				RemoveWeaponOnOutput(entity, (int)WeaponSlot.MachineGun, output);
 			}
 		}
 
-		private static void RemoveWeaponOnStartTouch(Entity trigger, int weaponIndex)
+		private static void RemoveWeaponOnOutput(Entity entity, int weaponIndex, string output)
 		{
 			var connection = new Entity.EntityConnection()
 			{
-				name = "OnStartTouch",
+				name = output,
 				target = "!activator",
 				action = "RemoveDFWeapon",
 				param = weaponIndex.ToString(),
 				delay = 0f,
 				fireOnce = -1
 			};
-			trigger.connections.Add(connection);
+			entity.connections.Add(connection);
 		}
 
 		private void ConvertKillTrigger(Entity trigger)
@@ -727,7 +724,7 @@ namespace BSPConvert.Lib
 		}
 
 		// TODO: Convert target_give for player spawn entities
-		private void ConvertGiveTrigger(Entity trigger, Entity targetGive)
+		private void FireTargetGiveOnOutput(Entity entity, Entity targetGive, string output)
 		{
 			// TODO: Support more entities (health, armor, etc.)
 			var targets = GetTargetEntities(targetGive);
@@ -736,20 +733,20 @@ namespace BSPConvert.Lib
 				switch (target.ClassName)
 				{
 					case "item_haste":
-						GiveHasteOnStartTouch(trigger, target["count"]);
+						GiveHasteOnOutput(entity, target["count"], output);
 						break;
 					case "item_enviro": // TODO: Not supported yet
 						break;
 					case "item_flight": // TODO: Not supported yet
 						break;
 					case "item_quad":
-						GiveQuadOnStartTouch(trigger, target["count"]);
+						GiveQuadOnOutput(entity, target["count"], output);
 						break;
 					default:
 						if (target.ClassName.StartsWith("weapon_"))
-							GiveWeaponOnStartTouch(trigger, target);
+							GiveWeaponOnOutput(entity, target, output);
 						else if (target.ClassName.StartsWith("ammo_"))
-							GiveAmmoOnStartTouch(trigger, target);
+							GiveAmmoOnOutput(entity, target, output);
 						break;
 				}
 
@@ -757,51 +754,51 @@ namespace BSPConvert.Lib
 			}
 		}
 
-		private void GiveHasteOnStartTouch(Entity trigger, string duration)
+		private void GiveHasteOnOutput(Entity entity, string duration, string output)
 		{
 			if (string.IsNullOrEmpty(duration) || duration == "0")
 				duration = "30";
 
-			SetHasteOnStartTouch(trigger, duration);
+			SetHasteOnOutput(entity, duration, output);
 		}
 
-		private void SetHasteOnStartTouch(Entity trigger, string duration)
+		private void SetHasteOnOutput(Entity entity, string duration, string output)
 		{
 			var connection = new Entity.EntityConnection()
 			{
-				name = "OnStartTouch",
+				name = output,
 				target = "!activator",
 				action = "SetHaste",
 				param = duration,
 				delay = 0f,
 				fireOnce = -1
 			};
-			trigger.connections.Add(connection);
+			entity.connections.Add(connection);
 		}
 
-		private void GiveQuadOnStartTouch(Entity trigger, string duration)
+		private void GiveQuadOnOutput(Entity entity, string duration, string output)
 		{
 			if (string.IsNullOrEmpty(duration) || duration == "0")
 				duration = "30";
 
-			SetQuadOnStartTouch(trigger, duration);
+			SetQuadOnOutput(entity, duration, output);
 		}
 
-		private static void SetQuadOnStartTouch(Entity trigger, string duration)
+		private static void SetQuadOnOutput(Entity entity, string duration, string output)
 		{
 			var connection = new Entity.EntityConnection()
 			{
-				name = "OnStartTouch",
+				name = output,
 				target = "!activator",
 				action = "SetDamageBoost",
 				param = duration,
 				delay = 0f,
 				fireOnce = -1
 			};
-			trigger.connections.Add(connection);
+			entity.connections.Add(connection);
 		}
 
-		private void GiveWeaponOnStartTouch(Entity trigger, Entity weaponEnt)
+		private void GiveWeaponOnOutput(Entity entity, Entity weaponEnt, string output)
 		{
 			var weaponIndex = GetWeaponIndex(weaponEnt.ClassName);
 			if (weaponIndex == -1)
@@ -810,19 +807,19 @@ namespace BSPConvert.Lib
 			// TODO: Support weapon count
 			var connection = new Entity.EntityConnection()
 			{
-				name = "OnStartTouch",
+				name = output,
 				target = "!activator",
 				action = "GiveDFWeapon",
 				param = weaponIndex.ToString(),
 				delay = 0.01f, //hack to make sure that the weapon removal applies before weapon give
 				fireOnce = -1
 			};
-			trigger.connections.Add(connection);
+			entity.connections.Add(connection);
 
-			GiveWeaponAmmoOnStartTouch(trigger, weaponEnt);
+			GiveWeaponAmmoOnOutput(entity, weaponEnt, output);
 		}
 
-		private void GiveWeaponAmmoOnStartTouch(Entity trigger, Entity weaponEnt)
+		private void GiveWeaponAmmoOnOutput(Entity entity, Entity weaponEnt, string output)
 		{
 			if (!weaponEnt.TryGetValue("count", out var count) || count == "0") // Every quake weapon has a default ammo count when none is specified
 				count = GetDefaultWeaponAmmoCount(weaponEnt.ClassName);
@@ -836,14 +833,14 @@ namespace BSPConvert.Lib
 
 			var connection = new Entity.EntityConnection()
 			{
-				name = "OnStartTouch",
+				name = output,
 				target = "!activator",
 				action = ammoType,
 				param = count,
 				delay = 0f,
 				fireOnce = -1
 			};
-			trigger.connections.Add(connection);
+			entity.connections.Add(connection);
 		}
 
 		private string GetDefaultWeaponAmmoCount(string weaponName)
@@ -910,7 +907,7 @@ namespace BSPConvert.Lib
 			}
 		}
 
-		private void GiveAmmoOnStartTouch(Entity trigger, Entity ammoEnt)
+		private void GiveAmmoOnOutput(Entity entity, Entity ammoEnt, string output)
 		{
 			if (ammoEnt["notcpm"] == "1") // TODO: Figure out how to handle gamemode specific entities more robustly
 				return;
@@ -927,14 +924,14 @@ namespace BSPConvert.Lib
 
 			var connection = new Entity.EntityConnection()
 			{
-				name = "OnStartTouch",
+				name = output,
 				target = "!activator",
 				action = ammoOutput,
 				param = count,
 				delay = 0.01f, //hack to make giving ammo happen after setting ammo
 				fireOnce = -1
 			};
-			trigger.connections.Add(connection);
+			entity.connections.Add(connection);
 		}
 
 		private string GetDefaultAmmoCount(string ammoName)
