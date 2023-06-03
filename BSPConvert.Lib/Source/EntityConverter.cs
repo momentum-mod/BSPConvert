@@ -746,7 +746,7 @@ namespace BSPConvert.Lib
 						if (target.ClassName.StartsWith("weapon_"))
 							GiveWeaponOnOutput(entity, target, output);
 						else if (target.ClassName.StartsWith("ammo_"))
-							GiveAmmoOnStartTouch(entity, target, output);
+							GiveAmmoOnOutput(entity, target, output);
 						break;
 				}
 
@@ -907,7 +907,7 @@ namespace BSPConvert.Lib
 			}
 		}
 
-		private void GiveAmmoOnStartTouch(Entity trigger, Entity ammoEnt, string output)
+		private void GiveAmmoOnOutput(Entity entity, Entity ammoEnt, string output)
 		{
 			if (ammoEnt["notcpm"] == "1") // TODO: Figure out how to handle gamemode specific entities more robustly
 				return;
@@ -924,14 +924,14 @@ namespace BSPConvert.Lib
 
 			var connection = new Entity.EntityConnection()
 			{
-				name = "OnStartTouch",
+				name = output,
 				target = "!activator",
 				action = ammoOutput,
 				param = count,
 				delay = 0.01f, //hack to make giving ammo happen after setting ammo
 				fireOnce = -1
 			};
-			trigger.connections.Add(connection);
+			entity.connections.Add(connection);
 		}
 
 		private string GetDefaultAmmoCount(string ammoName)
