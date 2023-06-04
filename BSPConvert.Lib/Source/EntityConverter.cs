@@ -239,9 +239,33 @@ namespace BSPConvert.Lib
 					case "target_init":
 						FireTargetInitOnOutput(button, target, "OnPressed");
 						break;
+					case "target_push":
+						FireTargetPushOnOutput(button, target, "OnPressed");
+						break;
 				}
 				ConvertButtonTargetsRecursive(button, target);
 			}
+		}
+
+		private void FireTargetPushOnOutput(Entity button, Entity targetPush, string output)
+		{
+			var targets = GetTargetEntities(targetPush);
+			if (targets.Count > 0)
+			{
+				var target = targets[0];
+				targetPush["angles"] = GetPushDir(targetPush, target);
+			}
+			SetLocalVelocityOnOutput(button, targetPush, output);
+		}
+
+		private string GetPushDir(Entity targetPush, Entity target)
+		{
+			var originDif = target.Origin - targetPush.Origin;
+			var yaw = Math.Atan2(originDif.Y, originDif.X) * (180 / Math.PI);
+			var XY = Math.Sqrt(originDif.X * originDif.X + originDif.Y * originDif.Y);
+			var pitch = Math.Atan2(originDif.Z, XY) * (180 / Math.PI);
+
+			return $"{-pitch} {yaw} 0";
 		}
 
 		private static void OpenDoorOnOutput(Entity entity, Entity door, string output)
@@ -507,21 +531,21 @@ namespace BSPConvert.Lib
 				ConvertTriggerJumppad(trigger, targetPosition.Name);
 			}
 			else
-				SetLocalVelocityTrigger(trigger, targetPush);
+				SetLocalVelocityOnOutput(trigger, targetPush, "OnStartTouch");
 		}
 
-		private static void SetLocalVelocityTrigger(Entity trigger, Entity targetPush)
+		private static void SetLocalVelocityOnOutput(Entity entity, Entity targetPush, string output)
 		{
 			var connection = new Entity.EntityConnection()
 			{
-				name = "OnStartTouch",
+				name = output,
 				target = "player",
 				action = "SetLocalVelocity",
 				param = GetLaunchVector(targetPush),
 				delay = 0,
 				fireOnce = -1
 			};
-			trigger.connections.Add(connection);
+			entity.connections.Add(connection);
 		}
 
 		private Vector3 CalculateTargetOrigin(Entity trigger, Entity targetPush, Entity targetPosition)
