@@ -680,26 +680,26 @@ namespace BSPConvert.Lib
 			}
 			if (!spawnflags.HasFlag(TargetInitFlags.KeepWeapons))
 			{
-				RemoveWeaponOnOutput(entity, (int)WeaponSlot.Gauntlet, output);
-				RemoveWeaponOnOutput(entity, (int)WeaponSlot.GrenadeLauncher, output);
-				RemoveWeaponOnOutput(entity, (int)WeaponSlot.RocketLauncher, output);
-				RemoveWeaponOnOutput(entity, (int)WeaponSlot.PlasmaGun, output);
-				RemoveWeaponOnOutput(entity, (int)WeaponSlot.BFG, output);
+				RemoveWeaponOnOutput(entity, "weapon_knife", output);
+				RemoveWeaponOnOutput(entity, "weapon_momentum_df_grenadelauncher", output);
+				RemoveWeaponOnOutput(entity, "weapon_momentum_df_rocketlauncher", output);
+				RemoveWeaponOnOutput(entity, "weapon_momentum_df_plasmagun", output);
+				RemoveWeaponOnOutput(entity, "weapon_momentum_df_bfg", output);
 			}
 			if (spawnflags.HasFlag(TargetInitFlags.RemoveMachineGun))
 			{
-				RemoveWeaponOnOutput(entity, (int)WeaponSlot.MachineGun, output);
+				RemoveWeaponOnOutput(entity, "weapon_momentum_machinegun", output);
 			}
 		}
 
-		private static void RemoveWeaponOnOutput(Entity entity, int weaponIndex, string output)
+		private static void RemoveWeaponOnOutput(Entity entity, string weaponName, string output)
 		{
 			var connection = new Entity.EntityConnection()
 			{
 				name = output,
 				target = "!activator",
-				action = "RemoveDFWeapon",
-				param = weaponIndex.ToString(),
+				action = "RemoveWeapon",
+				param = weaponName,
 				delay = 0f,
 				fireOnce = -1
 			};
@@ -800,8 +800,8 @@ namespace BSPConvert.Lib
 
 		private void GiveWeaponOnOutput(Entity entity, Entity weaponEnt, string output)
 		{
-			var weaponIndex = GetWeaponIndex(weaponEnt.ClassName);
-			if (weaponIndex == -1)
+			var weaponName = GetMomentumWeaponName(weaponEnt.ClassName);
+			if (string.IsNullOrEmpty(weaponName))
 				return;
 
 			// TODO: Support weapon count
@@ -809,8 +809,8 @@ namespace BSPConvert.Lib
 			{
 				name = output,
 				target = "!activator",
-				action = "GiveDFWeapon",
-				param = weaponIndex.ToString(),
+				action = "GiveWeapon",
+				param = weaponName,
 				delay = 0.01f, //hack to make sure that the weapon removal applies before weapon give
 				fireOnce = -1
 			};
