@@ -55,18 +55,6 @@ namespace BSPConvert.Lib
 			IsNotLooped = 32
 		}
 
-		private enum WeaponSlot
-		{
-			MachineGun = 2,
-			Gauntlet = 3,
-			GrenadeLauncher = 4,
-			RocketLauncher = 5,
-			// LightningGun = 6,
-			// Railgun = 7,
-			PlasmaGun = 8,
-			BFG = 9
-		}
-
 		private Entities q3Entities;
 		private Entities sourceEntities;
 		private Dictionary<string, Shader> shaderDict;
@@ -861,28 +849,6 @@ namespace BSPConvert.Lib
 					return "20";
 				default:
 					return "-1";
-			}
-		}
-
-		private int GetWeaponIndex(string weaponName)
-		{
-			switch (weaponName)
-			{
-				case "weapon_machinegun":
-					return (int)WeaponSlot.MachineGun;
-				case "weapon_gauntlet":
-					return (int)WeaponSlot.Gauntlet;
-				case "weapon_grenadelauncher":
-					return (int)WeaponSlot.GrenadeLauncher;
-				case "weapon_rocketlauncher":
-					return (int)WeaponSlot.RocketLauncher;
-				case "weapon_plasmagun":
-					return (int)WeaponSlot.PlasmaGun;
-				case "weapon_lightning": // TEMP: Lightning gun doesn't exist yet
-				case "weapon_bfg":
-					return (int)WeaponSlot.BFG;
-				default:
-					return -1;
 			}
 		}
 
