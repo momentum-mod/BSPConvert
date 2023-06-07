@@ -55,18 +55,6 @@ namespace BSPConvert.Lib
 			IsNotLooped = 32
 		}
 
-		private enum WeaponSlot
-		{
-			MachineGun = 2,
-			Gauntlet = 3,
-			GrenadeLauncher = 4,
-			RocketLauncher = 5,
-			// LightningGun = 6,
-			// Railgun = 7,
-			PlasmaGun = 8,
-			BFG = 9
-		}
-
 		private Entities q3Entities;
 		private Entities sourceEntities;
 		private Dictionary<string, Shader> shaderDict;
@@ -680,26 +668,26 @@ namespace BSPConvert.Lib
 			}
 			if (!spawnflags.HasFlag(TargetInitFlags.KeepWeapons))
 			{
-				RemoveWeaponOnOutput(entity, (int)WeaponSlot.Gauntlet, output);
-				RemoveWeaponOnOutput(entity, (int)WeaponSlot.GrenadeLauncher, output);
-				RemoveWeaponOnOutput(entity, (int)WeaponSlot.RocketLauncher, output);
-				RemoveWeaponOnOutput(entity, (int)WeaponSlot.PlasmaGun, output);
-				RemoveWeaponOnOutput(entity, (int)WeaponSlot.BFG, output);
+				RemoveWeaponOnOutput(entity, "weapon_knife", output);
+				RemoveWeaponOnOutput(entity, "weapon_momentum_df_grenadelauncher", output);
+				RemoveWeaponOnOutput(entity, "weapon_momentum_df_rocketlauncher", output);
+				RemoveWeaponOnOutput(entity, "weapon_momentum_df_plasmagun", output);
+				RemoveWeaponOnOutput(entity, "weapon_momentum_df_bfg", output);
 			}
 			if (spawnflags.HasFlag(TargetInitFlags.RemoveMachineGun))
 			{
-				RemoveWeaponOnOutput(entity, (int)WeaponSlot.MachineGun, output);
+				RemoveWeaponOnOutput(entity, "weapon_momentum_machinegun", output);
 			}
 		}
 
-		private static void RemoveWeaponOnOutput(Entity entity, int weaponIndex, string output)
+		private static void RemoveWeaponOnOutput(Entity entity, string weaponName, string output)
 		{
 			var connection = new Entity.EntityConnection()
 			{
 				name = output,
 				target = "!activator",
-				action = "RemoveDFWeapon",
-				param = weaponIndex.ToString(),
+				action = "RemoveWeapon",
+				param = weaponName,
 				delay = 0f,
 				fireOnce = -1
 			};
@@ -800,8 +788,8 @@ namespace BSPConvert.Lib
 
 		private void GiveWeaponOnOutput(Entity entity, Entity weaponEnt, string output)
 		{
-			var weaponIndex = GetWeaponIndex(weaponEnt.ClassName);
-			if (weaponIndex == -1)
+			var weaponName = GetMomentumWeaponName(weaponEnt.ClassName);
+			if (string.IsNullOrEmpty(weaponName))
 				return;
 
 			// TODO: Support weapon count
@@ -809,8 +797,8 @@ namespace BSPConvert.Lib
 			{
 				name = output,
 				target = "!activator",
-				action = "GiveDFWeapon",
-				param = weaponIndex.ToString(),
+				action = "GiveWeapon",
+				param = weaponName,
 				delay = 0.01f, //hack to make sure that the weapon removal applies before weapon give
 				fireOnce = -1
 			};
@@ -861,28 +849,6 @@ namespace BSPConvert.Lib
 					return "20";
 				default:
 					return "-1";
-			}
-		}
-
-		private int GetWeaponIndex(string weaponName)
-		{
-			switch (weaponName)
-			{
-				case "weapon_machinegun":
-					return (int)WeaponSlot.MachineGun;
-				case "weapon_gauntlet":
-					return (int)WeaponSlot.Gauntlet;
-				case "weapon_grenadelauncher":
-					return (int)WeaponSlot.GrenadeLauncher;
-				case "weapon_rocketlauncher":
-					return (int)WeaponSlot.RocketLauncher;
-				case "weapon_plasmagun":
-					return (int)WeaponSlot.PlasmaGun;
-				case "weapon_lightning": // TEMP: Lightning gun doesn't exist yet
-				case "weapon_bfg":
-					return (int)WeaponSlot.BFG;
-				default:
-					return -1;
 			}
 		}
 
