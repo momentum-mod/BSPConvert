@@ -224,7 +224,7 @@ namespace BSPConvert.Lib
 		private void AppendShaderParameters(StringBuilder sb, Shader shader)
 		{
 			var stages = shader.GetImageStages();
-			var textureStage = stages.FirstOrDefault(x => x.bundles[0].tcGen != TexCoordGen.TCGEN_ENVIRONMENT_MAPPED);
+			var textureStage = stages.FirstOrDefault(x => x.bundles[0].tcGen != TexCoordGen.TCGEN_ENVIRONMENT_MAPPED && x.bundles[0].tcGen != TexCoordGen.TCGEN_LIGHTMAP);
 			if (textureStage != null)
 			{
 				var texture = Path.ChangeExtension(textureStage.bundles[0].images[0], null);
