@@ -202,37 +202,42 @@ namespace BSPConvert.Lib
 		{
 			SetMoveDir(entity);
 			SetButtonFlags(entity);
-			ConvertButtonTargetsRecursive(entity, entity);
+
+			var delay = 0f;
+			ConvertButtonTargetsRecursive(entity, entity, delay);
 
 			if (entity["wait"] == "-1") // A value of -1 in quake is instantly reset position, in source it is don't reset position.
 				entity["wait"] = "0.001"; // exactly 0 also behaves as don't reset in source, so the delay is as short as possible without being 0.
 		}
 
-		private void ConvertButtonTargetsRecursive(Entity button, Entity entity)
+		private void ConvertButtonTargetsRecursive(Entity button, Entity entity, float delay)
 		{
 			var targets = GetTargetEntities(entity);
 			foreach (var target in targets)
 			{
 				switch (target.ClassName)
 				{
+					case "target_delay":
+						delay += ConvertTargetDelay(target);
+						break;
 					case "func_door":
-						OpenDoorOnOutput(button, target, "OnPressed");
+						OpenDoorOnOutput(button, target, "OnPressed", delay);
 						break;
 					case "target_speed":
-						FireTargetSpeedOnOutput(button, target, "OnPressed");
+						FireTargetSpeedOnOutput(button, target, "OnPressed", delay);
 						break;
 					case "target_give":
-						FireTargetGiveOnOutput(button, target, "OnPressed");
+						FireTargetGiveOnOutput(button, target, "OnPressed", delay);
 						break;
 					case "target_init":
-						FireTargetInitOnOutput(button, target, "OnPressed");
+						FireTargetInitOnOutput(button, target, "OnPressed", delay);
 						break;
 				}
-				ConvertButtonTargetsRecursive(button, target);
+				ConvertButtonTargetsRecursive(button, target, delay);
 			}
 		}
 
-		private static void OpenDoorOnOutput(Entity entity, Entity door, string output)
+		private static void OpenDoorOnOutput(Entity entity, Entity door, string output, float delay)
 		{
 			var connection = new Entity.EntityConnection()
 			{
@@ -240,13 +245,13 @@ namespace BSPConvert.Lib
 				target = door["targetname"],
 				action = "Open",
 				param = null,
-				delay = 0,
+				delay = delay,
 				fireOnce = -1
 			};
 			entity.connections.Add(connection);
 		}
 
-		private void FireTargetSpeedOnOutput(Entity entity, Entity targetSpeed, string output)
+		private void FireTargetSpeedOnOutput(Entity entity, Entity targetSpeed, string output, float delay)
 		{
 			var connection = new Entity.EntityConnection()
 			{
@@ -254,7 +259,7 @@ namespace BSPConvert.Lib
 				target = targetSpeed["targetname"],
 				action = "Fire",
 				param = null,
-				delay = 0,
+				delay = delay,
 				fireOnce = -1
 			};
 			entity.connections.Add(connection);
@@ -431,12 +436,13 @@ namespace BSPConvert.Lib
 
 		private void ConvertTriggerMultiple(Entity trigger)
 		{
-			ConvertTriggerTargetsRecursive(trigger, trigger);
+			var delay = 0f;
+			ConvertTriggerTargetsRecursive(trigger, trigger, delay);
 
 			trigger["spawnflags"] = "1";
 		}
 
-		private void ConvertTriggerTargetsRecursive(Entity trigger, Entity entity)
+		private void ConvertTriggerTargetsRecursive(Entity trigger, Entity entity, float delay)
 		{
 			var targets = GetTargetEntities(entity);
 			foreach (var target in targets)
@@ -450,8 +456,11 @@ namespace BSPConvert.Lib
 						ConvertTimerTrigger(trigger, "trigger_momentum_timer_checkpoint", currentCheckpointIndex);
 						currentCheckpointIndex++;
 						break;
+					case "target_delay":
+						delay += ConvertTargetDelay(target);
+						break;
 					case "target_give":
-						FireTargetGiveOnOutput(trigger, target, "OnStartTouch");
+						FireTargetGiveOnOutput(trigger, target, "OnStartTouch", delay);
 						break;
 					case "target_teleporter":
 						ConvertTeleportTrigger(trigger, target);
@@ -460,30 +469,38 @@ namespace BSPConvert.Lib
 						ConvertKillTrigger(trigger);
 						break;
 					case "target_init":
-						FireTargetInitOnOutput(trigger, target, "OnStartTouch");
+						FireTargetInitOnOutput(trigger, target, "OnStartTouch", delay);
 						break;
 					case "target_speaker":
-						ConvertTargetSpeakerTrigger(trigger, target);
+						ConvertTargetSpeakerTrigger(trigger, target, delay);
 						break;
 					case "target_print":
 					case "target_smallprint":
-						ConvertTargetPrintTrigger(trigger, target);
+						ConvertTargetPrintTrigger(trigger, target, delay);
 						break;
 					case "target_speed":
-						FireTargetSpeedOnOutput(entity, target, "OnStartTouch");
+						FireTargetSpeedOnOutput(trigger, target, "OnStartTouch", delay);
 						break;
 					case "target_push":
-						ConvertTargetPushTrigger(trigger, target);
+						ConvertTargetPushTrigger(trigger, target, delay);
 						break;
 					case "func_door":
-						OpenDoorOnOutput(trigger, target, "OnStartTouch");
+						OpenDoorOnOutput(trigger, target, "OnStartTouch", delay);
 						break;
 				}
-				ConvertTriggerTargetsRecursive(trigger, target);
+				ConvertTriggerTargetsRecursive(trigger, target, delay);
 			}
 		}
 
-		private void ConvertTargetPushTrigger(Entity trigger, Entity targetPush)
+		private float ConvertTargetDelay(Entity targetDelay)
+		{
+			if (!float.TryParse(targetDelay["wait"], out var wait))
+				return 1;
+			else
+				return wait;
+		}
+
+		private void ConvertTargetPushTrigger(Entity trigger, Entity targetPush, float delay)
 		{
 			var targets = GetTargetEntities(targetPush);
 			var targetPosition = targets.FirstOrDefault();
@@ -495,10 +512,10 @@ namespace BSPConvert.Lib
 				ConvertTriggerJumppad(trigger, targetPosition.Name);
 			}
 			else
-				SetLocalVelocityTrigger(trigger, targetPush);
+				SetLocalVelocityTrigger(trigger, targetPush, delay);
 		}
 
-		private static void SetLocalVelocityTrigger(Entity trigger, Entity targetPush)
+		private static void SetLocalVelocityTrigger(Entity trigger, Entity targetPush, float delay)
 		{
 			var connection = new Entity.EntityConnection()
 			{
@@ -506,7 +523,7 @@ namespace BSPConvert.Lib
 				target = "player",
 				action = "SetLocalVelocity",
 				param = GetLaunchVector(targetPush),
-				delay = 0,
+				delay = delay,
 				fireOnce = -1
 			};
 			trigger.connections.Add(connection);
@@ -573,7 +590,7 @@ namespace BSPConvert.Lib
 				targetSpeed["speed"] = "100";
 		}
 
-		private void ConvertTargetPrintTrigger(Entity trigger, Entity targetPrint)
+		private void ConvertTargetPrintTrigger(Entity trigger, Entity targetPrint, float delay)
 		{
 			var connection = new Entity.EntityConnection()
 			{
@@ -581,7 +598,7 @@ namespace BSPConvert.Lib
 				target = targetPrint["targetname"],
 				action = "Display",
 				param = null,
-				delay = 0,
+				delay = delay,
 				fireOnce = -1
 			};
 			trigger.connections.Add(connection);
@@ -604,7 +621,7 @@ namespace BSPConvert.Lib
 			targetPrint["y"] = "0.2";
 		}
 
-		private void ConvertTargetSpeakerTrigger(Entity trigger, Entity targetSpeaker)
+		private void ConvertTargetSpeakerTrigger(Entity trigger, Entity targetSpeaker, float delay)
 		{
 			var connection = new Entity.EntityConnection()
 			{
@@ -612,7 +629,7 @@ namespace BSPConvert.Lib
 				target = targetSpeaker["targetname"],
 				action = "PlaySound",
 				param = null,
-				delay = 0,
+				delay = delay,
 				fireOnce = -1
 			};
 			trigger.connections.Add(connection);
@@ -658,29 +675,29 @@ namespace BSPConvert.Lib
 			targetSpeaker["spawnflags"] = sourceflags.ToString();
 		}
 
-		private void FireTargetInitOnOutput(Entity entity, Entity targetInit, string output)
+		private void FireTargetInitOnOutput(Entity entity, Entity targetInit, string output, float delay)
 		{
 			var spawnflags = (TargetInitFlags)targetInit.Spawnflags;
 			if (!spawnflags.HasFlag(TargetInitFlags.KeepPowerUps))
 			{
-				SetHasteOnOutput(entity, "0", output);
-				SetQuadOnOutput(entity, "0", output);
+				SetHasteOnOutput(entity, "0", output, delay);
+				SetQuadOnOutput(entity, "0", output, delay);
 			}
 			if (!spawnflags.HasFlag(TargetInitFlags.KeepWeapons))
 			{
-				RemoveWeaponOnOutput(entity, "weapon_knife", output);
-				RemoveWeaponOnOutput(entity, "weapon_momentum_df_grenadelauncher", output);
-				RemoveWeaponOnOutput(entity, "weapon_momentum_df_rocketlauncher", output);
-				RemoveWeaponOnOutput(entity, "weapon_momentum_df_plasmagun", output);
-				RemoveWeaponOnOutput(entity, "weapon_momentum_df_bfg", output);
+				RemoveWeaponOnOutput(entity, "weapon_knife", output, delay);
+				RemoveWeaponOnOutput(entity, "weapon_momentum_df_grenadelauncher", output, delay);
+				RemoveWeaponOnOutput(entity, "weapon_momentum_df_rocketlauncher", output, delay);
+				RemoveWeaponOnOutput(entity, "weapon_momentum_df_plasmagun", output, delay);
+				RemoveWeaponOnOutput(entity, "weapon_momentum_df_bfg", output, delay);
 			}
 			if (spawnflags.HasFlag(TargetInitFlags.RemoveMachineGun))
 			{
-				RemoveWeaponOnOutput(entity, "weapon_momentum_machinegun", output);
+				RemoveWeaponOnOutput(entity, "weapon_momentum_machinegun", output, delay);
 			}
 		}
 
-		private static void RemoveWeaponOnOutput(Entity entity, string weaponName, string output)
+		private static void RemoveWeaponOnOutput(Entity entity, string weaponName, string output, float delay)
 		{
 			var connection = new Entity.EntityConnection()
 			{
@@ -688,7 +705,7 @@ namespace BSPConvert.Lib
 				target = "!activator",
 				action = "RemoveWeapon",
 				param = weaponName,
-				delay = 0f,
+				delay = delay,
 				fireOnce = -1
 			};
 			entity.connections.Add(connection);
@@ -712,7 +729,7 @@ namespace BSPConvert.Lib
 		}
 
 		// TODO: Convert target_give for player spawn entities
-		private void FireTargetGiveOnOutput(Entity entity, Entity targetGive, string output)
+		private void FireTargetGiveOnOutput(Entity entity, Entity targetGive, string output, float delay)
 		{
 			// TODO: Support more entities (health, armor, etc.)
 			var targets = GetTargetEntities(targetGive);
@@ -721,20 +738,20 @@ namespace BSPConvert.Lib
 				switch (target.ClassName)
 				{
 					case "item_haste":
-						GiveHasteOnOutput(entity, target["count"], output);
+						GiveHasteOnOutput(entity, target["count"], output, delay);
 						break;
 					case "item_enviro": // TODO: Not supported yet
 						break;
 					case "item_flight": // TODO: Not supported yet
 						break;
 					case "item_quad":
-						GiveQuadOnOutput(entity, target["count"], output);
+						GiveQuadOnOutput(entity, target["count"], output, delay);
 						break;
 					default:
 						if (target.ClassName.StartsWith("weapon_"))
-							GiveWeaponOnOutput(entity, target, output);
+							GiveWeaponOnOutput(entity, target, output, delay);
 						else if (target.ClassName.StartsWith("ammo_"))
-							GiveAmmoOnOutput(entity, target, output);
+							GiveAmmoOnOutput(entity, target, output, delay);
 						break;
 				}
 
@@ -742,15 +759,15 @@ namespace BSPConvert.Lib
 			}
 		}
 
-		private void GiveHasteOnOutput(Entity entity, string duration, string output)
+		private void GiveHasteOnOutput(Entity entity, string duration, string output, float delay)
 		{
 			if (string.IsNullOrEmpty(duration) || duration == "0")
 				duration = "30";
 
-			SetHasteOnOutput(entity, duration, output);
+			SetHasteOnOutput(entity, duration, output, delay);
 		}
 
-		private void SetHasteOnOutput(Entity entity, string duration, string output)
+		private void SetHasteOnOutput(Entity entity, string duration, string output, float delay)
 		{
 			var connection = new Entity.EntityConnection()
 			{
@@ -758,21 +775,21 @@ namespace BSPConvert.Lib
 				target = "!activator",
 				action = "SetHaste",
 				param = duration,
-				delay = 0f,
+				delay = delay + 0.008f, //hack to make giving haste happen after target_init strip
 				fireOnce = -1
 			};
 			entity.connections.Add(connection);
 		}
 
-		private void GiveQuadOnOutput(Entity entity, string duration, string output)
+		private void GiveQuadOnOutput(Entity entity, string duration, string output, float delay)
 		{
 			if (string.IsNullOrEmpty(duration) || duration == "0")
 				duration = "30";
 
-			SetQuadOnOutput(entity, duration, output);
+			SetQuadOnOutput(entity, duration, output, delay);
 		}
 
-		private static void SetQuadOnOutput(Entity entity, string duration, string output)
+		private static void SetQuadOnOutput(Entity entity, string duration, string output, float delay)
 		{
 			var connection = new Entity.EntityConnection()
 			{
@@ -780,13 +797,13 @@ namespace BSPConvert.Lib
 				target = "!activator",
 				action = "SetDamageBoost",
 				param = duration,
-				delay = 0f,
+				delay = delay + 0.008f, //hack to make giving quad happen after target_init strip
 				fireOnce = -1
 			};
 			entity.connections.Add(connection);
 		}
 
-		private void GiveWeaponOnOutput(Entity entity, Entity weaponEnt, string output)
+		private void GiveWeaponOnOutput(Entity entity, Entity weaponEnt, string output, float delay)
 		{
 			var weaponName = GetMomentumWeaponName(weaponEnt.ClassName);
 			if (string.IsNullOrEmpty(weaponName))
@@ -799,15 +816,15 @@ namespace BSPConvert.Lib
 				target = "!activator",
 				action = "GiveWeapon",
 				param = weaponName,
-				delay = 0.01f, //hack to make sure that the weapon removal applies before weapon give
+				delay = delay + 0.008f, //hack to make giving weapon happen after target_init strip
 				fireOnce = -1
 			};
 			entity.connections.Add(connection);
 
-			GiveWeaponAmmoOnOutput(entity, weaponEnt, output);
+			GiveWeaponAmmoOnOutput(entity, weaponEnt, output, delay);
 		}
 
-		private void GiveWeaponAmmoOnOutput(Entity entity, Entity weaponEnt, string output)
+		private void GiveWeaponAmmoOnOutput(Entity entity, Entity weaponEnt, string output, float delay)
 		{
 			if (!weaponEnt.TryGetValue("count", out var count) || count == "0") // Every quake weapon has a default ammo count when none is specified
 				count = GetDefaultWeaponAmmoCount(weaponEnt.ClassName);
@@ -825,7 +842,7 @@ namespace BSPConvert.Lib
 				target = "!activator",
 				action = ammoType,
 				param = count,
-				delay = 0f,
+				delay = delay,
 				fireOnce = -1
 			};
 			entity.connections.Add(connection);
@@ -873,7 +890,7 @@ namespace BSPConvert.Lib
 			}
 		}
 
-		private void GiveAmmoOnOutput(Entity entity, Entity ammoEnt, string output)
+		private void GiveAmmoOnOutput(Entity entity, Entity ammoEnt, string output, float delay)
 		{
 			if (ammoEnt["notcpm"] == "1") // TODO: Figure out how to handle gamemode specific entities more robustly
 				return;
@@ -894,7 +911,7 @@ namespace BSPConvert.Lib
 				target = "!activator",
 				action = ammoOutput,
 				param = count,
-				delay = 0.01f, //hack to make giving ammo happen after setting ammo
+				delay = delay + 0.008f, //hack to make adding ammo happen after setting ammo
 				fireOnce = -1
 			};
 			entity.connections.Add(connection);
