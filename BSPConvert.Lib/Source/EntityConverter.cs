@@ -955,8 +955,12 @@ namespace BSPConvert.Lib
 			var targets = GetTargetEntities(targetTele);
 			if (targets.Any())
 			{
+				var target = targets.First();
 				trigger.ClassName = "trigger_teleport";
-				trigger["target"] = targets.First().Name;
+				trigger["target"] = target.Name;
+
+				if (target.ClassName != "info_teleport_destination")
+					ConvertTeleportDestination(target);
 			}
 
 			if (targetTele["spawnflags"] == "1")
@@ -1154,14 +1158,8 @@ namespace BSPConvert.Lib
 
 		private void SetTeleportOrigin(Entity teleDest)
 		{
-			var offset = 0;
-			if (teleDest.ClassName == "misc_teleporter_dest")
-				offset = 24;
-			else if (teleDest.ClassName == "target_position")
-				offset = 8;
-
 			var origin = teleDest.Origin;
-			origin.Z -= offset;
+			origin.Z -= 23; // Teleport destinations are 23 units too high once converted
 			teleDest.Origin = origin;
 		}
 
