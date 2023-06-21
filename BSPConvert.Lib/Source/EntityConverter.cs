@@ -215,6 +215,9 @@ namespace BSPConvert.Lib
 			var targets = GetTargetEntities(entity);
 			foreach (var target in targets)
 			{
+				if (entity == target)
+					return;
+
 				switch (target.ClassName)
 				{
 					case "target_delay":
@@ -447,6 +450,9 @@ namespace BSPConvert.Lib
 			var targets = GetTargetEntities(entity);
 			foreach (var target in targets)
 			{
+				if (entity == target)
+					return;
+
 				switch (target.ClassName)
 				{
 					case "target_stopTimer":
