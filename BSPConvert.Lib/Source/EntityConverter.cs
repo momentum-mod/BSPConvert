@@ -216,7 +216,7 @@ namespace BSPConvert.Lib
 			foreach (var target in targets)
 			{
 				if (entity == target)
-					return;
+					continue;
 
 				switch (target.ClassName)
 				{
@@ -451,7 +451,7 @@ namespace BSPConvert.Lib
 			foreach (var target in targets)
 			{
 				if (entity == target)
-					return;
+					continue;
 
 				switch (target.ClassName)
 				{

@@ -35,11 +35,11 @@ namespace BSPConvert.Cmd
 
 		static void Main(string[] args)
 		{
-			//args = new string[]
-			//{
-			//	@"c:\users\tyler\documents\tools\source engine\bspconvert\dfwc2017-6.pk3",
-			//	"--output", @"c:\users\tyler\documents\tools\source engine\bspconvert\output",
-			//};
+			args = new string[]
+			{
+				@"D:\Users\Aidan\Source\Repos\BSPConvert\BSPConvert.Cmd\bin\Debug\net7.0\halvotrix-escape.pk3",
+				"--output", @"E:\SteamLibrary\steamapps\common\Momentum Mod Playtest\momentum",
+			};
 
 			var parser = new Parser(with => with.HelpWriter = null);
 			var parserResult = parser.ParseArguments<Options>(args);
