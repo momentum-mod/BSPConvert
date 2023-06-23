@@ -380,15 +380,12 @@ namespace BSPConvert.Lib
 
 		private Entity CreateTargetGiveWeapon(string weaponName, Vector3 origin, string count)
 		{
-			if (string.IsNullOrEmpty(count) || count == "0")
-				count = GetDefaultWeaponAmmoCount(weaponName);
-
 			var weapon = new Entity();
 
 			weapon.ClassName = "momentum_weapon_spawner";
 			weapon.Origin = origin;
 			weapon["weaponname"] = weaponName;
-			weapon["pickupammo"] = count;
+			weapon["pickupammo"] = ConvertWeaponAmmoCount(weaponName, count);
 			weapon["resettime"] = "-1"; // Only use once
 			weapon["rendermode"] = "10";
 
@@ -397,15 +394,12 @@ namespace BSPConvert.Lib
 
 		private Entity CreateTargetGiveAmmo(string ammoName, Vector3 origin, string count)
 		{
-			if (string.IsNullOrEmpty(count) || count == "0")
-				count = GetDefaultAmmoCount(ammoName);
-			
 			var ammo = new Entity();
 
 			ammo.ClassName = "momentum_pickup_ammo";
 			ammo.Origin = origin;
 			ammo["ammoname"] = ammoName;
-			ammo["pickupammo"] = count;
+			ammo["pickupammo"] = ConvertAmmoCount(ammoName, count);
 			ammo["resettime"] = "-1"; // Only use once
 			ammo["rendermode"] = "10";
 
@@ -414,9 +408,6 @@ namespace BSPConvert.Lib
 
 		private Entity CreateTargetGiveItem(string itemName, Vector3 origin, string count)
 		{
-			if (string.IsNullOrEmpty(count) || count == "0")
-				count = GetDefaultPowerupDuration();
-			
 			var item = new Entity();
 
 			item.ClassName = itemName;
@@ -425,9 +416,9 @@ namespace BSPConvert.Lib
 			item["rendermode"] = "10";
 
 			if (itemName == "momentum_powerup_haste")
-				item["hastetime"] = count;
+				item["hastetime"] = ConvertPowerupCount(count);
 			else if (itemName == "momentum_powerup_damage_boost")
-				item["damageboosttime"] = count;
+				item["damageboosttime"] = ConvertPowerupCount(count);
 
 			return item;
 		}
@@ -757,14 +748,14 @@ namespace BSPConvert.Lib
 				switch (target.ClassName)
 				{
 					case "item_haste":
-						GiveHasteOnOutput(entity, target["count"], output, delay);
+						SetHasteOnOutput(entity, ConvertPowerupCount(target["count"]), output, delay);
 						break;
 					case "item_enviro": // TODO: Not supported yet
 						break;
 					case "item_flight": // TODO: Not supported yet
 						break;
 					case "item_quad":
-						GiveQuadOnOutput(entity, target["count"], output, delay);
+						SetQuadOnOutput(entity, ConvertPowerupCount(target["count"]), output, delay);
 						break;
 					default:
 						if (target.ClassName.StartsWith("weapon_"))
@@ -776,14 +767,6 @@ namespace BSPConvert.Lib
 
 				removeEntities.Add(target);
 			}
-		}
-
-		private void GiveHasteOnOutput(Entity entity, string duration, string output, float delay)
-		{
-			if (string.IsNullOrEmpty(duration) || duration == "0")
-				duration = GetDefaultPowerupDuration();
-
-			SetHasteOnOutput(entity, duration, output, delay);
 		}
 
 		private void SetHasteOnOutput(Entity entity, string duration, string output, float delay)
@@ -798,14 +781,6 @@ namespace BSPConvert.Lib
 				fireOnce = -1
 			};
 			entity.connections.Add(connection);
-		}
-
-		private void GiveQuadOnOutput(Entity entity, string duration, string output, float delay)
-		{
-			if (string.IsNullOrEmpty(duration) || duration == "0")
-				duration = GetDefaultPowerupDuration();
-
-			SetQuadOnOutput(entity, duration, output, delay);
 		}
 
 		private static void SetQuadOnOutput(Entity entity, string duration, string output, float delay)
@@ -845,10 +820,8 @@ namespace BSPConvert.Lib
 
 		private void GiveWeaponAmmoOnOutput(Entity entity, Entity weaponEnt, string output, float delay)
 		{
-			if (!weaponEnt.TryGetValue("count", out var count) || count == "0") // Every quake weapon has a default ammo count when none is specified
-				count = GetDefaultWeaponAmmoCount(weaponEnt.ClassName);
-
-			if (count == "-1")
+			var count = ConvertWeaponAmmoCount(weaponEnt.ClassName, weaponEnt["count"]);
+			if (float.Parse(count) < 0)
 				return;
 
 			var ammoType = GetWeaponAmmoType(weaponEnt.ClassName);
@@ -867,8 +840,11 @@ namespace BSPConvert.Lib
 			entity.connections.Add(connection);
 		}
 
-		private string GetDefaultWeaponAmmoCount(string weaponName)
+		private string ConvertWeaponAmmoCount(string weaponName, string count)
 		{
+			if (!string.IsNullOrEmpty(count) && count != "0")
+				return count;
+
 			switch (weaponName)
 			{
 				case "weapon_machinegun":
@@ -917,10 +893,8 @@ namespace BSPConvert.Lib
 			var ammoOutput = GetAmmoOutput(ammoEnt.ClassName);
 			if (string.IsNullOrEmpty(ammoOutput))
 				return;
-			
-			if (!ammoEnt.TryGetValue("count", out var count) || count == "0")
-				count = GetDefaultAmmoCount(ammoEnt.ClassName);
 
+			var count = ConvertAmmoCount(ammoEnt.ClassName, ammoEnt["count"]);
 			if (float.Parse(count) < 0)
 				ammoOutput = ammoOutput.Replace("Add", "Set"); // Applies infinite ammo when count is set to a negative value to mimic q3 behaviour
 
@@ -936,8 +910,11 @@ namespace BSPConvert.Lib
 			entity.connections.Add(connection);
 		}
 
-		private string GetDefaultAmmoCount(string ammoName)
+		private string ConvertAmmoCount(string ammoName, string count)
 		{
+			if (!string.IsNullOrEmpty(count) && count != "0")
+				return count;
+			
 			switch (ammoName)
 			{
 				case "ammo_bfg":
@@ -986,8 +963,11 @@ namespace BSPConvert.Lib
 			}
 		}
 
-		private string GetDefaultPowerupDuration()
+		private string ConvertPowerupCount(string count)
 		{
+			if (!string.IsNullOrEmpty(count) && count != "0")
+				return count;
+
 			return "30";
 		}
 
@@ -1068,9 +1048,7 @@ namespace BSPConvert.Lib
 		{
 			weaponEnt["resettime"] = GetWeaponRespawnTime(weaponEnt);
 			weaponEnt["weaponname"] = GetMomentumWeaponName(weaponEnt.ClassName);
-			if (!weaponEnt.TryGetValue("count", out var count) || count == "0") // Every quake weapon has a default ammo count when none is specified
-				count = GetDefaultWeaponAmmoCount(weaponEnt.ClassName);
-			weaponEnt["pickupammo"] = count;
+			weaponEnt["pickupammo"] = ConvertWeaponAmmoCount(weaponEnt.ClassName, weaponEnt["count"]);
 			weaponEnt.ClassName = "momentum_weapon_spawner";
 		}
 
@@ -1109,17 +1087,13 @@ namespace BSPConvert.Lib
 
 		private void ConvertAmmo(Entity ammoEnt)
 		{
-			ammoEnt["resettime"] = GetAmmoRespawnTime(ammoEnt);
+			ammoEnt["resettime"] = ConvertAmmoRespawnTime(ammoEnt);
 			ammoEnt["ammoname"] = GetMomentumAmmoName(ammoEnt.ClassName);
-
-			if (!ammoEnt.TryGetValue("count", out var count) || count == "0")
-				count = GetDefaultAmmoCount(ammoEnt.ClassName);
-
-			ammoEnt["pickupammo"] = count;
+			ammoEnt["pickupammo"] = ConvertAmmoCount(ammoEnt.ClassName, ammoEnt["count"]);
 			ammoEnt.ClassName = "momentum_pickup_ammo";
 		}
 
-		private string GetAmmoRespawnTime(Entity ammoEnt)
+		private string ConvertAmmoRespawnTime(Entity ammoEnt)
 		{
 			if (ammoEnt.TryGetValue("wait", out var wait) && wait != "0")
 				return wait;
@@ -1156,14 +1130,11 @@ namespace BSPConvert.Lib
 		{
 			itemEnt.ClassName = GetMomentumItemName(itemEnt.ClassName);
 			itemEnt["resettime"] = GetItemRespawnTime(itemEnt);
-			
-			if (!itemEnt.TryGetValue("count", out var count) || count == "0")
-				count = GetDefaultPowerupDuration();
 
 			if (itemEnt.ClassName == "momentum_powerup_haste")
-				itemEnt["hastetime"] = count;
+				itemEnt["hastetime"] = ConvertPowerupCount(itemEnt["count"]);
 			else if (itemEnt.ClassName == "momentum_powerup_damage_boost")
-				itemEnt["damageboosttime"] = count;
+				itemEnt["damageboosttime"] = ConvertPowerupCount(itemEnt["count"]);
 		}
 
 		private string GetItemRespawnTime(Entity itemEnt)
