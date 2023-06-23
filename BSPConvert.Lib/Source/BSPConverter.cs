@@ -92,9 +92,9 @@ namespace BSPConvert.Lib
 			{ "textures/common/areaportal", "tools/toolsareaportal" }
 		};
 
-
 		private const int Q3_LIGHTMAP_SIZE = 128;
 		private const int LIGHTMAP_PADDING = 1; // Pixel padding to prevent lightmap bleeding
+		private const string invisibleDisplacementTexture = "tools/toolsinvisibledisplacement";
 
 		public BSPConverter(BSPConverterOptions options, ILogger logger)
 		{
@@ -123,6 +123,7 @@ namespace BSPConvert.Lib
 				LoadBSP(bsp);
 
 				ReplaceToolTextures();
+				PrepareAssets();
 				CreatePakFile();
 				ConvertMaterials();
 				ConvertTextureFiles();
@@ -187,6 +188,21 @@ namespace BSPConvert.Lib
 				var texture = quakeBsp.Textures[i];
 				if (replacementTextures.TryGetValue(texture.Name, out var replacementTexture))
 					texture.Name = replacementTexture;
+			}
+		}
+
+		private void PrepareAssets()
+		{
+			if (quakeBsp.Faces.Any(x => x.Type == FaceType.Patch && x.Texture.Name.StartsWith("tools/")))
+			{
+				// Copy invisible displacement assets to content dir
+				Directory.CreateDirectory(Path.Combine(contentManager.ContentDir, "tools"));
+
+				var invisDisplacementVmt = @"tools\toolsinvisibledisplacement.vmt";
+				File.Copy(Path.Combine(@"Assets\materials", invisDisplacementVmt), Path.Combine(contentManager.ContentDir, invisDisplacementVmt));
+
+				var invisDisplacementVtf = @"tools\toolsinvisibledisplacement.vtf";
+				File.Copy(Path.Combine(@"Assets\materials", invisDisplacementVtf), Path.Combine(contentManager.ContentDir, invisDisplacementVtf));
 			}
 		}
 
@@ -267,19 +283,19 @@ namespace BSPConvert.Lib
 		private void ConvertTextures()
 		{
 			foreach (var texture in quakeBsp.Textures)
-				CreateTextureData(texture);
+				CreateTextureData(texture.Name);
 		}
 
-		private void CreateTextureData(Texture texture)
+		private void CreateTextureData(string textureName)
 		{
-			var vtfPath = Path.Combine(contentManager.ContentDir, texture.Name + ".vtf");
+			var vtfPath = Path.Combine(contentManager.ContentDir, textureName + ".vtf");
 			var textureData = GetTextureData(vtfPath);
-			textureData.TextureStringOffsetIndex = CreateTextureDataStringTableEntry(texture.Name);
+			textureData.TextureStringOffsetIndex = CreateTextureDataStringTableEntry(textureName);
 
 			sourceBsp.TextureData.Add(textureData);
 
-			if (!textureDataLookup.ContainsKey(texture.Name))
-				textureDataLookup.Add(texture.Name, sourceBsp.TextureData.Count - 1);
+			if (!textureDataLookup.ContainsKey(textureName))
+				textureDataLookup.Add(textureName, sourceBsp.TextureData.Count - 1);
 		}
 
 		private TextureData GetTextureData(string vtfPath)
@@ -1011,6 +1027,7 @@ namespace BSPConvert.Lib
 			var vAxis = (faceVerts[3].position - faceVerts[0].position).GetNormalized() * 2f;
 
 			var qFace = quakeBsp.Faces[faceIndex];
+			ReplaceToolTextureWithInvisibleDisplacement(qFace);
 			sFace.TextureInfoIndex = CreateTextureInfo(qFace.Texture, uAxis, vAxis);
 
 			// Create face edges
@@ -1023,6 +1040,17 @@ namespace BSPConvert.Lib
 			CreateEdge(faceVerts[1], faceVerts[0], faceIndex);
 
 			return sourceBsp.Faces.Count - 1;
+		}
+
+		private void ReplaceToolTextureWithInvisibleDisplacement(Face qFace)
+		{
+			var texture = qFace.Texture;
+			if (texture.Name.StartsWith("tools/"))
+			{
+				texture.Name = invisibleDisplacementTexture;
+				if (LookupTextureDataIndex(invisibleDisplacementTexture) < 0)
+					CreateTextureData(invisibleDisplacementTexture);
+			}
 		}
 
 		private void CreatePatchDisplacement(int sFaceIndex, Vertex[] faceVerts, int patchWidth, int patchStartVertex, Face qFace)
