@@ -175,7 +175,7 @@ namespace BSPConvert.Lib
 
 		private void CheckQ3Content()
 		{
-			var files = Directory.GetFiles(ContentManager.GetQ3ContentDir());
+			var files = Directory.GetFiles(ContentManager.GetQ3ContentDir(), "*.*", SearchOption.AllDirectories);
 			if (files.Length <= 1)
 				logger.Log("Warning: Q3Content folder is empty. Quake 3 assets will not be converted.");
 		}
