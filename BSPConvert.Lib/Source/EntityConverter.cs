@@ -180,34 +180,37 @@ namespace BSPConvert.Lib
 		{
 			if (!float.TryParse(funcRotating["speed"], out var speed))
 				speed = 100;
+			
 			funcRotating["spawnflags"] = "1";
 			funcRotating["maxspeed"] = speed.ToString();
 		}
 
-		private void ConvertFuncDoor(Entity entity)
+		private void ConvertFuncDoor(Entity door)
 		{
-			SetMoveDir(entity);
+			SetMoveDir(door);
 
-			if (string.IsNullOrEmpty(entity["wait"]))
-				entity["wait"] = "2";
-
-			if (float.TryParse(entity["health"], out var health))
+			if (string.IsNullOrEmpty(door["wait"]))
+				door["wait"] = "2";
+			
+			if (float.TryParse(door["health"], out _))
 			{
-				entity.ClassName = "func_button"; // Health is obsolete on func_door, maybe fix in engine and update this
-				ConvertFuncButton(entity);
+				door.ClassName = "func_button"; // Health is obsolete on func_door, maybe fix in engine and update this
+				ConvertFuncButton(door);
 			}
 		}
 
-		private void ConvertFuncButton(Entity entity)
+		private void ConvertFuncButton(Entity button)
 		{
-			SetMoveDir(entity);
-			SetButtonFlags(entity);
+			SetMoveDir(button);
+			SetButtonFlags(button);
 
 			var delay = 0f;
-			ConvertButtonTargetsRecursive(entity, entity, delay);
+			ConvertButtonTargetsRecursive(button, button, delay);
 
-			if (entity["wait"] == "-1") // A value of -1 in quake is instantly reset position, in source it is don't reset position.
-				entity["wait"] = "0.001"; // exactly 0 also behaves as don't reset in source, so the delay is as short as possible without being 0.
+			if (button["wait"] == "-1") // A value of -1 in quake is instantly reset position, in source it is don't reset position.
+				button["wait"] = "0.001"; // exactly 0 also behaves as don't reset in source, so the delay is as short as possible without being 0.
+
+			button["customsound"] = "movers/switches/butn2.wav";
 		}
 
 		private void ConvertButtonTargetsRecursive(Entity button, Entity entity, float delay)

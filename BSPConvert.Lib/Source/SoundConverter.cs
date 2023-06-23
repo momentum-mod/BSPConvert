@@ -52,6 +52,9 @@ namespace BSPConvert.Lib.Source
 					case "trigger_jumppad":
 						soundHashSet.Add(entity["launchsound"].Replace('/', Path.DirectorySeparatorChar));
 						break;
+					case "func_button":
+						soundHashSet.Add(entity["customsound"].Replace('/', Path.DirectorySeparatorChar));
+						break;
 					case "ambient_generic":
 						soundHashSet.Add(entity["message"].Replace('/', Path.DirectorySeparatorChar));
 						break;
@@ -64,14 +67,14 @@ namespace BSPConvert.Lib.Source
 		private void MoveToPk3SoundDir(string sound)
 		{
 			var q3ContentDir = ContentManager.GetQ3ContentDir();
-			var launchSoundPath = Path.Combine(q3ContentDir, "sound", sound);
-			if (!File.Exists(launchSoundPath))
+			var soundPath = Path.Combine(q3ContentDir, "sound", sound);
+			if (!File.Exists(soundPath))
 				return;
 			
 			var newPath = Path.Combine(pk3Dir, "sound", sound);
 			Directory.CreateDirectory(Path.GetDirectoryName(newPath));
 
-			File.Copy(launchSoundPath, newPath, true);
+			File.Copy(soundPath, newPath, true);
 		}
 
 		// Move sound files that are not in the "sound" folder (music, custom sounds)
