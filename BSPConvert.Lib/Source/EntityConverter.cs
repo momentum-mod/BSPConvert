@@ -380,6 +380,9 @@ namespace BSPConvert.Lib
 
 		private Entity CreateTargetGiveWeapon(string weaponName, Vector3 origin, string count)
 		{
+			if (string.IsNullOrEmpty(count) || count == "0")
+				count = GetDefaultWeaponAmmoCount(weaponName);
+
 			var weapon = new Entity();
 
 			weapon.ClassName = "momentum_weapon_spawner";
@@ -394,6 +397,9 @@ namespace BSPConvert.Lib
 
 		private Entity CreateTargetGiveAmmo(string ammoName, Vector3 origin, string count)
 		{
+			if (string.IsNullOrEmpty(count) || count == "0")
+				count = GetDefaultAmmoCount(ammoName);
+			
 			var ammo = new Entity();
 
 			ammo.ClassName = "momentum_pickup_ammo";
@@ -408,6 +414,9 @@ namespace BSPConvert.Lib
 
 		private Entity CreateTargetGiveItem(string itemName, Vector3 origin, string count)
 		{
+			if (string.IsNullOrEmpty(count) || count == "0")
+				count = GetDefaultPowerupDuration();
+			
 			var item = new Entity();
 
 			item.ClassName = itemName;
@@ -768,7 +777,7 @@ namespace BSPConvert.Lib
 		private void GiveHasteOnOutput(Entity entity, string duration, string output, float delay)
 		{
 			if (string.IsNullOrEmpty(duration) || duration == "0")
-				duration = "30";
+				duration = GetDefaultPowerupDuration();
 
 			SetHasteOnOutput(entity, duration, output, delay);
 		}
@@ -790,7 +799,7 @@ namespace BSPConvert.Lib
 		private void GiveQuadOnOutput(Entity entity, string duration, string output, float delay)
 		{
 			if (string.IsNullOrEmpty(duration) || duration == "0")
-				duration = "30";
+				duration = GetDefaultPowerupDuration();
 
 			SetQuadOnOutput(entity, duration, output, delay);
 		}
@@ -973,6 +982,11 @@ namespace BSPConvert.Lib
 			}
 		}
 
+		private string GetDefaultPowerupDuration()
+		{
+			return "30";
+		}
+
 		private void ConvertTeleportTrigger(Entity trigger, Entity targetTele)
 		{
 			var targets = GetTargetEntities(targetTele);
@@ -1138,15 +1152,16 @@ namespace BSPConvert.Lib
 
 		private void ConvertItem(Entity itemEnt)
 		{
-			itemEnt["resettime"] = GetItemRespawnTime(itemEnt);
-			if (!itemEnt.TryGetValue("count", out var count) || count == "0")
-				count = "30";
-			if (itemEnt.ClassName == "item_haste")
-				itemEnt["hastetime"] = count;
-			else if (itemEnt.ClassName == "item_quad")
-				itemEnt["damageboosttime"] = count;
-
 			itemEnt.ClassName = GetMomentumItemName(itemEnt.ClassName);
+			itemEnt["resettime"] = GetItemRespawnTime(itemEnt);
+			
+			if (!itemEnt.TryGetValue("count", out var count) || count == "0")
+				count = GetDefaultPowerupDuration();
+
+			if (itemEnt.ClassName == "momentum_powerup_haste")
+				itemEnt["hastetime"] = count;
+			else if (itemEnt.ClassName == "momentum_powerup_damage_boost")
+				itemEnt["damageboosttime"] = count;
 		}
 
 		private string GetItemRespawnTime(Entity itemEnt)
