@@ -73,6 +73,7 @@ namespace BSPConvert.Lib
 		private ContentManager contentManager;
 		
 		private Dictionary<string, Shader> shaderDict = new Dictionary<string, Shader>();
+		private Dictionary<string, LightmapData> externalLightmaps = new Dictionary<string, LightmapData>();
 		private Dictionary<int, int> textureInfoHashCodeDict = new Dictionary<int, int>(); // Maps TextureInfo hash codes to TextureInfo indices
 		private Dictionary<string, int> textureInfoLookup = new Dictionary<string, int>();
 		private Dictionary<string, int> textureDataLookup = new Dictionary<string, int>();
@@ -113,6 +114,7 @@ namespace BSPConvert.Lib
 			
 			contentManager = new ContentManager(options.inputFile);
 			shaderDict = LoadShaderDictionary();
+			externalLightmaps = LoadExternalLightmaps();
 
 			foreach (var bsp in contentManager.BSPFiles)
 			{
@@ -212,8 +214,14 @@ namespace BSPConvert.Lib
 			var pk3Shaders = GetPK3Shaders();
 			var allShaders = q3Shaders.Concat(pk3Shaders);
 
-			var shaderLoader = new ShaderLoader(allShaders);
-			return shaderLoader.LoadShaders();
+			var loader = new ShaderLoader(allShaders);
+			return loader.LoadShaders();
+		}
+
+		private Dictionary<string, LightmapData> LoadExternalLightmaps()
+		{
+			var loader = new ExternalLightmapLoader(shaderDict, contentManager.ContentDir);
+			return loader.LoadLightmaps();
 		}
 
 		private string[] GetQ3Shaders()
@@ -1171,9 +1179,11 @@ namespace BSPConvert.Lib
 		{
 			var firstPrimVertex = sourceBsp.PrimitiveVertices.Count;
 
-			(var min, var max) = GetLightmapExtents(vertices);
-			min /= Q3_LIGHTMAP_SIZE;
-			max /= Q3_LIGHTMAP_SIZE;
+			var lightmapSize = quakeBsp.Lightmaps.Data.Length > 0 ? Q3_LIGHTMAP_SIZE : externalLightmaps.First().Value.size.X;
+
+			(var min, var max) = GetLightmapExtents(vertices, lightmapSize);
+			min /= lightmapSize;
+			max /= lightmapSize;
 
 			foreach (var vertex in vertices)
 			{
@@ -1381,9 +1391,17 @@ namespace BSPConvert.Lib
 		{
 			SetLumpVersionNumber(Lightmaps.GetIndexForLump(sourceBsp.MapType), 1);
 
+			if (quakeBsp.Lightmaps.Data.Length > 0)
+				ConvertInternalLightmaps();
+			else if (externalLightmaps.Any())
+				ConvertExternalLightmaps();
+		}
+
+		private void ConvertInternalLightmaps()
+		{
 			var qLightmapData = quakeBsp.Lightmaps.Data;
 			var lmColors = new List<ColorRGBExp32>();
-			
+
 			for (var faceIndex = 0; faceIndex < quakeBsp.Faces.Count; faceIndex++)
 			{
 				var qFace = quakeBsp.Faces[faceIndex];
@@ -1391,7 +1409,7 @@ namespace BSPConvert.Lib
 				if (lmIndex < 0)
 					continue;
 
-				(var lmStart, var lmEnd) = GetLightmapExtents(qFace.Vertices);
+				(var lmStart, var lmEnd) = GetLightmapExtents(qFace.Vertices, Q3_LIGHTMAP_SIZE);
 				var lmSize = lmEnd - lmStart;
 
 				// TODO: Faces need to be split since Source lightmaps only go up to 35x35 luxels whereas Q3 goes up to 128x128
@@ -1428,7 +1446,7 @@ namespace BSPConvert.Lib
 					var sFace = sourceBsp.Faces[splitFaceIndex];
 					sFace.Lightmap = sourceLightmapOffset;
 					sFace.LightmapStart = GetLightmapStart(sFace);
-					sFace.LightmapSize = new Vector2(lmSize.X - 1, lmSize.Y - 1);
+					sFace.LightmapSize = new Vector2(lmSize.X - LIGHTMAP_PADDING, lmSize.Y - LIGHTMAP_PADDING);
 				}
 			}
 
@@ -1447,7 +1465,74 @@ namespace BSPConvert.Lib
 			sourceBsp.Lightmaps.Data = data;
 		}
 
-		private (Vector2, Vector2) GetLightmapExtents(IEnumerable<Vertex> vertices)
+		private void ConvertExternalLightmaps()
+		{
+			var lmColors = new List<ColorRGBExp32>();
+
+			for (var faceIndex = 0; faceIndex < quakeBsp.Faces.Count; faceIndex++)
+			{
+				var qFace = quakeBsp.Faces[faceIndex];
+				var texture = qFace.Texture.Name;
+				if (!shaderDict.TryGetValue(texture, out var shader))
+					continue;
+
+				var stage = shader.stages.FirstOrDefault(x => x.bundles[0].tcGen == TexCoordGen.TCGEN_LIGHTMAP && x.bundles[0].images[0] != "$lightmap");
+				if (stage == null)
+					continue;
+
+				var lmImage = stage.bundles[0].images[0];
+				if (!externalLightmaps.TryGetValue(lmImage, out var lmData))
+					continue;
+
+				(var lmStart, var lmEnd) = GetLightmapExtents(qFace.Vertices, lmData.size.X);
+				var lmSize = lmEnd - lmStart;
+
+				var lightmapOffset = lmColors.Count * 4;
+
+				// Add lightmap colors
+				for (var y = (int)lmStart.Y; y < lmEnd.Y; y++)
+				{
+					for (var x = (int)lmStart.X; x < lmEnd.X; x++)
+					{
+						// Remove padding
+						var xCoord = Math.Clamp(x, (int)lmStart.X + LIGHTMAP_PADDING, (int)lmEnd.X - LIGHTMAP_PADDING);
+						var yCoord = Math.Clamp(y, (int)lmStart.Y + LIGHTMAP_PADDING, (int)lmEnd.Y - LIGHTMAP_PADDING);
+						var index = xCoord + yCoord * (int)lmData.size.X;
+
+						var color = ColorUtil.ConvertQ3LightmapToColorRGBExp32(
+							lmData.data[index * 3 + 0],
+							lmData.data[index * 3 + 1],
+							lmData.data[index * 3 + 2]);
+
+						lmColors.Add(color);
+					}
+				}
+
+				foreach (var splitFaceIndex in splitFaceDict[faceIndex])
+				{
+					var sFace = sourceBsp.Faces[splitFaceIndex];
+					sFace.Lightmap = lightmapOffset;
+					sFace.LightmapStart = GetLightmapStart(sFace);
+					sFace.LightmapSize = new Vector2(lmSize.X - LIGHTMAP_PADDING, lmSize.Y - LIGHTMAP_PADDING);
+				}
+			}
+
+			// Copy colors into lightmap data
+			var data = new byte[lmColors.Count * 4];
+			for (var i = 0; i < lmColors.Count; i++)
+			{
+				var color = lmColors[i];
+				var dataIndex = i * 4;
+				data[dataIndex + 0] = color.r;
+				data[dataIndex + 1] = color.g;
+				data[dataIndex + 2] = color.b;
+				data[dataIndex + 3] = (byte)color.exponent;
+			}
+
+			sourceBsp.Lightmaps.Data = data;
+		}
+
+		private (Vector2, Vector2) GetLightmapExtents(IEnumerable<Vertex> vertices, float lightmapSize)
 		{
 			var uvMin = new Vector2(float.MaxValue, float.MaxValue);
 			var uvMax = new Vector2(float.MinValue, float.MinValue);
@@ -1464,8 +1549,8 @@ namespace BSPConvert.Lib
 					uvMax.Y = vert.uv1.Y;
 			}
 
-			var lmStart = new Vector2((int)Math.Floor(uvMin.X * Q3_LIGHTMAP_SIZE) - LIGHTMAP_PADDING, (int)Math.Floor(uvMin.Y * Q3_LIGHTMAP_SIZE) - LIGHTMAP_PADDING);
-			var lmEnd = new Vector2((int)Math.Ceiling(uvMax.X * Q3_LIGHTMAP_SIZE) + LIGHTMAP_PADDING, (int)Math.Ceiling(uvMax.Y * Q3_LIGHTMAP_SIZE) + LIGHTMAP_PADDING);
+			var lmStart = new Vector2((int)Math.Floor(uvMin.X * (lightmapSize - 1)) - LIGHTMAP_PADDING, (int)Math.Floor(uvMin.Y * (lightmapSize - 1)) - LIGHTMAP_PADDING);
+			var lmEnd = new Vector2((int)Math.Ceiling(uvMax.X * (lightmapSize - 1)) + LIGHTMAP_PADDING, (int)Math.Ceiling(uvMax.Y * (lightmapSize - 1)) + LIGHTMAP_PADDING);
 
 			return (lmStart, lmEnd);
 		}
