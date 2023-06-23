@@ -517,8 +517,7 @@ namespace BSPConvert.Lib
 
 		private void ConvertTargetPushTrigger(Entity trigger, Entity targetPush, float delay)
 		{
-			var targets = GetTargetEntities(targetPush);
-			var targetPosition = targets.FirstOrDefault();
+			var targetPosition = GetTargetEntities(targetPush).FirstOrDefault();
 			if (targetPosition != null)
 			{
 				targetPosition.Origin = CalculateTargetOrigin(trigger, targetPush, targetPosition);
@@ -989,10 +988,9 @@ namespace BSPConvert.Lib
 
 		private void ConvertTeleportTrigger(Entity trigger, Entity targetTele)
 		{
-			var targets = GetTargetEntities(targetTele);
-			if (targets.Any())
+			var target = GetTargetEntities(targetTele).FirstOrDefault();
+			if (target != null)
 			{
-				var target = targets.First();
 				trigger.ClassName = "trigger_teleport";
 				trigger["target"] = target.Name;
 
@@ -1011,12 +1009,11 @@ namespace BSPConvert.Lib
 
 		private void ConvertTriggerPush(Entity trigger)
 		{
-			var targets = GetTargetEntities(trigger);
-			var firstTarget = targets.FirstOrDefault();
-			if (firstTarget != null)
+			var target = GetTargetEntities(trigger).FirstOrDefault();
+			if (target != null)
 			{
-				firstTarget.ClassName = "info_target";
-				ConvertTriggerJumppad(trigger, firstTarget.Name);
+				target.ClassName = "info_target";
+				ConvertTriggerJumppad(trigger, target.Name);
 			}
 		}
 
