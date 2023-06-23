@@ -20,7 +20,7 @@ namespace BSPConvert.Cmd
 			[Option("nozones", Required = false, HelpText = "Ignore timer zone triggers.")]
 			public bool IgnoreZones { get; set; }
 
-			//[Option("oldbsp", Required = false, HelpText = "Use BSP version 20 (HL:2 / CS:S).")]
+			//[Option("oldbsp", Required = false, HelpText = "Use BSP version 20 (HL2 / CS:S).")]
 			//public bool OldBSP { get; set; }
 
 			[Option("prefix", Required = false, Default = "df_", HelpText = "Prefix for the converted BSP's file name.")]
