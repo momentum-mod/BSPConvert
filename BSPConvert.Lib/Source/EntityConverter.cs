@@ -509,10 +509,10 @@ namespace BSPConvert.Lib
 
 		private float ConvertTargetDelay(Entity targetDelay)
 		{
-			if (!float.TryParse(targetDelay["wait"], out var wait))
-				return 1;
-			else
+			if (float.TryParse(targetDelay["wait"], out var wait))
 				return wait;
+			
+			return 1;
 		}
 
 		private void ConvertTargetPushTrigger(Entity trigger, Entity targetPush, float delay)
