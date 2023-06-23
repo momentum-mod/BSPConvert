@@ -34,7 +34,6 @@ namespace BSPConvert.Test
 				noPak = false,
 				DisplacementPower = 4,
 				minDamageToConvertTrigger = 50,
-				ignoreZones = false,
 				oldBSP = false,
 				prefix = "df_",
 				inputFile = bspFile,

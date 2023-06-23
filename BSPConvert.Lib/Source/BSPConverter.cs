@@ -55,7 +55,6 @@ namespace BSPConvert.Lib
 			set { displacementPower = Math.Clamp(value, 2, 4); }
 		}
 		public int minDamageToConvertTrigger;
-		public bool ignoreZones;
 		public bool oldBSP;
 		public string prefix;
 		public string inputFile;
@@ -268,7 +267,7 @@ namespace BSPConvert.Lib
 
 		private void ConvertEntities()
 		{
-			var converter = new EntityConverter(quakeBsp.Models, quakeBsp.Entities, sourceBsp.Entities, shaderDict, options.minDamageToConvertTrigger, options.ignoreZones);
+			var converter = new EntityConverter(quakeBsp.Models, quakeBsp.Entities, sourceBsp.Entities, shaderDict, options.minDamageToConvertTrigger);
 			converter.Convert();
 		}
 

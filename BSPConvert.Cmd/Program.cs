@@ -17,9 +17,6 @@ namespace BSPConvert.Cmd
 			[Option("mindmg", Required = false, Default = 50, HelpText = "Minimum damage to convert trigger_hurt into trigger_teleport.")]
 			public int MinDamageToConvertTrigger { get; set; }
 
-			[Option("nozones", Required = false, HelpText = "Ignore timer zone triggers.")]
-			public bool IgnoreZones { get; set; }
-
 			//[Option("oldbsp", Required = false, HelpText = "Use BSP version 20 (HL2 / CS:S).")]
 			//public bool OldBSP { get; set; }
 
@@ -63,7 +60,6 @@ namespace BSPConvert.Cmd
 					noPak = options.NoPak,
 					DisplacementPower = options.DisplacementPower,
 					minDamageToConvertTrigger = options.MinDamageToConvertTrigger,
-					ignoreZones = options.IgnoreZones,
 					//oldBSP = options.OldBSP,
 					prefix = options.Prefix,
 					inputFile = inputEntry,
