@@ -59,6 +59,7 @@ namespace BSPConvert.Lib
 		private Entities sourceEntities;
 		private Dictionary<string, Shader> shaderDict;
 		private int minDamageToConvertTrigger;
+		private bool ignoreZones;
 		private Dictionary<string, List<Entity>> entityDict = new Dictionary<string, List<Entity>>();
 		private List<Entity> removeEntities = new List<Entity>(); // Entities to remove after conversion (ex: remove weapons after converting a trigger_multiple that references target_give). TODO: It might be better to convert entities by priority, such as trigger_multiples first so that target_give weapons can be ignored after
 		private int currentCheckpointIndex = 2;
@@ -66,12 +67,13 @@ namespace BSPConvert.Lib
 
 		private const string MOMENTUM_START_ENTITY = "_momentum_player_start_";
 
-		public EntityConverter(Lump<Model> q3Models, Entities q3Entities, Entities sourceEntities, Dictionary<string, Shader> shaderDict, int minDamageToConvertTrigger)
+		public EntityConverter(Lump<Model> q3Models, Entities q3Entities, Entities sourceEntities, Dictionary<string, Shader> shaderDict, int minDamageToConvertTrigger, bool ignoreZones)
 		{
 			this.q3Entities = q3Entities;
 			this.sourceEntities = sourceEntities;
 			this.shaderDict = shaderDict;
 			this.minDamageToConvertTrigger = minDamageToConvertTrigger;
+			this.ignoreZones = ignoreZones;
 			this.q3Models = q3Models;
 
 			foreach (var entity in q3Entities)
@@ -732,6 +734,9 @@ namespace BSPConvert.Lib
 
 		private void ConvertTimerTrigger(Entity trigger, string className, int zoneNumber)
 		{
+			if (ignoreZones)
+				return;
+
 			var newTrigger = new Entity();
 			
 			newTrigger.ClassName = className;
