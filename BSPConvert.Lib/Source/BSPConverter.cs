@@ -1207,7 +1207,9 @@ namespace BSPConvert.Lib
 		{
 			var firstPrimVertex = sourceBsp.PrimitiveVertices.Count;
 
-			var lightmapSize = quakeBsp.Lightmaps.Data.Length > 0 ? Q3_LIGHTMAP_SIZE : externalLightmaps.First().Value.size.X;
+			var lightmapSize = Q3_LIGHTMAP_SIZE;
+			if (quakeBsp.Lightmaps.Data.Length == 0 && externalLightmaps.Any())
+				lightmapSize = (int)externalLightmaps.First().Value.size.X;
 
 			(var min, var max) = GetLightmapExtents(vertices, lightmapSize);
 			min /= lightmapSize;
