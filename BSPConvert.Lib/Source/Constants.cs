@@ -18,15 +18,15 @@ namespace BSPConvert.Lib
 	[Flags]
 	public enum Q3ContentsFlags : uint
 	{
-		CONTENTS_SOLID = 1,     // an eye is never valid in a solid
-		CONTENTS_LAVA = 8,
-		CONTENTS_SLIME = 16,
-		CONTENTS_WATER = 32,
-		CONTENTS_FOG = 64,
+		CONTENTS_SOLID = 0x1,     // an eye is never valid in a solid
+		CONTENTS_LAVA = 0x8,
+		CONTENTS_SLIME = 0x10,
+		CONTENTS_WATER = 0x20,
+		CONTENTS_FOG = 0x40,
 
-		CONTENTS_NOTTEAM1 = 0x0080,
-		CONTENTS_NOTTEAM2 = 0x0100,
-		CONTENTS_NOBOTCLIP = 0x0200,
+		CONTENTS_NOTTEAM1 = 0x80,
+		CONTENTS_NOTTEAM2 = 0x100,
+		CONTENTS_NOBOTCLIP = 0x200,
 
 		CONTENTS_AREAPORTAL = 0x8000,
 
