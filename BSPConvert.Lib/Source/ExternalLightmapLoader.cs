@@ -57,15 +57,22 @@ namespace BSPConvert.Lib
 				if (lightmapDict.ContainsKey(lmImage)) // Only add unique lightmaps
 					continue;
 
-				(var data, var size) = GetExternalLightmapData(stage);
-				
-				var lightmapData = new LightmapData();
-				lightmapData.data = data;
-				lightmapData.size = size;
+				try
+				{
+					(var data, var size) = GetExternalLightmapData(stage);
 
-				curOffset += data.Length;
+					var lightmapData = new LightmapData();
+					lightmapData.data = data;
+					lightmapData.size = size;
 
-				lightmapDict.Add(lmImage, lightmapData);
+					curOffset += data.Length;
+
+					lightmapDict.Add(lmImage, lightmapData);
+				}
+				catch (Exception ex)
+				{
+					Console.WriteLine(ex.Message);
+				}
 			}
 
 			return lightmapDict;
