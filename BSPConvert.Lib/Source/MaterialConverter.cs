@@ -42,7 +42,7 @@ namespace BSPConvert.Lib
 				if (ext == ".tga" || ext == ".jpg")
 				{
 					var texturePath = file.Replace(contentDir + Path.DirectorySeparatorChar, "")
-						.Replace(Path.DirectorySeparatorChar, '/').Replace(ext, "");
+						.Replace(Path.DirectorySeparatorChar, '/').Replace(ext, "").ToLower();
 
 					if (!imageDict.ContainsKey(texturePath))
 						imageDict.Add(texturePath, file);
@@ -184,10 +184,10 @@ namespace BSPConvert.Lib
 			File.WriteAllText(vmtPath, vmt);
 		}
 
-		// Copies content from the Q3Content folder if it's referenced by this shader
-		private void TryCopyQ3Content(string shaderTexturePath)
+		// Copies content from the Q3Content folder if it exists
+		private void TryCopyQ3Content(string texturePath)
 		{
-			if (q3ImageDict.TryGetValue(shaderTexturePath, out var q3TexturePath))
+			if (q3ImageDict.TryGetValue(texturePath, out var q3TexturePath))
 			{
 				var q3ContentDir = ContentManager.GetQ3ContentDir();
 				var newPath = q3TexturePath.Replace(q3ContentDir, pk3Dir);
