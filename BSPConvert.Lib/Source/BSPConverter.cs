@@ -199,10 +199,10 @@ namespace BSPConvert.Lib
 				Directory.CreateDirectory(Path.Combine(contentManager.ContentDir, "tools"));
 
 				var invisDisplacementVmt = @"tools\toolsinvisibledisplacement.vmt";
-				File.Copy(Path.Combine(@"Assets\materials", invisDisplacementVmt), Path.Combine(contentManager.ContentDir, invisDisplacementVmt));
+				File.Copy(Path.Combine(@"Assets\materials", invisDisplacementVmt), Path.Combine(contentManager.ContentDir, invisDisplacementVmt), true);
 
 				var invisDisplacementVtf = @"tools\toolsinvisibledisplacement.vtf";
-				File.Copy(Path.Combine(@"Assets\materials", invisDisplacementVtf), Path.Combine(contentManager.ContentDir, invisDisplacementVtf));
+				File.Copy(Path.Combine(@"Assets\materials", invisDisplacementVtf), Path.Combine(contentManager.ContentDir, invisDisplacementVtf), true);
 			}
 		}
 
