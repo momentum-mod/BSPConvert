@@ -152,6 +152,8 @@ namespace BSPConvert.Lib
 		public WaveForm alphaWave;
 		public AlphaGen alphaGen;
 
+		public byte[] constantColor = new byte[4];
+
 		public ShaderStage()
 		{
 			for (var i = 0; i < NUM_TEXTURE_BUNDLES; i++)

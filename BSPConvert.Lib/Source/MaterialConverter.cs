@@ -230,6 +230,13 @@ namespace BSPConvert.Lib
 				var texture = Path.ChangeExtension(textureStage.bundles[0].images[0], null);
 				sb.AppendLine($"\t$basetexture \"{texture}\"");
 
+				if (textureStage.rgbGen.HasFlag(ColorGen.CGEN_CONST))
+				{
+					var color = textureStage.constantColor;
+					var colorStr = $"{color[0]} {color[1]} {color[2]}";
+					sb.AppendLine("\t$color \"{" + colorStr + "}\"");
+				}
+
 				if (textureStage.alphaGen.HasFlag(AlphaGen.AGEN_CONST))
 					sb.AppendLine("\t$alpha 0.25"); // TODO: Convert actual alpha value from AGEN_CONST
 			}

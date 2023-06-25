@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Numerics;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -145,7 +146,7 @@ namespace BSPConvert.Lib
 						stage.flags |= ParseBlendFunc(split);
 						break;
 					case "rgbgen":
-						stage.rgbGen = ParseRGBGen(split);
+						ParseRGBGen(stage, split);
 						break;
 					case "alphagen":
 						stage.alphaGen = ParseAlphaGen(split);
@@ -351,39 +352,68 @@ namespace BSPConvert.Lib
 			}
 		}
 
-		private ColorGen ParseRGBGen(string[] split)
+		private void ParseRGBGen(ShaderStage stage, string[] split)
 		{
 			switch (split[1].ToLower())
 			{
 				case "wave":
 					// TODO: Parse wave form
-					return ColorGen.CGEN_WAVEFORM;
+					stage.rgbGen = ColorGen.CGEN_WAVEFORM;
+					break;
 				case "const":
-					// TODO: Parse constant color
-					return ColorGen.CGEN_CONST;
+					{
+						stage.rgbGen = ColorGen.CGEN_CONST;
+
+						var color = ParseVector(new ArraySegment<string>(split, 2, 5));
+						stage.constantColor[0] = (byte)(255 * color[0]);
+						stage.constantColor[1] = (byte)(255 * color[1]);
+						stage.constantColor[2] = (byte)(255 * color[2]);
+						break;
+					}
 				case "identity":
-					return ColorGen.CGEN_IDENTITY;
+					stage.rgbGen = ColorGen.CGEN_IDENTITY;
+					break;
 				case "identitylighting":
-					return ColorGen.CGEN_IDENTITY_LIGHTING;
+					stage.rgbGen = ColorGen.CGEN_IDENTITY_LIGHTING;
+					break;
 				case "entity":
-					return ColorGen.CGEN_ENTITY;
+					stage.rgbGen = ColorGen.CGEN_ENTITY;
+					break;
 				case "oneminusentity":
-					return ColorGen.CGEN_ONE_MINUS_ENTITY;
+					stage.rgbGen = ColorGen.CGEN_ONE_MINUS_ENTITY;
+					break;
 				case "vertex":
 					// TODO: Set alphagen
-					return ColorGen.CGEN_VERTEX;
+					stage.rgbGen = ColorGen.CGEN_VERTEX;
+					break;
 				case "exactvertex":
-					return ColorGen.CGEN_EXACT_VERTEX;
+					stage.rgbGen = ColorGen.CGEN_EXACT_VERTEX;
+					break;
 				case "lightingdiffuse":
-					return ColorGen.CGEN_LIGHTING_DIFFUSE;
+					stage.rgbGen = ColorGen.CGEN_LIGHTING_DIFFUSE;
+					break;
 				case "oneminusvertex":
-					return ColorGen.CGEN_ONE_MINUS_VERTEX;
+					stage.rgbGen = ColorGen.CGEN_ONE_MINUS_VERTEX;
+					break;
 				default:
 					Debug.WriteLine("Warning: Unknown rgbGen param in shader: " + shaderFile);
+					stage.rgbGen = ColorGen.CGEN_BAD;
 					break;
 			}
+		}
 
-			return ColorGen.CGEN_BAD;
+		private Vector3 ParseVector(ArraySegment<string> split)
+		{
+			if (split[0] != "(" || split[4] != ")")
+			{
+				Debug.WriteLine("Warning: Missing parenthesis in shader: " + shaderFile);
+				return Vector3.Zero;
+			}
+
+			return new Vector3(
+				float.Parse(split[1]),
+				float.Parse(split[2]),
+				float.Parse(split[3]));
 		}
 
 		private AlphaGen ParseAlphaGen(string[] split)
