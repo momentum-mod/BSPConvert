@@ -146,13 +146,14 @@ namespace BSPConvert.Lib
 		public TextureBundle[] bundles = new TextureBundle[NUM_TEXTURE_BUNDLES]; // Path to image file
 		public ShaderStageFlags flags;
 
-		public WaveForm rgbWave;
+		public WaveForm rgbWave = new WaveForm();
 		public ColorGen rgbGen;
 
-		public WaveForm alphaWave;
+		public WaveForm alphaWave = new WaveForm();
 		public AlphaGen alphaGen;
 
 		public byte[] constantColor = new byte[4];
+		public float constantAlpha = 1.0f;
 
 		public ShaderStage()
 		{
