@@ -238,12 +238,28 @@ namespace BSPConvert.Lib
 				}
 
 				if (textureStage.alphaGen.HasFlag(AlphaGen.AGEN_CONST))
-					sb.AppendLine("\t$alpha 0.25"); // TODO: Convert actual alpha value from AGEN_CONST
+				{
+					var alpha = (float)textureStage.constantColor[3] / 255;
+					sb.AppendLine($"\t$alpha {alpha}");
+				}
 			}
 
 			var envMapStage = stages.FirstOrDefault(x => x.bundles[0].tcGen == TexCoordGen.TCGEN_ENVIRONMENT_MAPPED);
 			if (envMapStage != null)
+			{
 				sb.AppendLine($"\t$envmap \"engine/defaultcubemap\"");
+
+				if (envMapStage.alphaGen == AlphaGen.AGEN_CONST)
+				{
+					var alpha = (float)envMapStage.constantColor[3] / 255;
+					sb.AppendLine($"\t$envmaptint \"[{alpha} {alpha} {alpha}]\"");
+				}
+				else if (envMapStage.rgbGen == ColorGen.CGEN_WAVEFORM)
+				{
+					var alpha = envMapStage.rgbWave.base_;
+					sb.AppendLine($"\t$envmaptint \"[{alpha} {alpha} {alpha}]\"");
+				}
+			}
 
 			if (shader.cullType == CullType.TWO_SIDED)
 				sb.AppendLine("\t$nocull 1");

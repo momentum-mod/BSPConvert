@@ -149,7 +149,7 @@ namespace BSPConvert.Lib
 						ParseRGBGen(stage, split);
 						break;
 					case "alphagen":
-						stage.alphaGen = ParseAlphaGen(split);
+						ParseAlphaGen(stage, split);
 						break;
 					case "texgen":
 					case "tcgen":
@@ -357,9 +357,12 @@ namespace BSPConvert.Lib
 			switch (split[1].ToLower())
 			{
 				case "wave":
-					// TODO: Parse wave form
-					stage.rgbGen = ColorGen.CGEN_WAVEFORM;
-					break;
+					{
+						stage.rgbGen = ColorGen.CGEN_WAVEFORM;
+
+						stage.rgbWave = ParseWaveform(new ArraySegment<string>(split, 2, 5));
+						break;
+					}
 				case "const":
 					{
 						stage.rgbGen = ColorGen.CGEN_CONST;
@@ -416,37 +419,65 @@ namespace BSPConvert.Lib
 				float.Parse(split[3]));
 		}
 
-		private AlphaGen ParseAlphaGen(string[] split)
+		private WaveForm ParseWaveform(ArraySegment<string> split)
+		{
+			var wave = new WaveForm();
+
+			wave.func = NameToGenFunc(split[0]);
+			float.TryParse(split[1], out wave.base_);
+			float.TryParse(split[2], out wave.amplitude);
+			float.TryParse(split[3], out wave.phase);
+			float.TryParse(split[4], out wave.frequency);
+
+			return wave;
+		}
+
+		private void ParseAlphaGen(ShaderStage stage, string[] split)
 		{
 			switch (split[1].ToLower())
 			{
 				case "wave":
-					// TODO: Parse wave form
-					return AlphaGen.AGEN_WAVEFORM;
+					{
+						stage.alphaGen = AlphaGen.AGEN_WAVEFORM;
+
+						stage.alphaWave = ParseWaveform(new ArraySegment<string>(split, 2, 5));
+						break;
+					}
 				case "const":
-					// TODO: Parse constant color
-					return AlphaGen.AGEN_CONST;
+					{
+						stage.alphaGen = AlphaGen.AGEN_CONST;
+
+						if (float.TryParse(split[2], out var alpha))
+							stage.constantColor[3] = (byte)(alpha * 255);
+						break;
+					}
 				case "identity":
-					return AlphaGen.AGEN_IDENTITY;
+					stage.alphaGen = AlphaGen.AGEN_IDENTITY;
+					break;
 				case "entity":
-					return AlphaGen.AGEN_ENTITY;
+					stage.alphaGen = AlphaGen.AGEN_ENTITY;
+					break;
 				case "oneminusentity":
-					return AlphaGen.AGEN_ONE_MINUS_ENTITY;
+					stage.alphaGen = AlphaGen.AGEN_ONE_MINUS_ENTITY;
+					break;
 				case "vertex":
-					return AlphaGen.AGEN_VERTEX;
+					stage.alphaGen = AlphaGen.AGEN_VERTEX;
+					break;
 				case "lightingspecular":
-					return AlphaGen.AGEN_LIGHTING_SPECULAR;
+					stage.alphaGen = AlphaGen.AGEN_LIGHTING_SPECULAR;
+					break;
 				case "oneminusvertex":
-					return AlphaGen.AGEN_ONE_MINUS_VERTEX;
+					stage.alphaGen = AlphaGen.AGEN_ONE_MINUS_VERTEX;
+					break;
 				case "portal":
 					// TODO: Parse portal
-					return AlphaGen.AGEN_PORTAL;
+					stage.alphaGen = AlphaGen.AGEN_PORTAL;
+					break;
 				default:
 					Debug.WriteLine("Warning: Unknown alphaGen param in shader: " + shaderFile);
+					stage.alphaGen = AlphaGen.AGEN_IDENTITY;
 					break;
 			}
-
-			return AlphaGen.AGEN_IDENTITY;
 		}
 
 		private TexCoordGen ParseTCGen(string tcGen)
