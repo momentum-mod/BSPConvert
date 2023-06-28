@@ -239,7 +239,7 @@ namespace BSPConvert.Lib
 
 				if (textureStage.alphaGen.HasFlag(AlphaGen.AGEN_CONST))
 				{
-					var alpha = textureStage.constantAlpha;
+					var alpha = (float)textureStage.constantColor[3] / 255;
 					sb.AppendLine($"\t$alpha {alpha}");
 				}
 			}
@@ -251,7 +251,7 @@ namespace BSPConvert.Lib
 
 				if (envMapStage.alphaGen == AlphaGen.AGEN_CONST)
 				{
-					var alpha = envMapStage.constantAlpha;
+					var alpha = (float)envMapStage.constantColor[3] / 255;
 					sb.AppendLine($"\t$envmaptint \"[{alpha} {alpha} {alpha}]\"");
 				}
 				else if (envMapStage.rgbGen == ColorGen.CGEN_WAVEFORM)

@@ -153,7 +153,6 @@ namespace BSPConvert.Lib
 		public AlphaGen alphaGen;
 
 		public byte[] constantColor = new byte[4];
-		public float constantAlpha = 1.0f;
 
 		public ShaderStage()
 		{

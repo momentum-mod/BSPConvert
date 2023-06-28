@@ -359,12 +359,8 @@ namespace BSPConvert.Lib
 				case "wave":
 					{
 						stage.rgbGen = ColorGen.CGEN_WAVEFORM;
-						
-						stage.rgbWave.func = NameToGenFunc(split[2]);
-						float.TryParse(split[3], out stage.rgbWave.base_);
-						float.TryParse(split[4], out stage.rgbWave.amplitude);
-						float.TryParse(split[5], out stage.rgbWave.phase);
-						float.TryParse(split[6], out stage.rgbWave.frequency);
+
+						stage.rgbWave = ParseWaveform(new ArraySegment<string>(split, 2, 5));
 						break;
 					}
 				case "const":
@@ -423,6 +419,19 @@ namespace BSPConvert.Lib
 				float.Parse(split[3]));
 		}
 
+		private WaveForm ParseWaveform(ArraySegment<string> split)
+		{
+			var wave = new WaveForm();
+
+			wave.func = NameToGenFunc(split[0]);
+			float.TryParse(split[1], out wave.base_);
+			float.TryParse(split[2], out wave.amplitude);
+			float.TryParse(split[3], out wave.phase);
+			float.TryParse(split[4], out wave.frequency);
+
+			return wave;
+		}
+
 		private void ParseAlphaGen(ShaderStage stage, string[] split)
 		{
 			switch (split[1].ToLower())
@@ -430,20 +439,16 @@ namespace BSPConvert.Lib
 				case "wave":
 					{
 						stage.alphaGen = AlphaGen.AGEN_WAVEFORM;
-						
-						stage.alphaWave.func = NameToGenFunc(split[2]);
-						float.TryParse(split[3], out stage.alphaWave.base_);
-						float.TryParse(split[4], out stage.alphaWave.amplitude);
-						float.TryParse(split[5], out stage.alphaWave.phase);
-						float.TryParse(split[6], out stage.alphaWave.frequency);
+
+						stage.alphaWave = ParseWaveform(new ArraySegment<string>(split, 2, 5));
 						break;
 					}
 				case "const":
-					// TODO: Parse constant color
 					{
 						stage.alphaGen = AlphaGen.AGEN_CONST;
+
 						if (float.TryParse(split[2], out var alpha))
-							stage.constantAlpha = alpha;
+							stage.constantColor[3] = (byte)(alpha * 255);
 						break;
 					}
 				case "identity":
