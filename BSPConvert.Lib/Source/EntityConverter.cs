@@ -136,6 +136,7 @@ namespace BSPConvert.Lib
 					case "target_checkpoint":
 					case "target_give":
 					case "target_init":
+					case "target_delay":
 						ignoreEntity = true;
 						break;
 					default:
@@ -224,8 +225,11 @@ namespace BSPConvert.Lib
 				switch (target.ClassName)
 				{
 					case "target_delay":
-						delay += ConvertTargetDelay(target);
-						break;
+						{
+							delay += ConvertTargetDelay(target);
+							removeEntities.Add(target);
+							break;
+						}
 					case "func_door":
 						OpenDoorOnOutput(button, target, "OnPressed", delay);
 						break;
@@ -503,10 +507,12 @@ namespace BSPConvert.Lib
 
 		private float ConvertTargetDelay(Entity targetDelay)
 		{
-			if (float.TryParse(targetDelay["wait"], out var wait))
+			if (float.TryParse(targetDelay["delay"], out var delay))
+				return delay;
+			else if (float.TryParse(targetDelay["wait"], out var wait))
 				return wait;
-			
-			return 1;
+			else
+				return 1;
 		}
 
 		private void ConvertTargetPushTrigger(Entity trigger, Entity targetPush, float delay)
