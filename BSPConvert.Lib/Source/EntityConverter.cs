@@ -851,16 +851,22 @@ namespace BSPConvert.Lib
 			switch (weaponName)
 			{
 				case "weapon_machinegun":
+				case "weapon_momentum_machinegun":
 					return "40";
 				case "weapon_grenadelauncher":
+				case "weapon_momentum_df_grenadelauncher":
 					return "10";
 				case "weapon_rocketlauncher":
+				case "weapon_momentum_df_rocketlauncher":
 					return "10";
 				case "weapon_plasmagun":
+				case "weapon_momentum_df_plasmagun":
 					return "50";
 				case "weapon_lightning":
+				//case "weapon_momentum_df_lightning":
 					return "100";
 				case "weapon_bfg":
+				case "weapon_momentum_df_bfg":
 					return "20";
 				default:
 					return "-1";
@@ -921,20 +927,28 @@ namespace BSPConvert.Lib
 			switch (ammoName)
 			{
 				case "ammo_bfg":
+				case "bfg_rockets":
 					return "15";
-				case "ammo_bullets": // Machine gun
+				case "ammo_bullets":
+				case "bullets":// Machine gun
 					return "50";
-				case "ammo_cells": // Plasma gun
+				case "ammo_cells":
+				case "cells": // Plasma gun
 					return "30";
 				case "ammo_grenades":
+				case "grenades":
 					return "5";
 				case "ammo_lightning":
+				case "lightning":
 					return "60";
 				case "ammo_rockets":
+				case "rockets":
 					return "5";
-				case "ammo_shells": // Shotgun
+				case "ammo_shells":
+				case "shells": // Shotgun
 					return "10";
-				case "ammo_slugs": // Railgun
+				case "ammo_slugs":
+				case "rails": // Railgun
 					return "10";
 				default:
 					return "0";
