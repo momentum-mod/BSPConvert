@@ -350,14 +350,16 @@ namespace BSPConvert.Lib
 			{
 				if (target.ClassName.StartsWith("weapon_"))
 				{
+					var count = ConvertWeaponAmmoCount(target.ClassName, target["count"]);
 					var weaponName = GetMomentumWeaponName(target.ClassName);
-					var weapon = CreateTargetGiveWeapon(weaponName, playerStart.Origin, target["count"]);
+					var weapon = CreateTargetGiveWeapon(weaponName, playerStart.Origin, count);
 					sourceEntities.Add(weapon);
 				}
 				else if (target.ClassName.StartsWith("ammo_"))
 				{
+					var count = ConvertAmmoCount(target.ClassName, target["count"]);
 					var ammoName = GetMomentumAmmoName(target.ClassName);
-					var ammo = CreateTargetGiveAmmo(ammoName, playerStart.Origin, target["count"]);
+					var ammo = CreateTargetGiveAmmo(ammoName, playerStart.Origin, count);
 					sourceEntities.Add(ammo);
 				}
 				else if (target.ClassName.StartsWith("item_"))
@@ -392,7 +394,7 @@ namespace BSPConvert.Lib
 			weapon.ClassName = "momentum_weapon_spawner";
 			weapon.Origin = origin;
 			weapon["weaponname"] = weaponName;
-			weapon["pickupammo"] = ConvertWeaponAmmoCount(weaponName, count);
+			weapon["pickupammo"] = count;
 			weapon["resettime"] = "-1"; // Only use once
 			weapon["rendermode"] = "10";
 
@@ -406,7 +408,7 @@ namespace BSPConvert.Lib
 			ammo.ClassName = "momentum_pickup_ammo";
 			ammo.Origin = origin;
 			ammo["ammoname"] = ammoName;
-			ammo["pickupammo"] = ConvertAmmoCount(ammoName, count);
+			ammo["pickupammo"] = count;
 			ammo["resettime"] = "-1"; // Only use once
 			ammo["rendermode"] = "10";
 
