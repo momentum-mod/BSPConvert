@@ -346,14 +346,16 @@ namespace BSPConvert.Lib
 			{
 				if (target.ClassName.StartsWith("weapon_"))
 				{
+					var count = ConvertWeaponAmmoCount(target.ClassName, target["count"]);
 					var weaponName = GetMomentumWeaponName(target.ClassName);
-					var weapon = CreateTargetGiveWeapon(weaponName, playerStart.Origin, target["count"]);
+					var weapon = CreateTargetGiveWeapon(weaponName, playerStart.Origin, count);
 					sourceEntities.Add(weapon);
 				}
 				else if (target.ClassName.StartsWith("ammo_"))
 				{
+					var count = ConvertAmmoCount(target.ClassName, target["count"]);
 					var ammoName = GetMomentumAmmoName(target.ClassName);
-					var ammo = CreateTargetGiveAmmo(ammoName, playerStart.Origin, target["count"]);
+					var ammo = CreateTargetGiveAmmo(ammoName, playerStart.Origin, count);
 					sourceEntities.Add(ammo);
 				}
 				else if (target.ClassName.StartsWith("item_"))
@@ -388,7 +390,7 @@ namespace BSPConvert.Lib
 			weapon.ClassName = "momentum_weapon_spawner";
 			weapon.Origin = origin;
 			weapon["weaponname"] = weaponName;
-			weapon["pickupammo"] = ConvertWeaponAmmoCount(weaponName, count);
+			weapon["pickupammo"] = count;
 			weapon["resettime"] = "-1"; // Only use once
 			weapon["rendermode"] = "10";
 
@@ -402,7 +404,7 @@ namespace BSPConvert.Lib
 			ammo.ClassName = "momentum_pickup_ammo";
 			ammo.Origin = origin;
 			ammo["ammoname"] = ammoName;
-			ammo["pickupammo"] = ConvertAmmoCount(ammoName, count);
+			ammo["pickupammo"] = count;
 			ammo["resettime"] = "-1"; // Only use once
 			ammo["rendermode"] = "10";
 
@@ -851,22 +853,16 @@ namespace BSPConvert.Lib
 			switch (weaponName)
 			{
 				case "weapon_machinegun":
-				case "weapon_momentum_machinegun":
 					return "40";
 				case "weapon_grenadelauncher":
-				case "weapon_momentum_df_grenadelauncher":
 					return "10";
 				case "weapon_rocketlauncher":
-				case "weapon_momentum_df_rocketlauncher":
 					return "10";
 				case "weapon_plasmagun":
-				case "weapon_momentum_df_plasmagun":
 					return "50";
 				case "weapon_lightning":
-				//case "weapon_momentum_df_lightning":
 					return "100";
 				case "weapon_bfg":
-				case "weapon_momentum_df_bfg":
 					return "20";
 				default:
 					return "-1";
@@ -927,28 +923,20 @@ namespace BSPConvert.Lib
 			switch (ammoName)
 			{
 				case "ammo_bfg":
-				case "bfg_rockets":
 					return "15";
-				case "ammo_bullets":
-				case "bullets":// Machine gun
+				case "ammo_bullets": // Machine gun
 					return "50";
-				case "ammo_cells":
-				case "cells": // Plasma gun
+				case "ammo_cells": // Plasma gun
 					return "30";
 				case "ammo_grenades":
-				case "grenades":
 					return "5";
 				case "ammo_lightning":
-				case "lightning":
 					return "60";
 				case "ammo_rockets":
-				case "rockets":
 					return "5";
-				case "ammo_shells":
-				case "shells": // Shotgun
+				case "ammo_shells": // Shotgun
 					return "10";
-				case "ammo_slugs":
-				case "rails": // Railgun
+				case "ammo_slugs": // Railgun
 					return "10";
 				default:
 					return "0";
