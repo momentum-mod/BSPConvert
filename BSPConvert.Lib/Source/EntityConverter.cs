@@ -39,6 +39,18 @@ namespace BSPConvert.Lib
 		}
 
 		[Flags]
+		private enum Q3TriggerPushVelocityFlags
+		{
+			PLAYERDIR_XY = 1 << 0,
+			ADD_XY = 1 << 1,
+			PLAYERDIR_Z = 1 << 2,
+			ADD_Z = 1 << 3,
+			BIDIRECTIONAL_XY = 1 << 4,
+			BIDIRECTIONAL_Z = 1 << 5,
+			CLAMP_NEGATIVE_ADDS = 1 << 6
+		}
+
+		[Flags]
 		private enum TargetSpeakerFlags
 		{
 			LoopedOn = 1,
@@ -1019,6 +1031,13 @@ namespace BSPConvert.Lib
 			trigger["launchtarget"] = target;
 			trigger["launchsound"] = "world/jumppad.wav";
 			trigger["spawnflags"] = "1";
+
+			// TODO: Convert other trigger_push_velocity flags
+			var spawnflags = (Q3TriggerPushVelocityFlags)trigger.Spawnflags;
+			if (spawnflags.HasFlag(Q3TriggerPushVelocityFlags.ADD_XY))
+				trigger["KeepHorizontalSpeed"] = "1";
+			if (spawnflags.HasFlag(Q3TriggerPushVelocityFlags.ADD_Z))
+				trigger["KeepVerticalSpeed"] = "1";
 		}
 
 		private void ConvertTriggerTeleport(Entity trigger)
