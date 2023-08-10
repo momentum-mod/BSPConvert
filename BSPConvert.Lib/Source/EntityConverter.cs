@@ -717,11 +717,13 @@ namespace BSPConvert.Lib
 				RemoveWeaponOnOutput(entity, "weapon_momentum_df_grenadelauncher", output, delay);
 				RemoveWeaponOnOutput(entity, "weapon_momentum_df_rocketlauncher", output, delay);
 				RemoveWeaponOnOutput(entity, "weapon_momentum_df_plasmagun", output, delay);
+				RemoveWeaponOnOutput(entity, "weapon_momentum_df_lightninggun", output, delay);
+				RemoveWeaponOnOutput(entity, "weapon_momentum_df_railgun", output, delay);
 				RemoveWeaponOnOutput(entity, "weapon_momentum_df_bfg", output, delay);
 			}
 			if (spawnflags.HasFlag(TargetInitFlags.RemoveMachineGun))
 			{
-				RemoveWeaponOnOutput(entity, "weapon_momentum_machinegun", output, delay);
+				RemoveWeaponOnOutput(entity, "weapon_momentum_df_machinegun", output, delay);
 			}
 		}
 
@@ -899,8 +901,10 @@ namespace BSPConvert.Lib
 					return "SetRockets";
 				case "weapon_plasmagun":
 					return "SetCells";
-				//case "weapon_lightning":
-				//	return "SetLightning";
+				case "weapon_lightning":
+					return "SetLightning";
+				case "weapon_railgun":
+					return "SetRails";
 				case "weapon_bfg":
 					return "SetBfgRockets";
 				default:
@@ -1095,7 +1099,7 @@ namespace BSPConvert.Lib
 			switch (q3WeaponName)
 			{
 				case "weapon_machinegun":
-					return "weapon_momentum_machinegun";
+					return "weapon_momentum_df_machinegun";
 				case "weapon_gauntlet":
 					return "weapon_knife";
 				case "weapon_grenadelauncher":
@@ -1104,6 +1108,10 @@ namespace BSPConvert.Lib
 					return "weapon_momentum_df_rocketlauncher";
 				case "weapon_plasmagun":
 					return "weapon_momentum_df_plasmagun";
+				case "weapon_lightning":
+					return "weapon_momentum_df_lightninggun";
+				case "weapon_railgun":
+					return "weapon_momentum_df_railgun";
 				case "weapon_bfg":
 					return "weapon_momentum_df_bfg";
 				case "item_haste":
