@@ -218,7 +218,7 @@ namespace BSPConvert.Lib
 			SetButtonFlags(button);
 
 			var delay = 0f;
-			ConvertButtonTargetsRecursive(button, button, delay);
+			ConvertButtonTargetsRecursive(button, button, delay, new HashSet<Entity>());
 
 			if (button["wait"] == "-1") // A value of -1 in quake is instantly reset position, in source it is don't reset position.
 				button["wait"] = "0.001"; // exactly 0 also behaves as don't reset in source, so the delay is as short as possible without being 0.
@@ -226,12 +226,12 @@ namespace BSPConvert.Lib
 			button["customsound"] = "movers/switches/butn2.wav";
 		}
 
-		private void ConvertButtonTargetsRecursive(Entity button, Entity entity, float delay)
+		private void ConvertButtonTargetsRecursive(Entity button, Entity entity, float delay, HashSet<Entity> visited)
 		{
 			var targets = GetTargetEntities(entity);
 			foreach (var target in targets)
 			{
-				if (entity == target)
+				if (visited.Contains(target) || entity == target)
 					continue;
 
 				switch (target.ClassName)
@@ -255,7 +255,9 @@ namespace BSPConvert.Lib
 						FireTargetInitOnOutput(button, target, "OnPressed", delay);
 						break;
 				}
-				ConvertButtonTargetsRecursive(button, target, delay);
+
+				visited.Add(target);
+				ConvertButtonTargetsRecursive(button, target, delay, visited);
 			}
 		}
 
@@ -461,17 +463,17 @@ namespace BSPConvert.Lib
 		private void ConvertTriggerMultiple(Entity trigger)
 		{
 			var delay = 0f;
-			ConvertTriggerTargetsRecursive(trigger, trigger, delay);
+			ConvertTriggerTargetsRecursive(trigger, trigger, delay, new HashSet<Entity>());
 
 			trigger["spawnflags"] = "1";
 		}
 
-		private void ConvertTriggerTargetsRecursive(Entity trigger, Entity entity, float delay)
+		private void ConvertTriggerTargetsRecursive(Entity trigger, Entity entity, float delay, HashSet<Entity> visited)
 		{
 			var targets = GetTargetEntities(entity);
 			foreach (var target in targets)
 			{
-				if (entity == target)
+				if (visited.Contains(target) || entity == target)
 					continue;
 
 				switch (target.ClassName)
@@ -515,7 +517,9 @@ namespace BSPConvert.Lib
 						OpenDoorOnOutput(trigger, target, "OnStartTouch", delay);
 						break;
 				}
-				ConvertTriggerTargetsRecursive(trigger, target, delay);
+
+				visited.Add(target);
+				ConvertTriggerTargetsRecursive(trigger, target, delay, visited);
 			}
 		}
 
