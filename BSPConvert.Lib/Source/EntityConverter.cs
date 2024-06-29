@@ -141,6 +141,9 @@ namespace BSPConvert.Lib
 					case "func_rotating":
 						ConvertFuncRotating(entity);
 						break;
+					case "func_static":
+						ConvertFuncStatic(entity);
+						break;
 					// Ignore these entities since they have no use in Source engine
 					case "target_speaker": // converting this entity without a trigger input currently does nothing, convert during trigger_multiple conversion instead for now
 					case "target_startTimer":
@@ -196,6 +199,14 @@ namespace BSPConvert.Lib
 			
 			funcRotating["spawnflags"] = "1";
 			funcRotating["maxspeed"] = speed.ToString();
+		}
+
+		private void ConvertFuncStatic(Entity funcStatic)
+		{
+			if (funcStatic["notcpm"] == "1") // TODO: Figure out how to handle gamemode specific entities more robustly
+				return;
+
+			funcStatic.ClassName = "func_brush";
 		}
 
 		private void ConvertFuncDoor(Entity door)
