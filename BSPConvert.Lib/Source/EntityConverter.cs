@@ -265,6 +265,10 @@ namespace BSPConvert.Lib
 					case "target_init":
 						FireTargetInitOnOutput(button, target, "OnPressed", delay);
 						break;
+					case "target_remove_powerups":
+						SetHasteOnOutput(button, "0", "OnPressed", delay);
+						SetQuadOnOutput(button, "0", "OnPressed", delay);
+						break;
 				}
 
 				visited.Add(target);
@@ -523,6 +527,10 @@ namespace BSPConvert.Lib
 						break;
 					case "target_push":
 						ConvertTargetPushTrigger(trigger, target, delay);
+						break;
+					case "target_remove_powerups":
+						SetHasteOnOutput(trigger, "0", "OnStartTouch", delay);
+						SetQuadOnOutput(trigger, "0", "OnStartTouch", delay);
 						break;
 					case "func_door":
 						OpenDoorOnOutput(trigger, target, "OnStartTouch", delay);
