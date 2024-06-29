@@ -724,6 +724,7 @@ namespace BSPConvert.Lib
 				RemoveWeaponOnOutput(entity, "weapon_momentum_df_lightninggun", output, delay);
 				RemoveWeaponOnOutput(entity, "weapon_momentum_df_railgun", output, delay);
 				RemoveWeaponOnOutput(entity, "weapon_momentum_df_bfg", output, delay);
+				RemoveWeaponOnOutput(entity, "weapon_momentum_df_shotgun", output, delay);
 			}
 			if (spawnflags.HasFlag(TargetInitFlags.RemoveMachineGun))
 			{
@@ -888,6 +889,8 @@ namespace BSPConvert.Lib
 					return "100";
 				case "weapon_bfg":
 					return "20";
+				case "weapon_shotgun":
+					return "10";
 				default:
 					return "-1";
 			}
@@ -911,6 +914,8 @@ namespace BSPConvert.Lib
 					return "SetRails";
 				case "weapon_bfg":
 					return "SetBfgRockets";
+				case "weapon_shotgun":
+					return "SetShells";
 				default:
 					return string.Empty;
 			}
@@ -1118,6 +1123,8 @@ namespace BSPConvert.Lib
 					return "weapon_momentum_df_railgun";
 				case "weapon_bfg":
 					return "weapon_momentum_df_bfg";
+				case "weapon_shotgun":
+					return "weapon_momentum_df_shotgun";
 				case "item_haste":
 					return "momentum_powerup_haste";
 				case "item_quad":
