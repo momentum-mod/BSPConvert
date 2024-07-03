@@ -1059,17 +1059,17 @@ namespace BSPConvert.Lib
 
 		private static void ConvertTriggerJumppad(Entity trigger, string target)
 		{
-			trigger.ClassName = "trigger_jumppad";
-			trigger["launchtarget"] = target;
-			trigger["launchsound"] = "world/jumppad.wav";
-			trigger["spawnflags"] = "1";
-
 			// TODO: Convert other trigger_push_velocity flags
 			var spawnflags = (Q3TriggerPushVelocityFlags)trigger.Spawnflags;
 			if (spawnflags.HasFlag(Q3TriggerPushVelocityFlags.ADD_XY))
 				trigger["KeepHorizontalSpeed"] = "1";
 			if (spawnflags.HasFlag(Q3TriggerPushVelocityFlags.ADD_Z))
 				trigger["KeepVerticalSpeed"] = "1";
+
+			trigger.ClassName = "trigger_jumppad";
+			trigger["launchtarget"] = target;
+			trigger["launchsound"] = "world/jumppad.wav";
+			trigger["spawnflags"] = "1";
 		}
 
 		private void ConvertTriggerTeleport(Entity trigger)
