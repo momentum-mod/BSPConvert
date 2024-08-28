@@ -23,6 +23,9 @@ namespace BSPConvert.Cmd
 			[Option("nozones", Required = false, HelpText = "Ignore timer zone triggers.")]
 			public bool IgnoreZones { get; set; }
 
+			[Option("smoothshadows", Required = false, Default = 1, HelpText = "Increase color range for smoother shadows. Higher values may negatively impact brighter areas [1-16].")]
+			public int SmoothShadows { get; set; }
+
 			//[Option("oldbsp", Required = false, HelpText = "Use BSP version 20 (HL2 / CS:S).")]
 			//public bool OldBSP { get; set; }
 
@@ -56,6 +59,9 @@ namespace BSPConvert.Cmd
 			if (options.DisplacementPower < 2 || options.DisplacementPower > 4)
 				throw new ArgumentOutOfRangeException("Displacement power must be between 2 and 4.");
 
+			if (options.SmoothShadows < 1 || options.SmoothShadows > 16)
+				throw new ArgumentOutOfRangeException("Smooth shadow multiplier must be between 1 and 16.");
+
 			if (options.OutputDirectory == null)
 				options.OutputDirectory = Path.GetDirectoryName(options.InputFiles.First());
 
@@ -68,6 +74,7 @@ namespace BSPConvert.Cmd
 					DisplacementPower = options.DisplacementPower,
 					minDamageToConvertTrigger = options.MinDamageToConvertTrigger,
 					ignoreZones = options.IgnoreZones,
+					smoothShadows = options.SmoothShadows,
 					//oldBSP = options.OldBSP,
 					prefix = options.Prefix,
 					inputFile = inputEntry,

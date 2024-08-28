@@ -2,13 +2,13 @@
 {
 	public static class ColorUtil
 	{
-		public static ColorRGBExp32 ConvertQ3LightmapToColorRGBExp32(byte r, byte g, byte b)
+		public static ColorRGBExp32 ConvertQ3LightmapToColorRGBExp32(byte r, byte g, byte b, float multi)
 		{
 			var color = new ColorRGBExp32();
 
-			var rf = GammaToLinear(r) * 4f; // Multiply by 4 since Source expects lightmap values in 0-4 range
-			var gf = GammaToLinear(g) * 4f;
-			var bf = GammaToLinear(b) * 4f;
+			var rf = GammaToLinear(r) * multi; // brightness multiplier
+			var gf = GammaToLinear(g) * multi;
+			var bf = GammaToLinear(b) * multi;
 
 			var max = Math.Max(rf, Math.Max(gf, bf));
 			var exp = CalcExponent(max);

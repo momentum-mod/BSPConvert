@@ -57,6 +57,7 @@ namespace BSPConvert.Lib
 		}
 		public int minDamageToConvertTrigger;
 		public bool ignoreZones;
+		public int smoothShadows;
 		public bool oldBSP;
 		public string prefix;
 		public string inputFile;
@@ -220,7 +221,7 @@ namespace BSPConvert.Lib
 
 		private void ConvertMaterials()
 		{
-			var materialConverter = new MaterialConverter(contentManager.ContentDir, shaderDict);
+			var materialConverter = new MaterialConverter(contentManager.ContentDir, shaderDict, options.smoothShadows);
 			foreach (var texture in quakeBsp.Textures)
 				materialConverter.Convert(texture.Name);
 		}
@@ -1477,7 +1478,8 @@ namespace BSPConvert.Lib
 						var color = ColorUtil.ConvertQ3LightmapToColorRGBExp32(
 							qLightmapData[q3LightmapOffset + index * 3 + 0],
 							qLightmapData[q3LightmapOffset + index * 3 + 1],
-							qLightmapData[q3LightmapOffset + index * 3 + 2]);
+							qLightmapData[q3LightmapOffset + index * 3 + 2],
+							4 * options.smoothShadows); // internal lightmaps need * 4 brightness, darker than external lightmaps.
 
 						lmColors.Add(color);
 					}
@@ -1542,7 +1544,8 @@ namespace BSPConvert.Lib
 						var color = ColorUtil.ConvertQ3LightmapToColorRGBExp32(
 							lmData.data[index * 3 + 0],
 							lmData.data[index * 3 + 1],
-							lmData.data[index * 3 + 2]);
+							lmData.data[index * 3 + 2],
+							options.smoothShadows);
 
 						lmColors.Add(color);
 					}
