@@ -1,6 +1,6 @@
 ﻿namespace BSPConvert.Lib;
 
-	public interface ILogger
-	{
-		void Log(string message);
-	}
+public interface ILogger
+{
+    void Log(string message);
+}
