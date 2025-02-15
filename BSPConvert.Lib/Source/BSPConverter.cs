@@ -59,7 +59,7 @@ public class BSPConverterOptions
 		public string outputDir;
 	}
 
-	public class BSPConverter(BSPConverterOptions options, ILogger logger)
+	public class BSPConverter(BSPConverterOptions options, ILogger logger) : IDisposable
 {
 		private readonly BSPConverterOptions options = options;
 		private readonly ILogger logger = logger;
@@ -1134,7 +1134,7 @@ public class BSPConverterOptions
         int firstPrimVertex = sourceBsp.PrimitiveVertices.Count;
 
         int lightmapSize = Q3_LIGHTMAP_SIZE;
-			if (quakeBsp.Lightmaps.Data.Length == 0 && externalLightmaps.Any())
+			if (quakeBsp.Lightmaps.Data.Length == 0 && externalLightmaps.Count != 0)
 				lightmapSize = (int)externalLightmaps.First().Value.size.X;
 
 			(Vector2 min, Vector2 max) = GetLightmapExtents(vertices, lightmapSize);
@@ -1273,10 +1273,8 @@ public class BSPConverterOptions
 				textureInfoIndex = sourceBsp.TextureInfo.Count - 1;
 				textureInfoHashCodeDict.Add(hashCode, textureInfoIndex);
 
-				if (!textureInfoLookup.ContainsKey(texture.Name))
-					textureInfoLookup.Add(texture.Name, textureInfoIndex);
-
-				return textureInfoIndex;
+				textureInfoLookup.TryAdd(texture.Name, textureInfoIndex);
+            return textureInfoIndex;
 			}
 		}
 
@@ -1347,7 +1345,7 @@ public class BSPConverterOptions
 
 			if (quakeBsp.Lightmaps.Data.Length > 0)
 				ConvertInternalLightmaps();
-			else if (externalLightmaps.Any())
+			else if (externalLightmaps.Count != 0)
 				ConvertExternalLightmaps();
 		}
 
@@ -1634,4 +1632,9 @@ public class BSPConverterOptions
 			
 			logger.Log($"Converted BSP: {bspPath}");
 		}
-	}
+
+    public void Dispose()
+    {
+        throw new NotImplementedException();
+    }
+}

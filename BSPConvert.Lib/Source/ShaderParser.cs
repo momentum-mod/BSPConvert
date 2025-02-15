@@ -48,7 +48,7 @@ public class ShaderParser(string shaderFile)
 
             // Parse shader parameter
             string[] split = line.Split();
-				switch (split[0].ToLower())
+				switch (split[0].ToLower(System.Globalization.CultureInfo.CurrentCulture))
 				{
 					case "q3map_sun":
 						break;
@@ -91,7 +91,7 @@ public class ShaderParser(string shaderFile)
 					case "sort":
 						break;
 					default:
-						if (!split[0].ToLower().StartsWith("qer"))
+						if (!split[0].StartsWith("qer", StringComparison.CurrentCultureIgnoreCase))
 							Debug.WriteLine("Warning: Unknown shader parameter '" + split[0] + "' in shader file: " + shaderFile);
 						
 						break;
@@ -114,7 +114,7 @@ public class ShaderParser(string shaderFile)
 					break;
 
             string[] split = line.Split((char[])null, StringSplitOptions.RemoveEmptyEntries);
-				switch (split[0].ToLower())
+				switch (split[0].ToLower(System.Globalization.CultureInfo.CurrentCulture))
 				{
 					case "map":
 						stage.bundles[0].images[0] = split[1];
@@ -237,7 +237,7 @@ public class ShaderParser(string shaderFile)
 
     private CullType ParseCullType(string cullType)
 		{
-        return cullType.ToLower() switch
+        return cullType.ToLower(System.Globalization.CultureInfo.CurrentCulture) switch
         {
             "none" or "twosided" or "disable" => CullType.TWO_SIDED,
             "back" or "backside" or "backsided" => CullType.BACK_SIDED,
@@ -247,7 +247,7 @@ public class ShaderParser(string shaderFile)
 
 		private ShaderStageFlags ParseAlphaFunc(string func)
 		{
-        return func.ToLower() switch
+        return func.ToLower(System.Globalization.CultureInfo.CurrentCulture) switch
         {
             "gt0" => ShaderStageFlags.GLS_ATEST_GT_0,
             "lt128" => ShaderStageFlags.GLS_ATEST_LT_80,
@@ -259,7 +259,7 @@ public class ShaderParser(string shaderFile)
 
 		private ShaderStageFlags ParseBlendFunc(string[] split)
 		{
-			switch (split[1].ToLower())
+			switch (split[1].ToLower(System.Globalization.CultureInfo.CurrentCulture))
 			{
 				case "add":
 					return ShaderStageFlags.GLS_SRCBLEND_ONE | ShaderStageFlags.GLS_DSTBLEND_ONE;
@@ -277,7 +277,7 @@ public class ShaderParser(string shaderFile)
 
 		private ShaderStageFlags ParseSrcBlendMode(string src)
 		{
-			switch (src.ToUpper())
+			switch (src.ToUpper(System.Globalization.CultureInfo.CurrentCulture))
 			{
 				case "GL_ONE":
 					return ShaderStageFlags.GLS_SRCBLEND_ONE;
@@ -305,7 +305,7 @@ public class ShaderParser(string shaderFile)
 
 		private ShaderStageFlags ParseDestBlendMode(string dest)
 		{
-			switch (dest.ToUpper())
+			switch (dest.ToUpper(System.Globalization.CultureInfo.CurrentCulture))
 			{
 				case "GL_ONE":
 					return ShaderStageFlags.GLS_DSTBLEND_ONE;
@@ -331,7 +331,7 @@ public class ShaderParser(string shaderFile)
 
 		private void ParseRGBGen(ShaderStage stage, string[] split)
 		{
-			switch (split[1].ToLower())
+			switch (split[1].ToLower(System.Globalization.CultureInfo.CurrentCulture))
 			{
 				case "wave":
 					{
@@ -412,7 +412,7 @@ public class ShaderParser(string shaderFile)
 
 		private void ParseAlphaGen(ShaderStage stage, string[] split)
 		{
-			switch (split[1].ToLower())
+			switch (split[1].ToLower(System.Globalization.CultureInfo.CurrentCulture))
 			{
 				case "wave":
 					{
@@ -460,7 +460,7 @@ public class ShaderParser(string shaderFile)
 
 		private TexCoordGen ParseTCGen(string tcGen)
 		{
-			switch (tcGen.ToLower())
+			switch (tcGen.ToLower(System.Globalization.CultureInfo.CurrentCulture))
 			{
 				case "environment":
 					return TexCoordGen.TCGEN_ENVIRONMENT_MAPPED;
@@ -482,7 +482,7 @@ public class ShaderParser(string shaderFile)
 
 		private TexModInfo ParseTCModInfo(string[] tcMod)
 		{
-			switch (tcMod[1].ToLower())
+			switch (tcMod[1].ToLower(System.Globalization.CultureInfo.CurrentCulture))
 			{
 				case "turb":
 					return ParseTCModInfoTurb(tcMod);

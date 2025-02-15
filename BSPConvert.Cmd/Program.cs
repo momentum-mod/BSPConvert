@@ -3,9 +3,9 @@ using BSPConvert.Lib;
 using CommandLine;
 using CommandLine.Text;
 
-internal class Program
+internal sealed class Program
 	{
-    private class Options
+    private sealed class Options
 		{
 			[Option("nopak", Required = false, HelpText = "Export materials into folders instead of embedding them in the BSP.")]
 			public bool NoPak { get; set; }

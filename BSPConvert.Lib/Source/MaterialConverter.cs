@@ -39,11 +39,10 @@ public class MaterialConverter
 				if (ext is ".tga" or ".jpg")
 				{
                 string texturePath = file.Replace(contentDir + Path.DirectorySeparatorChar, "")
-						.Replace(Path.DirectorySeparatorChar, '/').Replace(ext, "").ToLower();
+                        .Replace(Path.DirectorySeparatorChar, '/').Replace(ext, "").ToLower(System.Globalization.CultureInfo.CurrentCulture);
 
-					if (!imageDict.ContainsKey(texturePath))
-						imageDict.Add(texturePath, file);
-				}
+					imageDict.TryAdd(texturePath, file);
+            }
 			}
 
 			return imageDict;

@@ -399,7 +399,7 @@ public class EntityConverter
 			playerStart.Name = MOMENTUM_START_ENTITY;
 
         List<Entity> targets = GetTargetEntities(playerStart);
-			if (targets.Any())
+			if (targets.Count != 0)
 			{
             var logicAuto = new Entity
             {

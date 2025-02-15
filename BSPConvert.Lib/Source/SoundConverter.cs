@@ -26,7 +26,7 @@ public class SoundConverter
 		public void Convert()
 		{
         List<string> customSounds = FindCustomSounds();
-			if (!customSounds.Any())
+			if (customSounds.Count == 0)
 				return;
 
 			foreach (string sound in customSounds)
