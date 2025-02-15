@@ -1,32 +1,23 @@
-﻿using System;
+﻿namespace BSPConvert.Lib;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
 using System.Numerics;
-using System.Text;
-using System.Threading.Tasks;
 
-namespace BSPConvert.Lib
+public class ShaderParser(string shaderFile)
 {
-	public class ShaderParser
-	{
-		private string shaderFile;
+		private readonly string shaderFile = shaderFile;
 
-		public ShaderParser(string shaderFile)
-		{
-			this.shaderFile = shaderFile;
-		}
-
-		public Dictionary<string, Shader> ParseShaders()
+    public Dictionary<string, Shader> ParseShaders()
 		{
 			var shaderDict = new Dictionary<string, Shader>();
 
-			var fileEnumerator = File.ReadLines(shaderFile).GetEnumerator();
+        IEnumerator<string> fileEnumerator = File.ReadLines(shaderFile).GetEnumerator();
 			string line;
 			while ((line = GetNextValidLine(fileEnumerator)) != null)
 			{
-				var textureName = line;
-				if (TryParseShader(fileEnumerator, out var shader))
+            string textureName = line;
+				if (TryParseShader(fileEnumerator, out Shader? shader))
 					shaderDict[textureName] = shader;
 			}
 
@@ -38,7 +29,7 @@ namespace BSPConvert.Lib
 			shader = new Shader();
 			var stages = new List<ShaderStage>();
 
-			var line = GetNextValidLine(fileEnumerator);
+        string line = GetNextValidLine(fileEnumerator);
 			if (string.IsNullOrEmpty(line) || !line.StartsWith('{'))
 			{
 				Debug.WriteLine("Warning: Expecting '{', found '" + line + "' instead in shader file: " + shaderFile);
@@ -55,8 +46,8 @@ namespace BSPConvert.Lib
 					continue;
 				}
 
-				// Parse shader parameter
-				var split = line.Split();
+            // Parse shader parameter
+            string[] split = line.Split();
 				switch (split[0].ToLower())
 				{
 					case "q3map_sun":
@@ -71,7 +62,7 @@ namespace BSPConvert.Lib
 						break;
 					case "surfaceparm":
 						{
-							var infoParm = ParseSurfaceParm(split[1]);
+                        InfoParm infoParm = ParseSurfaceParm(split[1]);
 							shader.surfaceFlags |= infoParm.surfaceFlags;
 							shader.contents |= infoParm.contents;
 							break;
@@ -122,7 +113,7 @@ namespace BSPConvert.Lib
 				if (line == "}") // End of shader pass definition
 					break;
 
-				var split = line.Split((char[])null, StringSplitOptions.RemoveEmptyEntries);
+            string[] split = line.Split((char[])null, StringSplitOptions.RemoveEmptyEntries);
 				switch (split[0].ToLower())
 				{
 					case "map":
@@ -181,7 +172,7 @@ namespace BSPConvert.Lib
 
 			bundle.imageAnimationSpeed = float.Parse(split[1]);
 
-			for (var i = 2; i < split.Length; i++)
+			for (int i = 2; i < split.Length; i++)
 			{
 				if (bundle.numImageAnimations >= TextureBundle.MAX_IMAGE_ANIMATIONS)
 					break;
@@ -195,7 +186,7 @@ namespace BSPConvert.Lib
 
 		private InfoParm ParseSurfaceParm(string surfaceParm)
 		{
-			foreach (var infoParm in Constants.infoParms)
+			foreach (InfoParm infoParm in Constants.infoParms)
 			{
 				if (surfaceParm == infoParm.name)
 					return infoParm;
@@ -237,48 +228,34 @@ namespace BSPConvert.Lib
 			return fogParms;
 		}
 
-		private Shader.SkyParms ParseSkyParms(string[] split)
-		{
-			return new Shader.SkyParms()
-			{
-				outerBox = split[1],
-				cloudHeight = split[2],
-				innerBox = split[3]
-			};
-		}
+    private Shader.SkyParms ParseSkyParms(string[] split) => new()
+    {
+        outerBox = split[1],
+        cloudHeight = split[2],
+        innerBox = split[3]
+    };
 
-		private CullType ParseCullType(string cullType)
+    private CullType ParseCullType(string cullType)
 		{
-			switch (cullType.ToLower())
-			{
-				case "none":
-				case "twosided":
-				case "disable":
-					return CullType.TWO_SIDED;
-				case "back":
-				case "backside":
-				case "backsided":
-					return CullType.BACK_SIDED;
-				default:
-					return CullType.FRONT_SIDED;
-			}
-		}
+        return cullType.ToLower() switch
+        {
+            "none" or "twosided" or "disable" => CullType.TWO_SIDED,
+            "back" or "backside" or "backsided" => CullType.BACK_SIDED,
+            _ => CullType.FRONT_SIDED,
+        };
+    }
 
 		private ShaderStageFlags ParseAlphaFunc(string func)
 		{
-			switch (func.ToLower())
-			{
-				case "gt0":
-					return ShaderStageFlags.GLS_ATEST_GT_0;
-				case "lt128":
-					return ShaderStageFlags.GLS_ATEST_LT_80;
-				case "ge128":
-					return ShaderStageFlags.GLS_ATEST_GE_80;
-			}
-
-			// Invalid alphaFunc
-			return 0;
-		}
+        return func.ToLower() switch
+        {
+            "gt0" => ShaderStageFlags.GLS_ATEST_GT_0,
+            "lt128" => ShaderStageFlags.GLS_ATEST_LT_80,
+            "ge128" => ShaderStageFlags.GLS_ATEST_GE_80,
+            // Invalid alphaFunc
+            _ => 0,
+        };
+    }
 
 		private ShaderStageFlags ParseBlendFunc(string[] split)
 		{
@@ -367,7 +344,7 @@ namespace BSPConvert.Lib
 					{
 						stage.rgbGen = ColorGen.CGEN_CONST;
 
-						var color = ParseVector(new ArraySegment<string>(split, 2, 5));
+                    Vector3 color = ParseVector(new ArraySegment<string>(split, 2, 5));
 						stage.constantColor[0] = (byte)(255 * color[0]);
 						stage.constantColor[1] = (byte)(255 * color[1]);
 						stage.constantColor[2] = (byte)(255 * color[2]);
@@ -421,10 +398,11 @@ namespace BSPConvert.Lib
 
 		private WaveForm ParseWaveform(ArraySegment<string> split)
 		{
-			var wave = new WaveForm();
-
-			wave.func = NameToGenFunc(split[0]);
-			float.TryParse(split[1], out wave.base_);
+        var wave = new WaveForm
+        {
+            func = NameToGenFunc(split[0])
+        };
+        float.TryParse(split[1], out wave.base_);
 			float.TryParse(split[2], out wave.amplitude);
 			float.TryParse(split[3], out wave.phase);
 			float.TryParse(split[4], out wave.frequency);
@@ -447,7 +425,7 @@ namespace BSPConvert.Lib
 					{
 						stage.alphaGen = AlphaGen.AGEN_CONST;
 
-						if (float.TryParse(split[2], out var alpha))
+						if (float.TryParse(split[2], out float alpha))
 							stage.constantColor[3] = (byte)(alpha * 255);
 						break;
 					}
@@ -638,11 +616,12 @@ namespace BSPConvert.Lib
 
 		private TexModInfo ParseTCModInfoTranslate(string[] tcMod)
 		{
-			var texModInfo = new TexModInfo();
-			
-			texModInfo.type = TexMod.TMOD_ENTITY_TRANSLATE;
-			
-			return texModInfo;
+        var texModInfo = new TexModInfo
+        {
+            type = TexMod.TMOD_ENTITY_TRANSLATE
+        };
+
+        return texModInfo;
 		}
 
 		private GenFunc NameToGenFunc(string funcName)
@@ -672,7 +651,7 @@ namespace BSPConvert.Lib
 		{
 			while (fileEnumerator.MoveNext())
 			{
-				var line = TrimLine(fileEnumerator.Current);
+            string line = TrimLine(fileEnumerator.Current);
 				if (!string.IsNullOrEmpty(line))
 					return line;
 			}
@@ -682,15 +661,14 @@ namespace BSPConvert.Lib
 
 		private string TrimLine(string line)
 		{
-			var trimmed = line.Trim();
+        string trimmed = line.Trim();
 
 			// Remove comments from line
 			if (trimmed.Contains("//"))
-				trimmed = trimmed.Substring(0, trimmed.IndexOf("//"));
+				trimmed = trimmed[..trimmed.IndexOf("//")];
 
 			// TODO: Handle multi-line comments
 			
 			return trimmed;
 		}
 	}
-}

@@ -1,12 +1,11 @@
-﻿using BSPConvert.Lib;
+﻿namespace BSPConvert.Cmd;
+using BSPConvert.Lib;
 using CommandLine;
 using CommandLine.Text;
 
-namespace BSPConvert.Cmd
-{
-	internal class Program
+internal class Program
 	{
-		class Options
+    private class Options
 		{
 			[Option("nopak", Required = false, HelpText = "Export materials into folders instead of embedding them in the BSP.")]
 			public bool NoPak { get; set; }
@@ -36,7 +35,7 @@ namespace BSPConvert.Cmd
 			public IEnumerable<string> InputFiles { get; set; }
 		}
 
-		static void Main(string[] args)
+    private static void Main(string[] args)
 		{
 			//args = new string[]
 			//{
@@ -45,21 +44,20 @@ namespace BSPConvert.Cmd
 			//};
 
 			var parser = new Parser(with => with.HelpWriter = null);
-			var parserResult = parser.ParseArguments<Options>(args);
+        ParserResult<Options> parserResult = parser.ParseArguments<Options>(args);
 			parserResult
-				.WithParsed(options => RunCommand(options))
+				.WithParsed(RunCommand)
 				.WithNotParsed(errors => DisplayHelp(errors, parserResult));
 		}
 
-		static void RunCommand(Options options)
+    private static void RunCommand(Options options)
 		{
-			if (options.DisplacementPower < 2 || options.DisplacementPower > 4)
+			if (options.DisplacementPower is < 2 or > 4)
 				throw new ArgumentOutOfRangeException("Displacement power must be between 2 and 4.");
 
-			if (options.OutputDirectory == null)
-				options.OutputDirectory = Path.GetDirectoryName(options.InputFiles.First());
+			options.OutputDirectory ??= Path.GetDirectoryName(options.InputFiles.First());
 
-			foreach (var inputEntry in options.InputFiles)
+			foreach (string inputEntry in options.InputFiles)
 			{
 				var converterOptions = new BSPConverterOptions()
 				{
@@ -78,7 +76,7 @@ namespace BSPConvert.Cmd
 			}
 		}
 
-		static void DisplayHelp(IEnumerable<Error> errors, ParserResult<Options> parserResult)
+    private static void DisplayHelp(IEnumerable<Error> errors, ParserResult<Options> parserResult)
 		{
 			const string version = "BSP Convert 0.0.3-alpha";
 			if (errors.IsVersion())
@@ -100,4 +98,3 @@ namespace BSPConvert.Cmd
 			Console.WriteLine(helpText);
 		}
 	}
-}

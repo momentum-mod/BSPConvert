@@ -1,12 +1,7 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿namespace BSPConvert.Lib;
+using System;
 
-namespace BSPConvert.Lib
-{
-	[Flags]
+[Flags]
 	public enum DisplacementFlags
 	{
 		SURF_BUMPED = 1,
@@ -66,7 +61,7 @@ namespace BSPConvert.Lib
 		CONTENTS_OPAQUE			=	0x80,	// things that cannot be seen through (may be non-solid though)
 		LAST_VISIBLE_CONTENTS	=	0x80,
 		
-		ALL_VISIBLE_CONTENTS	=	(LAST_VISIBLE_CONTENTS | (LAST_VISIBLE_CONTENTS-1)),
+		ALL_VISIBLE_CONTENTS	=	LAST_VISIBLE_CONTENTS | (LAST_VISIBLE_CONTENTS-1),
 		
 		CONTENTS_TESTFOGVOLUME	=	0x100,
 		CONTENTS_UNUSED			=	0x200,	
@@ -160,26 +155,18 @@ namespace BSPConvert.Lib
 		SURF_SLICK = 0x40000	// surface is zero friction
 	}
 
-	public struct InfoParm
-	{
-		public string name;
-		public int clearSolid;
-		public Q3SurfaceFlags surfaceFlags;
-		public Q3ContentsFlags contents;
+	public struct InfoParm(string name, int clearSolid, Q3SurfaceFlags surfaceFlags, Q3ContentsFlags contents)
+{
+		public string name = name;
+		public int clearSolid = clearSolid;
+		public Q3SurfaceFlags surfaceFlags = surfaceFlags;
+		public Q3ContentsFlags contents = contents;
+}
 
-		public InfoParm(string name, int clearSolid, Q3SurfaceFlags surfaceFlags, Q3ContentsFlags contents)
-		{
-			this.name = name;
-			this.clearSolid = clearSolid;
-			this.surfaceFlags = surfaceFlags;
-			this.contents = contents;
-		}
-	}
-
-	public static class Constants
+public static class Constants
 	{
 		public static InfoParm[] infoParms =
-		{
+		[
 			// server relevant contents
 			new InfoParm("water",       1,  0,  Q3ContentsFlags.CONTENTS_WATER ),
 			new InfoParm("slime",       1,  0,  Q3ContentsFlags.CONTENTS_SLIME ),		// mildly damaging
@@ -220,6 +207,5 @@ namespace BSPConvert.Lib
 			new InfoParm("nolightmap",  0,  Q3SurfaceFlags.SURF_NOLIGHTMAP,0 ),	// don't generate a lightmap
 			new InfoParm("nodlight",    0,  Q3SurfaceFlags.SURF_NODLIGHT, 0 ),		// don't ever add dynamic lights
 			new InfoParm("dust",        0,  Q3SurfaceFlags.SURF_DUST, 0)			// leave a dust trail when walking on this surface
-		};
+		];
 	}
-}

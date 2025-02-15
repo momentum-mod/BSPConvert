@@ -1,29 +1,19 @@
-﻿using System;
+﻿namespace BSPConvert.Lib;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
-namespace BSPConvert.Lib
+public class ShaderLoader(IEnumerable<string> shaderFiles)
 {
-	public class ShaderLoader
-	{
-		private IEnumerable<string> shaderFiles;
-		
-		public ShaderLoader(IEnumerable<string> shaderFiles)
-		{
-			this.shaderFiles = shaderFiles;
-		}
+		private readonly IEnumerable<string> shaderFiles = shaderFiles;
 
-		public Dictionary<string, Shader> LoadShaders()
+    public Dictionary<string, Shader> LoadShaders()
 		{
 			var shaderDict = new Dictionary<string, Shader>();
 
-			foreach (var file in shaderFiles)
+			foreach (string file in shaderFiles)
 			{
 				var shaderParser = new ShaderParser(file);
-				var newShaderDict = shaderParser.ParseShaders();
-				foreach (var kv in newShaderDict)
+            Dictionary<string, Shader> newShaderDict = shaderParser.ParseShaders();
+				foreach (KeyValuePair<string, Shader> kv in newShaderDict)
 				{
 					if (!shaderDict.ContainsKey(kv.Key))
 						shaderDict.Add(kv.Key, kv.Value);
@@ -33,4 +23,3 @@ namespace BSPConvert.Lib
 			return shaderDict;
 		}
 	}
-}

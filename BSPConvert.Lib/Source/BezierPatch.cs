@@ -1,12 +1,6 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Numerics;
-using System.Text;
-using System.Threading.Tasks;
+﻿namespace BSPConvert.Lib;
+using System;
 
-namespace BSPConvert.Lib
-{
 #if UNITY
 	using Vector3 = UnityEngine.Vector3;
 #elif GODOT
@@ -14,12 +8,13 @@ namespace BSPConvert.Lib
 #elif NEOAXIS
 	using Vector3 = NeoAxis.Vector3F;
 #else
-	using Vector3 = System.Numerics.Vector3;
+using Vector3 = System.Numerics.Vector3;
+
 #endif
-	
-	public class BezierPatch
+
+public class BezierPatch
 	{
-		private Vector3[] controlPoints;
+		private readonly Vector3[] controlPoints;
 		
 		public BezierPatch(Vector3[] controlPoints)
 		{
@@ -36,29 +31,25 @@ namespace BSPConvert.Lib
 		/// <param name="v">[0-1] fraction along the height of the patch</param>
 		public Vector3 GetPoint(float u, float v)
 		{
-			var bi = QuadraticBezier(u);
-			var bj = QuadraticBezier(v);
+        float[] bi = QuadraticBezier(u);
+        float[] bj = QuadraticBezier(v);
 
 			var result = new Vector3(0f, 0f, 0f);
-			for (var i = 0; i < 3; i++)
+			for (int i = 0; i < 3; i++)
 			{
-				for (var j = 0; j < 3; j++)
+				for (int j = 0; j < 3; j++)
 				{
-					result += controlPoints[i + j * 3] * bi[i] * bj[j];
+					result += controlPoints[i + (j * 3)] * bi[i] * bj[j];
 				}
 			}
 
 			return result;
 		}
 
-		private float[] QuadraticBezier(float t)
-		{
-			return new float[3]
-			{
-				(1f - t) * (1f - t),
-				2f * t * (1f - t),
-				t * t
-			};
-		}
-	}
+    private float[] QuadraticBezier(float t) =>
+        [
+                (1f - t) * (1f - t),
+                2f * t * (1f - t),
+                t * t
+        ];
 }

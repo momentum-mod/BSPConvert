@@ -1,12 +1,5 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
-namespace BSPConvert.Lib
-{
-	public class VTFFile
+﻿namespace BSPConvert.Lib;
+public class VTFFile
 	{
 		public class Header
 		{
@@ -32,10 +25,11 @@ namespace BSPConvert.Lib
 
 			public static Header Deserialize(BinaryReader reader)
 			{
-				var header = new Header();
-
-				header.signature = reader.ReadChars(4).ToString();
-				header.version[0] = reader.ReadUInt32();
+            var header = new Header
+            {
+                signature = reader.ReadChars(4).ToString()
+            };
+            header.version[0] = reader.ReadUInt32();
 				header.version[1] = reader.ReadUInt32();
 				header.headerSize = reader.ReadUInt32();
 				header.width = reader.ReadUInt16();
@@ -63,11 +57,11 @@ namespace BSPConvert.Lib
 
 		public static VTFFile Deserialize(BinaryReader reader)
 		{
-			var vtfFile = new VTFFile();
+        var vtfFile = new VTFFile
+        {
+            header = Header.Deserialize(reader)
+        };
 
-			vtfFile.header = Header.Deserialize(reader);
-
-			return vtfFile;
+        return vtfFile;
 		}
 	}
-}

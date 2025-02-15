@@ -1,12 +1,7 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿namespace BSPConvert.Lib;
+using System;
 
-namespace BSPConvert.Lib
-{
-	public static class FileUtil
+public static class FileUtil
 	{
 		/// <summary>
 		/// Moves a file and creates the destination directory if it doesn't exist.
@@ -31,11 +26,10 @@ namespace BSPConvert.Lib
 		/// </summary>
 		public static T DeserializeFromFile<T>(string path, Func<BinaryReader, T> deserializeFunc)
 		{
-			using (var stream = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read))
+			using (FileStream stream = File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read))
 			using (var reader = new BinaryReader(stream))
 			{
 				return deserializeFunc(reader);
 			}
 		}
 	}
-}

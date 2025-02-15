@@ -1,27 +1,24 @@
-﻿using System;
+﻿namespace BSPConvert.Lib;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
-using System.Threading.Tasks;
 
-namespace BSPConvert.Lib
-{
-	public class MaterialConverter
+public class MaterialConverter
 	{
-		private string pk3Dir;
-		private Dictionary<string, Shader> shaderDict;
-		private Dictionary<string, string> pk3ImageDict;
-		private Dictionary<string, string> q3ImageDict;
+		private readonly string pk3Dir;
+		private readonly Dictionary<string, Shader> shaderDict;
+		private readonly Dictionary<string, string> pk3ImageDict;
+		private readonly Dictionary<string, string> q3ImageDict;
 
-		private string[] skySuffixes =
-		{
+		private readonly string[] skySuffixes =
+		[
 			"bk",
 			"dn",
 			"ft",
 			"lf",
 			"rt",
 			"up"
-		};
+		];
 
 		public MaterialConverter(string pk3Dir, Dictionary<string, Shader> shaderDict)
 		{
@@ -36,12 +33,12 @@ namespace BSPConvert.Lib
 		{
 			var imageDict = new Dictionary<string, string>();
 
-			foreach (var file in Directory.GetFiles(contentDir, "*.*", SearchOption.AllDirectories))
+			foreach (string file in Directory.GetFiles(contentDir, "*.*", SearchOption.AllDirectories))
 			{
-				var ext = Path.GetExtension(file);
-				if (ext == ".tga" || ext == ".jpg")
+            string ext = Path.GetExtension(file);
+				if (ext is ".tga" or ".jpg")
 				{
-					var texturePath = file.Replace(contentDir + Path.DirectorySeparatorChar, "")
+                string texturePath = file.Replace(contentDir + Path.DirectorySeparatorChar, "")
 						.Replace(Path.DirectorySeparatorChar, '/').Replace(ext, "").ToLower();
 
 					if (!imageDict.ContainsKey(texturePath))
@@ -54,7 +51,7 @@ namespace BSPConvert.Lib
 
 		public void Convert(string texture)
 		{
-			if (shaderDict.TryGetValue(texture, out var shader))
+			if (shaderDict.TryGetValue(texture, out Shader? shader))
 				CreateShaderVMT(texture, shader);
 			else
 				CreateDefaultVMT(texture);
@@ -72,14 +69,14 @@ namespace BSPConvert.Lib
 
 		private void CreateFogVMT(string texture, Shader shader)
 		{
-			var fogVmt = GenerateFogVMT(shader);
+        string fogVmt = GenerateFogVMT(shader);
 			WriteVMT(texture, fogVmt);
 		}
 
 		private string GenerateFogVMT(Shader shader)
 		{
-			var fogParms = shader.fogParms;
-			var fogColor = $"{fogParms.color.X * 255} {fogParms.color.Y * 255} {fogParms.color.Z * 255}";
+        Shader.FogParms fogParms = shader.fogParms;
+        string fogColor = $"{fogParms.color.X * 255} {fogParms.color.Y * 255} {fogParms.color.Z * 255}";
 
 			return $$"""
 					Water
@@ -113,14 +110,14 @@ namespace BSPConvert.Lib
 
 		private void CreateSkyboxVMT(Shader shader)
 		{
-			foreach (var suffix in skySuffixes)
+			foreach (string suffix in skySuffixes)
 			{
-				var skyTexture = $"{shader.skyParms.outerBox}_{suffix}";
+            string skyTexture = $"{shader.skyParms.outerBox}_{suffix}";
 				if (!PrepareSkyboxImage(skyTexture))
 					continue;
 
-				var baseTexture = $"skybox/{shader.skyParms.outerBox}{suffix}";
-				var skyboxVmt = GenerateSkyboxVMT(baseTexture);
+            string baseTexture = $"skybox/{shader.skyParms.outerBox}{suffix}";
+            string skyboxVmt = GenerateSkyboxVMT(baseTexture);
 				WriteVMT(baseTexture, skyboxVmt);
 			}
 		}
@@ -128,21 +125,21 @@ namespace BSPConvert.Lib
 		// Try to find the sky image file and move it to skybox folder in order for Source engine to detect it properly
 		private bool PrepareSkyboxImage(string skyTexture)
 		{
-			var skyboxDir = Path.Combine(pk3Dir, "skybox");
-			if (pk3ImageDict.TryGetValue(skyTexture, out var pk3Path))
+        string skyboxDir = Path.Combine(pk3Dir, "skybox");
+			if (pk3ImageDict.TryGetValue(skyTexture, out string? pk3Path))
 			{
-				var newPath = pk3Path.Replace(pk3Dir, skyboxDir);
-				var destFile = newPath.Remove(newPath.LastIndexOf('_'), 1); // Remove underscore from skybox suffix
+            string newPath = pk3Path.Replace(pk3Dir, skyboxDir);
+            string destFile = newPath.Remove(newPath.LastIndexOf('_'), 1); // Remove underscore from skybox suffix
 
 				FileUtil.MoveFile(pk3Path, destFile);
 
 				return true;
 			}
-			else if (q3ImageDict.TryGetValue(skyTexture, out var q3Path))
+			else if (q3ImageDict.TryGetValue(skyTexture, out string? q3Path))
 			{
-				var q3ContentDir = ContentManager.GetQ3ContentDir();
-				var newPath = q3Path.Replace(q3ContentDir, skyboxDir);
-				var destFile = newPath.Remove(newPath.LastIndexOf('_'), 1); // Remove underscore from skybox suffix
+            string q3ContentDir = ContentManager.GetQ3ContentDir();
+            string newPath = q3Path.Replace(q3ContentDir, skyboxDir);
+            string destFile = newPath.Remove(newPath.LastIndexOf('_'), 1); // Remove underscore from skybox suffix
 
 				FileUtil.CopyFile(q3Path, destFile);
 
@@ -154,17 +151,17 @@ namespace BSPConvert.Lib
 
 		private void CreateBaseShaderVMT(string texture, Shader shader)
 		{
-			var images = shader.GetImageStages().SelectMany(x => x.bundles[0].images);
-			foreach (var image in images)
+        IEnumerable<string> images = shader.GetImageStages().SelectMany(x => x.bundles[0].images);
+			foreach (string? image in images)
 			{
 				if (string.IsNullOrEmpty(image))
 					continue;
 
-				var baseTexture = Path.ChangeExtension(image, null);
+            string baseTexture = Path.ChangeExtension(image, null);
 				TryCopyQ3Content(baseTexture);
 			}
 
-			var shaderVmt = GenerateVMT(shader);
+        string shaderVmt = GenerateVMT(shader);
 			WriteVMT(texture, shaderVmt);
 		}
 
@@ -178,7 +175,7 @@ namespace BSPConvert.Lib
 
 		private void WriteVMT(string texture, string vmt)
 		{
-			var vmtPath = Path.Combine(pk3Dir, $"{texture}.vmt");
+        string vmtPath = Path.Combine(pk3Dir, $"{texture}.vmt");
 			Directory.CreateDirectory(Path.GetDirectoryName(vmtPath));
 
 			File.WriteAllText(vmtPath, vmt);
@@ -187,10 +184,10 @@ namespace BSPConvert.Lib
 		// Copies content from the Q3Content folder if it exists
 		private void TryCopyQ3Content(string texturePath)
 		{
-			if (q3ImageDict.TryGetValue(texturePath, out var q3TexturePath))
+			if (q3ImageDict.TryGetValue(texturePath, out string? q3TexturePath))
 			{
-				var q3ContentDir = ContentManager.GetQ3ContentDir();
-				var newPath = q3TexturePath.Replace(q3ContentDir, pk3Dir);
+            string q3ContentDir = ContentManager.GetQ3ContentDir();
+            string newPath = q3TexturePath.Replace(q3ContentDir, pk3Dir);
 				FileUtil.CopyFile(q3TexturePath, newPath);
 			}
 		}
@@ -223,40 +220,40 @@ namespace BSPConvert.Lib
 
 		private void AppendShaderParameters(StringBuilder sb, Shader shader)
 		{
-			var stages = shader.GetImageStages();
-			var textureStage = stages.FirstOrDefault(x => x.bundles[0].tcGen != TexCoordGen.TCGEN_ENVIRONMENT_MAPPED && x.bundles[0].tcGen != TexCoordGen.TCGEN_LIGHTMAP);
+        IEnumerable<ShaderStage> stages = shader.GetImageStages();
+        ShaderStage? textureStage = stages.FirstOrDefault(x => x.bundles[0].tcGen is not TexCoordGen.TCGEN_ENVIRONMENT_MAPPED and not TexCoordGen.TCGEN_LIGHTMAP);
 			if (textureStage != null)
 			{
-				var texture = Path.ChangeExtension(textureStage.bundles[0].images[0], null);
+            string texture = Path.ChangeExtension(textureStage.bundles[0].images[0], null);
 				sb.AppendLine($"\t$basetexture \"{texture}\"");
 
 				if (textureStage.rgbGen.HasFlag(ColorGen.CGEN_CONST))
 				{
-					var color = textureStage.constantColor;
-					var colorStr = $"{color[0]} {color[1]} {color[2]}";
+                byte[] color = textureStage.constantColor;
+                string colorStr = $"{color[0]} {color[1]} {color[2]}";
 					sb.AppendLine("\t$color \"{" + colorStr + "}\"");
 				}
 
 				if (textureStage.alphaGen.HasFlag(AlphaGen.AGEN_CONST))
 				{
-					var alpha = (float)textureStage.constantColor[3] / 255;
+                float alpha = (float)textureStage.constantColor[3] / 255;
 					sb.AppendLine($"\t$alpha {alpha}");
 				}
 			}
 
-			var envMapStage = stages.FirstOrDefault(x => x.bundles[0].tcGen == TexCoordGen.TCGEN_ENVIRONMENT_MAPPED);
+        ShaderStage? envMapStage = stages.FirstOrDefault(x => x.bundles[0].tcGen == TexCoordGen.TCGEN_ENVIRONMENT_MAPPED);
 			if (envMapStage != null)
 			{
 				sb.AppendLine($"\t$envmap \"engine/defaultcubemap\"");
 
 				if (envMapStage.alphaGen == AlphaGen.AGEN_CONST)
 				{
-					var alpha = (float)envMapStage.constantColor[3] / 255;
+                float alpha = (float)envMapStage.constantColor[3] / 255;
 					sb.AppendLine($"\t$envmaptint \"[{alpha} {alpha} {alpha}]\"");
 				}
 				else if (envMapStage.rgbGen == ColorGen.CGEN_WAVEFORM)
 				{
-					var alpha = envMapStage.rgbWave.base_;
+                float alpha = envMapStage.rgbWave.base_;
 					sb.AppendLine($"\t$envmaptint \"[{alpha} {alpha} {alpha}]\"");
 				}
 			}
@@ -264,14 +261,14 @@ namespace BSPConvert.Lib
 			if (shader.cullType == CullType.TWO_SIDED)
 				sb.AppendLine("\t$nocull 1");
 
-			var flags = (textureStage?.flags ?? 0) | (envMapStage?.flags ?? 0);
+        ShaderStageFlags flags = (textureStage?.flags ?? 0) | (envMapStage?.flags ?? 0);
 			if (flags.HasFlag(ShaderStageFlags.GLS_ATEST_GE_80))
 			{
 				sb.AppendLine("\t$alphatest 1");
 				sb.AppendLine("\t$alphatestreference 0.5");
 			}
 
-			var firstImageStage = stages.FirstOrDefault();
+        ShaderStage? firstImageStage = stages.FirstOrDefault();
 			if (firstImageStage != null)
 			{
 				if (firstImageStage.flags.HasFlag(ShaderStageFlags.GLS_SRCBLEND_ONE | ShaderStageFlags.GLS_DSTBLEND_ONE)) // blendFunc add
@@ -281,8 +278,8 @@ namespace BSPConvert.Lib
 					sb.AppendLine("\t$translucent 1");
 			}
 
-			if (textureStage != null && textureStage.bundles[0].texMods.Any(y => y.type == TexMod.TMOD_SCROLL || y.type == TexMod.TMOD_ROTATE ||
-				y.type == TexMod.TMOD_STRETCH || y.type == TexMod.TMOD_SCALE))
+			if (textureStage != null && textureStage.bundles[0].texMods.Any(y => y.type is TexMod.TMOD_SCROLL or TexMod.TMOD_ROTATE or
+            TexMod.TMOD_STRETCH or TexMod.TMOD_SCALE))
 				ConvertTexMods(sb, textureStage);
 		}
 
@@ -290,7 +287,7 @@ namespace BSPConvert.Lib
 		{
 			AppendProxyVars(sb, texModStage);
 
-			foreach (var texModInfo in texModStage.bundles[0].texMods)
+			foreach (TexModInfo texModInfo in texModStage.bundles[0].texMods)
 			{
 				if (texModInfo.type == TexMod.TMOD_ROTATE)
 					ConvertTexModRotate(sb, texModInfo);
@@ -299,8 +296,8 @@ namespace BSPConvert.Lib
 				else if (texModInfo.type == TexMod.TMOD_STRETCH)
 					ConvertTexModStretch(sb, texModInfo);
 
-				if (texModInfo.type == TexMod.TMOD_ROTATE || texModInfo.type == TexMod.TMOD_SCROLL ||
-					texModInfo.type == TexMod.TMOD_STRETCH || texModInfo.type == TexMod.TMOD_SCALE)
+				if (texModInfo.type is TexMod.TMOD_ROTATE or TexMod.TMOD_SCROLL or
+                TexMod.TMOD_STRETCH or TexMod.TMOD_SCALE)
 					AppendTextureTransform(sb, texModStage);
 			}
 			sb.AppendLine("\t}");
@@ -311,7 +308,7 @@ namespace BSPConvert.Lib
 			sb.AppendLine("\t\tTextureTransform");
 			sb.AppendLine("\t\t{");
 
-			foreach (var texModInfo in texModStage.bundles[0].texMods)
+			foreach (TexModInfo texModInfo in texModStage.bundles[0].texMods)
 			{
 				if (texModInfo.type == TexMod.TMOD_ROTATE)
 				{
@@ -320,7 +317,7 @@ namespace BSPConvert.Lib
 				}
 				else if (texModInfo.type == TexMod.TMOD_SCROLL)
 					sb.AppendLine("\t\t\ttranslateVar $translate");
-				else if (texModInfo.type == TexMod.TMOD_STRETCH || texModInfo.type == TexMod.TMOD_SCALE)
+				else if (texModInfo.type is TexMod.TMOD_STRETCH or TexMod.TMOD_SCALE)
 					sb.AppendLine("\t\t\tscaleVar $scale");
 			}
 			
@@ -331,7 +328,7 @@ namespace BSPConvert.Lib
 
 		private static void AppendProxyVars(StringBuilder sb, ShaderStage texModStage)
 		{
-			foreach (var texModInfo in texModStage.bundles[0].texMods)
+			foreach (TexModInfo texModInfo in texModStage.bundles[0].texMods)
 			{
 				if (texModInfo.type == TexMod.TMOD_ROTATE)
 				{
@@ -453,18 +450,14 @@ namespace BSPConvert.Lib
 		{
 			TryCopyQ3Content(texture);
 
-			var vmt = GenerateDefaultLitVMT(texture);
+        string vmt = GenerateDefaultLitVMT(texture);
 			WriteVMT(texture, vmt);
 		}
 
-		private string GenerateDefaultLitVMT(string texture)
-		{
-			return $$"""
+    private string GenerateDefaultLitVMT(string texture) => $$"""
 				LightmappedGeneric
 				{
 					$basetexture "{{texture}}"
 				}
 				""";
-		}
-	}
 }

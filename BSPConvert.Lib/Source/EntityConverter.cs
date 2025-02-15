@@ -1,16 +1,12 @@
-﻿using LibBSP;
-using SharpCompress.Common;
+﻿namespace BSPConvert.Lib;
+using LibBSP;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
-using System.Text;
 using System.Text.RegularExpressions;
-using System.Threading.Tasks;
 
-namespace BSPConvert.Lib
-{
-	public class EntityConverter
+public class EntityConverter
 	{
 		[Flags]
 		private enum TargetInitFlags
@@ -75,15 +71,15 @@ namespace BSPConvert.Lib
 			Match = 16
 		}
 
-		private Entities q3Entities;
-		private Entities sourceEntities;
-		private Dictionary<string, Shader> shaderDict;
-		private int minDamageToConvertTrigger;
-		private bool ignoreZones;
-		private Dictionary<string, List<Entity>> entityDict = new Dictionary<string, List<Entity>>();
-		private List<Entity> removeEntities = new List<Entity>(); // Entities to remove after conversion (ex: remove weapons after converting a trigger_multiple that references target_give). TODO: It might be better to convert entities by priority, such as trigger_multiples first so that target_give weapons can be ignored after
+		private readonly Entities q3Entities;
+		private readonly Entities sourceEntities;
+		private readonly Dictionary<string, Shader> shaderDict;
+		private readonly int minDamageToConvertTrigger;
+		private readonly bool ignoreZones;
+		private readonly Dictionary<string, List<Entity>> entityDict = [];
+		private readonly List<Entity> removeEntities = []; // Entities to remove after conversion (ex: remove weapons after converting a trigger_multiple that references target_give). TODO: It might be better to convert entities by priority, such as trigger_multiples first so that target_give weapons can be ignored after
 		private int currentCheckpointIndex = 2;
-		private Lump<Model> q3Models;
+		private readonly Lump<Model> q3Models;
 
 		private const string MOMENTUM_START_ENTITY = "_momentum_player_start_";
 		private const string MOMENTUM_MATH_COUNTER = "_momentum_math_counter_";
@@ -98,10 +94,10 @@ namespace BSPConvert.Lib
 			this.ignoreZones = ignoreZones;
 			this.q3Models = q3Models;
 
-			foreach (var entity in q3Entities)
+			foreach (Entity? entity in q3Entities)
 			{
 				if (!entityDict.ContainsKey(entity.Name))
-					entityDict.Add(entity.Name, new List<Entity>() { entity });
+					entityDict.Add(entity.Name, [entity]);
 				else
 					entityDict[entity.Name].Add(entity);
 			}
@@ -109,11 +105,11 @@ namespace BSPConvert.Lib
 
 		public void Convert()
 		{
-			var giveTargets = GetGiveTargets();
+        HashSet<string> giveTargets = GetGiveTargets();
 
-			foreach (var entity in q3Entities)
+			foreach (Entity? entity in q3Entities)
 			{
-				var ignoreEntity = false;
+            bool ignoreEntity = false;
 
 				switch (entity.ClassName)
 				{
@@ -183,7 +179,7 @@ namespace BSPConvert.Lib
 				}
 			}
 
-			foreach (var entity in removeEntities)
+			foreach (Entity entity in removeEntities)
 				sourceEntities.Remove(entity);
 		}
 
@@ -196,9 +192,9 @@ namespace BSPConvert.Lib
 		private HashSet<string> GetGiveTargets()
 		{
 			var targets = new HashSet<string>();
-			foreach (var entity in q3Entities)
+			foreach (Entity? entity in q3Entities)
 			{
-				if (entity.ClassName == "target_give" && entity.TryGetValue("target", out var target))
+				if (entity.ClassName == "target_give" && entity.TryGetValue("target", out string? target))
 					targets.Add(target);
 			}
 
@@ -207,7 +203,7 @@ namespace BSPConvert.Lib
 
 		private void ConvertFuncRotating(Entity funcRotating)
 		{
-			if (!float.TryParse(funcRotating["speed"], out var speed))
+			if (!float.TryParse(funcRotating["speed"], out float speed))
 				speed = 100;
 			
 			funcRotating["spawnflags"] = "1";
@@ -225,12 +221,12 @@ namespace BSPConvert.Lib
 		private void ConvertFuncPlat(Entity entity)
 		{
 			const int q3LipMod = 2; // Quake adds 2 units to lip for some reason
-			var moveDistance = 0f;
-			var brushThickness = GetBrushThickness(entity);
+        float moveDistance = 0f;
+        float brushThickness = GetBrushThickness(entity);
 
-			if (float.TryParse(entity["height"], out var height))
+			if (float.TryParse(entity["height"], out float height))
 				moveDistance = height + brushThickness;
-			else if (float.TryParse(entity["lip"], out var lip))
+			else if (float.TryParse(entity["lip"], out float lip))
 				moveDistance = -(lip - q3LipMod - (brushThickness * 2));
 
 			if (string.IsNullOrEmpty(entity.Name))
@@ -288,7 +284,7 @@ namespace BSPConvert.Lib
 
 		private float GetBrushThickness(Entity entity)
 		{
-			var model = q3Models[entity.ModelNumber];
+        Model model = q3Models[entity.ModelNumber];
 
 			return model.Maximums.Z - model.Minimums.Z;
 		}
@@ -312,8 +308,8 @@ namespace BSPConvert.Lib
 			SetMoveDir(button);
 			SetButtonFlags(button);
 
-			var delay = 0f;
-			ConvertEntityTargetsRecursive(button, button, "OnPressed", delay, new HashSet<Entity>());
+        float delay = 0f;
+			ConvertEntityTargetsRecursive(button, button, "OnPressed", delay, []);
 
 			if (button["wait"] == "-1") // A value of -1 in quake is instantly reset position, in source it is don't reset position.
 				button["wait"] = "0.001"; // exactly 0 also behaves as don't reset in source, so the delay is as short as possible without being 0.
@@ -353,15 +349,15 @@ namespace BSPConvert.Lib
 
 		private static void SetButtonFlags(Entity button)
 		{
-			if (!float.TryParse(button["speed"], out var speed))
+			if (!float.TryParse(button["speed"], out float speed))
 				speed = 40;
 
-			var spawnflags = 0;
+        int spawnflags = 0;
 
 			if ((speed == -1 || speed >= 9999) && (button["wait"] == "-1")) // TODO: Add customization setting for the upper bounds potentially?
 				spawnflags |= (int)FuncButtonFlags.DontMove;
 
-			if (!float.TryParse(button["health"], out var health) || button["health"] == "0")
+			if (!float.TryParse(button["health"], out float health) || button["health"] == "0")
 				spawnflags |= (int)FuncButtonFlags.TouchActivates;
 			else
 				spawnflags |= (int)FuncButtonFlags.DamageActivates;
@@ -371,7 +367,7 @@ namespace BSPConvert.Lib
 
 		private static void SetMoveDir(Entity entity)
 		{
-			if (!float.TryParse(entity["angle"], out var angle))
+			if (!float.TryParse(entity["angle"], out float angle))
 				return;
 
 			if (angle == -1) // UP
@@ -386,11 +382,11 @@ namespace BSPConvert.Lib
 
 		private void ConvertWorldspawn(Entity worldspawn)
 		{
-			foreach (var shader in shaderDict.Values)
+			foreach (Shader shader in shaderDict.Values)
 			{
 				if (shader.skyParms != null)
 				{
-					var skyName = shader.skyParms.outerBox;
+                string skyName = shader.skyParms.outerBox;
 					if (!string.IsNullOrEmpty(skyName))
 						worldspawn["skyname"] = skyName;
 				}
@@ -402,13 +398,15 @@ namespace BSPConvert.Lib
 			playerStart.ClassName = "info_player_start";
 			playerStart.Name = MOMENTUM_START_ENTITY;
 
-			var targets = GetTargetEntities(playerStart);
+        List<Entity> targets = GetTargetEntities(playerStart);
 			if (targets.Any())
 			{
-				var logicAuto = new Entity();
-				logicAuto.ClassName = "logic_auto";
+            var logicAuto = new Entity
+            {
+                ClassName = "logic_auto"
+            };
 
-				ConvertEntityTargetsRecursive(logicAuto, playerStart, "OnMapSpawn", 0, new HashSet<Entity>());
+            ConvertEntityTargetsRecursive(logicAuto, playerStart, "OnMapSpawn", 0, []);
 
 				sourceEntities.Add(logicAuto);
 			}
@@ -416,7 +414,7 @@ namespace BSPConvert.Lib
 
 		private void ConvertTriggerHurt(Entity trigger)
 		{
-			if (int.TryParse(trigger["dmg"], out var damage))
+			if (int.TryParse(trigger["dmg"], out int damage))
 			{
 				if (damage >= minDamageToConvertTrigger)
 				{
@@ -430,16 +428,16 @@ namespace BSPConvert.Lib
 
 		private void ConvertTriggerMultiple(Entity trigger)
 		{
-			var delay = 0f;
-			ConvertEntityTargetsRecursive(trigger, trigger, "OnTrigger", delay, new HashSet<Entity>());
+        float delay = 0f;
+			ConvertEntityTargetsRecursive(trigger, trigger, "OnTrigger", delay, []);
 
 			trigger["spawnflags"] = "1";
 		}
 
 		private void ConvertEntityTargetsRecursive(Entity entity, Entity targetEntity, string output, float delay, HashSet<Entity> visited)
 		{
-			var targets = GetTargetEntities(targetEntity);
-			foreach (var target in targets)
+        List<Entity> targets = GetTargetEntities(targetEntity);
+			foreach (Entity target in targets)
 			{
 				if (visited.Contains(target) || targetEntity == target)
 					continue;
@@ -510,8 +508,8 @@ namespace BSPConvert.Lib
 
 		private void FireTargetTeleporterOnOutput(Entity entity, Entity targetTeleporter, string output, float delay)
 		{
-			var targets = GetTargetEntities(targetTeleporter);
-			foreach (var target in targets)
+        List<Entity> targets = GetTargetEntities(targetTeleporter);
+			foreach (Entity target in targets)
 			{
 				target.ClassName = "point_teleport";
 				target["target"] = "!player";
@@ -536,7 +534,7 @@ namespace BSPConvert.Lib
 			if (!sourceEntities.Any(x => x.ClassName == "math_counter")) // Check if math_counter exists
 				CreateMathCounter();
 
-			if (!float.TryParse(targetScore["count"], out var count))
+			if (!float.TryParse(targetScore["count"], out float count))
 				count = 1;
 
 			ModifyMathCounter(entity, output, "Add", count.ToString(), delay);
@@ -544,13 +542,15 @@ namespace BSPConvert.Lib
 
 		private Entity CreateLogicCase()
 		{
-			var logicCase = new Entity();
-			logicCase.ClassName = "logic_case";
-			logicCase.Name = MOMENTUM_LOGIC_CASE;
+        var logicCase = new Entity
+        {
+            ClassName = "logic_case",
+            Name = MOMENTUM_LOGIC_CASE
+        };
 
-			for (var i = 1; i <= 16; i++) // Logic_case supports 16 different outputs
+        for (int i = 1; i <= 16; i++) // Logic_case supports 16 different outputs
 			{
-				var caseNum = $"case{i:D2}";
+            string caseNum = $"case{i:D2}";
 				logicCase[caseNum] = (i-1).ToString(); // case01 = 0, case02 = 1 etc
 			}
 
@@ -572,10 +572,12 @@ namespace BSPConvert.Lib
 
 		private void CreateMathCounter()
 		{
-			var counter = new Entity();
-			counter.ClassName = "math_counter";
-			counter.Name = MOMENTUM_MATH_COUNTER;
-			counter["startvalue"] = "0";
+        var counter = new Entity
+        {
+            ClassName = "math_counter",
+            Name = MOMENTUM_MATH_COUNTER
+        };
+        counter["startvalue"] = "0";
 			counter["min"] = "0";
 			counter["max"] = "16";
 
@@ -595,14 +597,14 @@ namespace BSPConvert.Lib
 
 		private void ConvertFragsFilter(Entity entity, Entity targetFragsFilter, string output, float delay)
 		{
-			if (!int.TryParse(targetFragsFilter["frags"], out var frags))
+			if (!int.TryParse(targetFragsFilter["frags"], out int frags))
 				frags = 1; // Default number of frags is 1 if no value is specified
 
 			targetFragsFilter["startdisabled"] = (frags > 0) ? "1" : "0"; // Players start with 0 frags, disable entities that require > 0
 
 			targetFragsFilter.Name += $"_mom_relay{frags:D2}"; // Name needs a unique relay number for the logic_case to target
 
-			var match = false;
+        bool match = false;
 			var spawnflags = (TargetFragsFilterFlags)targetFragsFilter.Spawnflags;
 
 			if (spawnflags.HasFlag(TargetFragsFilterFlags.Reset)) // Reset frags to 0
@@ -636,20 +638,20 @@ namespace BSPConvert.Lib
 				targetRelay.ClassName = "logic_relay";
 				targetRelay.Spawnflags = 2;
 
-				ConvertEntityTargetsRecursive(targetRelay, targetRelay, "OnTrigger", 0, new HashSet<Entity>());
+				ConvertEntityTargetsRecursive(targetRelay, targetRelay, "OnTrigger", 0, []);
 			}
 		}
 
 		private void AddLogicCaseOutput(string targetName, int frags, bool match)
 		{
-			var logicCase = sourceEntities.Find(x => x.ClassName == "logic_case") ?? CreateLogicCase();
+        Entity logicCase = sourceEntities.Find(x => x.ClassName == "logic_case") ?? CreateLogicCase();
 
-			var min = frags;
-			var max = match ? frags : 16; // Either force frags to match case number on true, else allow any cases over the frag count to trigger
+        int min = frags;
+        int max = match ? frags : 16; // Either force frags to match case number on true, else allow any cases over the frag count to trigger
 
-			for (var i = min; i <= max; i++)
+			for (int i = min; i <= max; i++)
 			{
-				var caseNum = $"case{i+1:D2}";
+            string caseNum = $"case{i+1:D2}";
 
 				var connection = new Entity.EntityConnection()
 				{
@@ -680,9 +682,9 @@ namespace BSPConvert.Lib
 
 		private float ConvertTargetDelay(Entity targetDelay)
 		{
-			if (float.TryParse(targetDelay["delay"], out var delay))
+			if (float.TryParse(targetDelay["delay"], out float delay))
 				return delay;
-			else if (float.TryParse(targetDelay["wait"], out var wait))
+			else if (float.TryParse(targetDelay["wait"], out float wait))
 				return wait;
 			else
 				return 1;
@@ -690,8 +692,8 @@ namespace BSPConvert.Lib
 
 		private void FireTargetPushOnOutput(Entity entity, Entity targetPush, string output, float delay)
 		{
-			var launchVector = "0 0 0";
-			var targetPosition = GetTargetEntities(targetPush).FirstOrDefault();
+        string launchVector = "0 0 0";
+        Entity? targetPosition = GetTargetEntities(targetPush).FirstOrDefault();
 
 			if (targetPosition != null)
 			{
@@ -720,53 +722,53 @@ namespace BSPConvert.Lib
 
 		private static string GetLaunchVector(Entity targetPush)
 		{
-			var angles = "0 0 0";
+        string angles = "0 0 0";
 
 			if (!string.IsNullOrEmpty(targetPush["angles"]))
 				angles = targetPush["angles"];
-			else if (float.TryParse(targetPush["angle"], out var angle))
+			else if (float.TryParse(targetPush["angle"], out float angle))
 				angles = $"0 {angle} 0";
 
-			var angleString = angles.Split(' ');
+        string[] angleString = angles.Split(' ');
 
-			var pitchDegrees = float.Parse(angleString[0]);
-			var yawDegrees = float.Parse(angleString[1]);
+        float pitchDegrees = float.Parse(angleString[0]);
+        float yawDegrees = float.Parse(angleString[1]);
 
-			var launchDir = ConvertAnglesToVector(pitchDegrees, yawDegrees);
+        Vector3 launchDir = ConvertAnglesToVector(pitchDegrees, yawDegrees);
 
-			if (!float.TryParse(targetPush["speed"], out var speed))
+			if (!float.TryParse(targetPush["speed"], out float speed))
 				speed = 1000;
 			else
 				speed = float.Parse(targetPush["speed"]);
 
-			var launchVector = launchDir * speed;
+        Vector3 launchVector = launchDir * speed;
 			return $"{launchVector.X} {launchVector.Y} {launchVector.Z}";
 		}
 
 		private string GetLaunchVectorWithTarget(Entity targetPush, Entity targetPosition)
 		{
-			var gravity = 800f;
-			var height = targetPosition.Origin.Z - targetPush.Origin.Z;
-			var time = Math.Sqrt(height / (.5 * gravity)); // Calculates how many seconds it takes to reach the apex of the launch
+        float gravity = 800f;
+        float height = targetPosition.Origin.Z - targetPush.Origin.Z;
+        double time = Math.Sqrt(height / (.5 * gravity)); // Calculates how many seconds it takes to reach the apex of the launch
 
-			var xDist = targetPosition.Origin.X - targetPush.Origin.X;
-			var yDist = targetPosition.Origin.Y - targetPush.Origin.Y;
+        float xDist = targetPosition.Origin.X - targetPush.Origin.X;
+        float yDist = targetPosition.Origin.Y - targetPush.Origin.Y;
 
-			var xSpeed = xDist / time;
-			var ySpeed = yDist / time;
-			var zSpeed = time * gravity;
+        double xSpeed = xDist / time;
+        double ySpeed = yDist / time;
+        double zSpeed = time * gravity;
 
 			return $"{xSpeed} {ySpeed} {zSpeed}";
 		}
 
 		private static Vector3 ConvertAnglesToVector(float pitchDegrees, float yawDegrees)
 		{
-			var yaw = Math.PI * yawDegrees / 180.0;
-			var pitch = Math.PI * -pitchDegrees / 180.0;
+        double yaw = Math.PI * yawDegrees / 180.0;
+        double pitch = Math.PI * -pitchDegrees / 180.0;
 
-			var x = Math.Cos(yaw) * Math.Cos(pitch);
-			var y = Math.Sin(yaw) * Math.Cos(pitch);
-			var z = Math.Sin(pitch);
+        double x = Math.Cos(yaw) * Math.Cos(pitch);
+        double y = Math.Sin(yaw) * Math.Cos(pitch);
+        double z = Math.Sin(pitch);
 
 			return new Vector3((float)x, (float)y, (float)z);
 		}
@@ -778,7 +780,7 @@ namespace BSPConvert.Lib
 
 			targetSpeed.ClassName = "player_speed";
 
-			if (!targetSpeed.TryGetValue("speed", out var speed))
+			if (!targetSpeed.TryGetValue("speed", out string? speed))
 				targetSpeed["speed"] = "100";
 		}
 
@@ -833,7 +835,7 @@ namespace BSPConvert.Lib
 
 		private void ConvertTargetSpeaker(Entity targetSpeaker)
 		{
-			var noise = targetSpeaker["noise"];
+        string noise = targetSpeaker["noise"];
 			noise = RemoveFirstOccurrence(noise, "sound/");
 
 			targetSpeaker.ClassName = "ambient_generic";
@@ -856,7 +858,7 @@ namespace BSPConvert.Lib
 		private void SetAmbientGenericFlags(Entity targetSpeaker)
 		{
 			var q3flags = (TargetSpeakerFlags)targetSpeaker.Spawnflags;
-			var sourceflags = 0;
+        int sourceflags = 0;
 
 			if (q3flags.HasFlag(TargetSpeakerFlags.LoopedOff))
 				sourceflags |= (int)AmbientGenericFlags.StartSilent;
@@ -923,12 +925,13 @@ namespace BSPConvert.Lib
 			if (ignoreZones || !trigger.ClassName.StartsWith("trigger"))
 				return;
 
-			var newTrigger = new Entity();
-			
-			newTrigger.ClassName = className;
-			newTrigger.Model = trigger.Model;
-			newTrigger.Spawnflags = 1;
-			newTrigger["zone_number"] = zoneNumber.ToString();
+        var newTrigger = new Entity
+        {
+            ClassName = className,
+            Model = trigger.Model,
+            Spawnflags = 1
+        };
+        newTrigger["zone_number"] = zoneNumber.ToString();
 
 			sourceEntities.Add(newTrigger);
 		}
@@ -936,9 +939,9 @@ namespace BSPConvert.Lib
 		// TODO: Convert target_give for player spawn entities
 		private void FireTargetGiveOnOutput(Entity entity, Entity targetGive, string output, float delay)
 		{
-			// TODO: Support more entities (health, armor, etc.)
-			var targets = GetTargetEntities(targetGive);
-			foreach (var target in targets)
+        // TODO: Support more entities (health, armor, etc.)
+        List<Entity> targets = GetTargetEntities(targetGive);
+			foreach (Entity target in targets)
 			{
 				switch (target.ClassName)
 				{
@@ -994,7 +997,7 @@ namespace BSPConvert.Lib
 
 		private void GiveWeaponOnOutput(Entity entity, Entity weaponEnt, string output, float delay)
 		{
-			var weaponName = GetMomentumWeaponName(weaponEnt.ClassName);
+        string weaponName = GetMomentumWeaponName(weaponEnt.ClassName);
 			if (string.IsNullOrEmpty(weaponName))
 				return;
 
@@ -1015,11 +1018,11 @@ namespace BSPConvert.Lib
 
 		private void GiveWeaponAmmoOnOutput(Entity entity, Entity weaponEnt, string output, float delay)
 		{
-			var count = ConvertWeaponAmmoCount(weaponEnt.ClassName, weaponEnt["count"]);
+        string count = ConvertWeaponAmmoCount(weaponEnt.ClassName, weaponEnt["count"]);
 			if (float.Parse(count) < 0)
 				return;
 
-			var ammoType = GetWeaponAmmoType(weaponEnt.ClassName);
+        string ammoType = GetWeaponAmmoType(weaponEnt.ClassName);
 			if (string.IsNullOrEmpty(ammoType))
 				return;
 
@@ -1040,62 +1043,45 @@ namespace BSPConvert.Lib
 			if (!string.IsNullOrEmpty(count) && count != "0")
 				return count;
 
-			switch (weaponName)
-			{
-				case "weapon_machinegun":
-					return "40";
-				case "weapon_grenadelauncher":
-					return "10";
-				case "weapon_rocketlauncher":
-					return "10";
-				case "weapon_plasmagun":
-					return "50";
-				case "weapon_lightning":
-					return "100";
-				case "weapon_bfg":
-					return "20";
-				case "weapon_shotgun":
-					return "10";
-				default:
-					return "-1";
-			}
-		}
+        return weaponName switch
+        {
+            "weapon_machinegun" => "40",
+            "weapon_grenadelauncher" => "10",
+            "weapon_rocketlauncher" => "10",
+            "weapon_plasmagun" => "50",
+            "weapon_lightning" => "100",
+            "weapon_bfg" => "20",
+            "weapon_shotgun" => "10",
+            _ => "-1",
+        };
+    }
 
 		private string GetWeaponAmmoType(string weaponName)
 		{
-			switch (weaponName)
-			{
-				case "weapon_machinegun":
-					return "SetBullets";
-				case "weapon_grenadelauncher":
-					return "SetGrenades";
-				case "weapon_rocketlauncher":
-					return "SetRockets";
-				case "weapon_plasmagun":
-					return "SetCells";
-				case "weapon_lightning":
-					return "SetLightning";
-				case "weapon_railgun":
-					return "SetRails";
-				case "weapon_bfg":
-					return "SetBfgRockets";
-				case "weapon_shotgun":
-					return "SetShells";
-				default:
-					return string.Empty;
-			}
-		}
+        return weaponName switch
+        {
+            "weapon_machinegun" => "SetBullets",
+            "weapon_grenadelauncher" => "SetGrenades",
+            "weapon_rocketlauncher" => "SetRockets",
+            "weapon_plasmagun" => "SetCells",
+            "weapon_lightning" => "SetLightning",
+            "weapon_railgun" => "SetRails",
+            "weapon_bfg" => "SetBfgRockets",
+            "weapon_shotgun" => "SetShells",
+            _ => string.Empty,
+        };
+    }
 
 		private void GiveAmmoOnOutput(Entity entity, Entity ammoEnt, string output, float delay)
 		{
 			if (ammoEnt["notcpm"] == "1") // TODO: Figure out how to handle gamemode specific entities more robustly
 				return;
 
-			var ammoOutput = GetAmmoOutput(ammoEnt.ClassName);
+        string ammoOutput = GetAmmoOutput(ammoEnt.ClassName);
 			if (string.IsNullOrEmpty(ammoOutput))
 				return;
 
-			var count = ConvertAmmoCount(ammoEnt.ClassName, ammoEnt["count"]);
+        string count = ConvertAmmoCount(ammoEnt.ClassName, ammoEnt["count"]);
 			if (float.Parse(count) < 0)
 				ammoOutput = ammoOutput.Replace("Add", "Set"); // Applies infinite ammo when count is set to a negative value to mimic q3 behaviour
 
@@ -1115,54 +1101,44 @@ namespace BSPConvert.Lib
 		{
 			if (!string.IsNullOrEmpty(count) && count != "0")
 				return count;
-			
-			switch (ammoName)
-			{
-				case "ammo_bfg":
-					return "15";
-				case "ammo_bullets": // Machine gun
-					return "50";
-				case "ammo_cells": // Plasma gun
-					return "30";
-				case "ammo_grenades":
-					return "5";
-				case "ammo_lightning":
-					return "60";
-				case "ammo_rockets":
-					return "5";
-				case "ammo_shells": // Shotgun
-					return "10";
-				case "ammo_slugs": // Railgun
-					return "10";
-				default:
-					return "0";
-			}
-		}
+
+        return ammoName switch
+        {
+            "ammo_bfg" => "15",
+            // Machine gun
+            "ammo_bullets" => "50",
+            // Plasma gun
+            "ammo_cells" => "30",
+            "ammo_grenades" => "5",
+            "ammo_lightning" => "60",
+            "ammo_rockets" => "5",
+            // Shotgun
+            "ammo_shells" => "10",
+            // Railgun
+            "ammo_slugs" => "10",
+            _ => "0",
+        };
+    }
 
 		private string GetAmmoOutput(string ammoName)
 		{
-			switch (ammoName)
-			{
-				case "ammo_bfg":
-					return "AddBfgRockets";
-				case "ammo_bullets": // Machine gun
-					return "AddBullets";
-				case "ammo_cells": // Plasma gun
-					return "AddCells";
-				case "ammo_grenades":
-					return "AddGrenades";
-				case "ammo_lightning":
-					return "AddLightning";
-				case "ammo_rockets":
-					return "AddRockets";
-				case "ammo_shells": // Shotgun
-					return "AddShells";
-				case "ammo_slugs": // Railgun
-					return "AddRails";
-				default:
-					return string.Empty;
-			}
-		}
+        return ammoName switch
+        {
+            "ammo_bfg" => "AddBfgRockets",
+            // Machine gun
+            "ammo_bullets" => "AddBullets",
+            // Plasma gun
+            "ammo_cells" => "AddCells",
+            "ammo_grenades" => "AddGrenades",
+            "ammo_lightning" => "AddLightning",
+            "ammo_rockets" => "AddRockets",
+            // Shotgun
+            "ammo_shells" => "AddShells",
+            // Railgun
+            "ammo_slugs" => "AddRails",
+            _ => string.Empty,
+        };
+    }
 
 		private string ConvertPowerupCount(string count)
 		{
@@ -1172,33 +1148,9 @@ namespace BSPConvert.Lib
 			return "30";
 		}
 
-		private void ConvertTeleportTrigger(Entity trigger, Entity targetTele)
+    private void ConvertTriggerPush(Entity trigger)
 		{
-			var target = GetTargetEntities(targetTele).FirstOrDefault();
-			if (target != null)
-			{
-				trigger.ClassName = "trigger_teleport";
-				trigger["target"] = target.Name;
-
-				if (target.ClassName != "info_teleport_destination")
-					ConvertTeleportDestination(target);
-			}
-
-			if (targetTele["spawnflags"] == "1")
-			{
-				trigger["velocitymode"] = "3";
-				trigger["setspeed"] = "0";
-			}
-			else
-			{
-				trigger["velocitymode"] = "3";
-				trigger["setspeed"] = "400";
-			}
-		}
-
-		private void ConvertTriggerPush(Entity trigger)
-		{
-			var target = GetTargetEntities(trigger).FirstOrDefault();
+        Entity? target = GetTargetEntities(trigger).FirstOrDefault();
 			if (target != null)
 			{
 				target.ClassName = "info_target";
@@ -1240,10 +1192,10 @@ namespace BSPConvert.Lib
 			}
 			trigger["spawnflags"] = "1";
 
-			var targets = GetTargetEntities(trigger);
-			foreach (var target in targets)
+        List<Entity> targets = GetTargetEntities(trigger);
+			foreach (Entity target in targets)
 			{
-				if (target.ClassName != "info_teleport_destination" && target.ClassName != "point_teleport")
+				if (target.ClassName is not "info_teleport_destination" and not "point_teleport")
 					ConvertTeleportDestination(target);
 			}
 		}
@@ -1268,7 +1220,7 @@ namespace BSPConvert.Lib
 
 		private string GetWeaponRespawnTime(Entity weaponEnt)
 		{
-			if (weaponEnt.TryGetValue("wait", out var wait) && wait != "0")
+			if (weaponEnt.TryGetValue("wait", out string? wait) && wait != "0")
 				return wait;
 
 			return "5";
@@ -1276,34 +1228,22 @@ namespace BSPConvert.Lib
 
 		private string GetMomentumWeaponName(string q3WeaponName)
 		{
-			switch (q3WeaponName)
-			{
-				case "weapon_machinegun":
-					return "weapon_momentum_df_machinegun";
-				case "weapon_gauntlet":
-					return "weapon_momentum_df_knife";
-				case "weapon_grenadelauncher":
-					return "weapon_momentum_df_grenadelauncher";
-				case "weapon_rocketlauncher":
-					return "weapon_momentum_df_rocketlauncher";
-				case "weapon_plasmagun":
-					return "weapon_momentum_df_plasmagun";
-				case "weapon_lightning":
-					return "weapon_momentum_df_lightninggun";
-				case "weapon_railgun":
-					return "weapon_momentum_df_railgun";
-				case "weapon_bfg":
-					return "weapon_momentum_df_bfg";
-				case "weapon_shotgun":
-					return "weapon_momentum_df_shotgun";
-				case "item_haste":
-					return "momentum_powerup_haste";
-				case "item_quad":
-					return "momentum_powerup_damage_boost";
-				default:
-					return string.Empty;
-			}
-		}
+        return q3WeaponName switch
+        {
+            "weapon_machinegun" => "weapon_momentum_df_machinegun",
+            "weapon_gauntlet" => "weapon_momentum_df_knife",
+            "weapon_grenadelauncher" => "weapon_momentum_df_grenadelauncher",
+            "weapon_rocketlauncher" => "weapon_momentum_df_rocketlauncher",
+            "weapon_plasmagun" => "weapon_momentum_df_plasmagun",
+            "weapon_lightning" => "weapon_momentum_df_lightninggun",
+            "weapon_railgun" => "weapon_momentum_df_railgun",
+            "weapon_bfg" => "weapon_momentum_df_bfg",
+            "weapon_shotgun" => "weapon_momentum_df_shotgun",
+            "item_haste" => "momentum_powerup_haste",
+            "item_quad" => "momentum_powerup_damage_boost",
+            _ => string.Empty,
+        };
+    }
 
 		private void ConvertAmmo(Entity ammoEnt)
 		{
@@ -1315,7 +1255,7 @@ namespace BSPConvert.Lib
 
 		private string ConvertAmmoRespawnTime(Entity ammoEnt)
 		{
-			if (ammoEnt.TryGetValue("wait", out var wait) && wait != "0")
+			if (ammoEnt.TryGetValue("wait", out string? wait) && wait != "0")
 				return wait;
 
 			return "40";
@@ -1323,28 +1263,23 @@ namespace BSPConvert.Lib
 
 		private string GetMomentumAmmoName(string q3AmmoName)
 		{
-			switch (q3AmmoName)
-			{
-				case "ammo_bfg":
-					return "bfg_rockets";
-				case "ammo_bullets": // Machine gun
-					return "bullets";
-				case "ammo_cells": // Plasma gun
-					return "cells";
-				case "ammo_grenades":
-					return "grenades";
-				case "ammo_lightning":
-					return "lightning";
-				case "ammo_rockets":
-					return "rockets";
-				case "ammo_shells": // Shotgun
-					return "shells";
-				case "ammo_slugs": // Railgun
-					return "rails";
-				default:
-					return string.Empty;
-			}
-		}
+        return q3AmmoName switch
+        {
+            "ammo_bfg" => "bfg_rockets",
+            // Machine gun
+            "ammo_bullets" => "bullets",
+            // Plasma gun
+            "ammo_cells" => "cells",
+            "ammo_grenades" => "grenades",
+            "ammo_lightning" => "lightning",
+            "ammo_rockets" => "rockets",
+            // Shotgun
+            "ammo_shells" => "shells",
+            // Railgun
+            "ammo_slugs" => "rails",
+            _ => string.Empty,
+        };
+    }
 
 		private void ConvertItem(Entity itemEnt)
 		{
@@ -1359,7 +1294,7 @@ namespace BSPConvert.Lib
 
 		private string GetItemRespawnTime(Entity itemEnt)
 		{
-			if (itemEnt.TryGetValue("wait", out var wait) && wait != "0")
+			if (itemEnt.TryGetValue("wait", out string? wait) && wait != "0")
 				return wait;
 
 			return "120";
@@ -1367,20 +1302,17 @@ namespace BSPConvert.Lib
 
 		private string GetMomentumItemName(string q3ItemName)
 		{
-			switch (q3ItemName)
-			{
-				case "item_haste":
-					return "momentum_powerup_haste";
-				case "item_quad":
-					return "momentum_powerup_damage_boost";
-				default:
-					return string.Empty;
-			}
-		}
+        return q3ItemName switch
+        {
+            "item_haste" => "momentum_powerup_haste",
+            "item_quad" => "momentum_powerup_damage_boost",
+            _ => string.Empty,
+        };
+    }
 
 		private void ConvertAngles(Entity entity)
 		{
-			if (float.TryParse(entity["angle"], out var angle))
+			if (float.TryParse(entity["angle"], out float angle))
 			{
 				entity.Angles = new Vector3(0f, angle, 0f);
 				entity.Remove("angle");
@@ -1389,17 +1321,16 @@ namespace BSPConvert.Lib
 
 		private void SetTeleportOrigin(Entity teleDest)
 		{
-			var origin = teleDest.Origin;
+        Vector3 origin = teleDest.Origin;
 			origin.Z -= 23; // Teleport destinations are 23 units too high once converted
 			teleDest.Origin = origin;
 		}
 
 		private List<Entity> GetTargetEntities(Entity sourceEntity)
 		{
-			if (sourceEntity.TryGetValue("target", out var target) && entityDict.ContainsKey(target))
+			if (sourceEntity.TryGetValue("target", out string? target) && entityDict.ContainsKey(target))
 				return entityDict[target];
 
-			return new List<Entity>();
+			return [];
 		}
 	}
-}

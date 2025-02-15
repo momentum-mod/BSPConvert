@@ -1,4 +1,5 @@
-﻿#if UNITY_3_4 || UNITY_3_5 || UNITY_4_0 || UNITY_4_0_1 || UNITY_4_2 || UNITY_4_3 || UNITY_4_5 || UNITY_4_6 || UNITY_5 || UNITY_5_3_OR_NEWER
+﻿namespace BSPConvert.Lib;
+#if UNITY_3_4 || UNITY_3_5 || UNITY_4_0 || UNITY_4_0_1 || UNITY_4_2 || UNITY_4_3 || UNITY_4_5 || UNITY_4_6 || UNITY_5 || UNITY_5_3_OR_NEWER
 #define UNITY
 #if !UNITY_5_6_OR_NEWER
 #define OLDUNITY
@@ -10,15 +11,9 @@ using System;
 using System.IO;
 using System.Collections.Generic;
 using System.Linq;
-using System.Diagnostics;
-using System.Collections;
-using System.Xml.Linq;
 using SharpCompress.Archives.Zip;
-using SharpCompress.Archives;
 using BSPConvert.Lib.Source;
 
-namespace BSPConvert.Lib
-{
 #if UNITY
 	using Plane = UnityEngine.Plane;
 	using Vector3 = UnityEngine.Vector3;
@@ -39,23 +34,24 @@ namespace BSPConvert.Lib
 	using Color = NeoAxis.ColorByte;
 	using Vertex = NeoAxis.StandardVertex;
 #else
-	using Plane = System.Numerics.Plane;
-	using Vector3 = System.Numerics.Vector3;
-	using Vector2 = System.Numerics.Vector2;
-	using Color = System.Drawing.Color;
+using Plane = System.Numerics.Plane;
+using Vector3 = System.Numerics.Vector3;
+using Vector2 = System.Numerics.Vector2;
+using Color = System.Drawing.Color;
+
 #endif
 
-	public class BSPConverterOptions
+public class BSPConverterOptions
 	{
 		public bool noPak;
 		public bool noToolDisplacements;
 		private int displacementPower;
 		public int DisplacementPower
-		{
-			get { return displacementPower; }
-			set { displacementPower = Math.Clamp(value, 2, 4); }
-		}
-		public int minDamageToConvertTrigger;
+        {
+            get => displacementPower;
+            set => displacementPower = Math.Clamp(value, 2, 4);
+        }
+    public int minDamageToConvertTrigger;
 		public bool ignoreZones;
 		public bool oldBSP;
 		public string prefix;
@@ -63,25 +59,25 @@ namespace BSPConvert.Lib
 		public string outputDir;
 	}
 
-	public class BSPConverter
-	{
-		private BSPConverterOptions options;
-		private ILogger logger;
+	public class BSPConverter(BSPConverterOptions options, ILogger logger)
+{
+		private readonly BSPConverterOptions options = options;
+		private readonly ILogger logger = logger;
 
 		private BSP quakeBsp;
 		private BSP sourceBsp;
 
 		private ContentManager contentManager;
 		
-		private Dictionary<string, Shader> shaderDict = new Dictionary<string, Shader>();
-		private Dictionary<string, LightmapData> externalLightmaps = new Dictionary<string, LightmapData>();
-		private Dictionary<int, int> textureInfoHashCodeDict = new Dictionary<int, int>(); // Maps TextureInfo hash codes to TextureInfo indices
-		private Dictionary<string, int> textureInfoLookup = new Dictionary<string, int>();
-		private Dictionary<string, int> textureDataLookup = new Dictionary<string, int>();
-		private Dictionary<int, int[]> splitFaceDict = new Dictionary<int, int[]>(); // Maps the original face index to the new face indices split by triangles
+		private Dictionary<string, Shader> shaderDict = [];
+		private Dictionary<string, LightmapData> externalLightmaps = [];
+		private readonly Dictionary<int, int> textureInfoHashCodeDict = []; // Maps TextureInfo hash codes to TextureInfo indices
+		private readonly Dictionary<string, int> textureInfoLookup = [];
+		private readonly Dictionary<string, int> textureDataLookup = [];
+		private readonly Dictionary<int, int[]> splitFaceDict = []; // Maps the original face index to the new face indices split by triangles
 
 		// TODO: Replace weapon clip textures
-		private static readonly Dictionary<string, string> replacementTextures = new Dictionary<string, string>()
+		private static readonly Dictionary<string, string> replacementTextures = new()
 		{
 			{ "textures/common/caulk", "tools/toolsnodraw" },
 			{ "textures/common/nodraw", "tools/toolsnodraw" },
@@ -97,13 +93,7 @@ namespace BSPConvert.Lib
 		private const int LIGHTMAP_PADDING = 1; // Pixel padding to prevent lightmap bleeding
 		private const string invisibleDisplacementTexture = "tools/toolsinvisibledisplacement";
 
-		public BSPConverter(BSPConverterOptions options, ILogger logger)
-		{
-			this.options = options;
-			this.logger = logger;
-		}
-
-		public void Convert()
+    public void Convert()
 		{
 			if (!File.Exists(options.inputFile))
 			{
@@ -117,7 +107,7 @@ namespace BSPConvert.Lib
 			shaderDict = LoadShaderDictionary();
 			externalLightmaps = LoadExternalLightmaps();
 
-			foreach (var bsp in contentManager.BSPFiles)
+			foreach (BSP bsp in contentManager.BSPFiles)
 			{
 				ClearDictionaries();
 
@@ -166,28 +156,28 @@ namespace BSPConvert.Lib
 
 		private void LoadBSP(BSP bsp)
 		{
-			var bspName = bsp.MapName + ".bsp";
+        string bspName = bsp.MapName + ".bsp";
 			logger.Log($"Converting {bspName}...");
 
 			quakeBsp = bsp;
 
-			var mapType = options.oldBSP ? MapType.Source20 : MapType.Source25;
+        MapType mapType = options.oldBSP ? MapType.Source20 : MapType.Source25;
 			sourceBsp = new BSP(bspName, mapType);
 		}
 
 		private void CheckQ3Content()
 		{
-			var files = Directory.GetFiles(ContentManager.GetQ3ContentDir(), "*.*", SearchOption.AllDirectories);
+        string[] files = Directory.GetFiles(ContentManager.GetQ3ContentDir(), "*.*", SearchOption.AllDirectories);
 			if (files.Length <= 1)
 				logger.Log("Warning: Q3Content folder is empty. Quake 3 assets will not be converted.");
 		}
 
 		private void ReplaceToolTextures()
 		{
-			for (var i = 0; i < quakeBsp.Textures.Count; i++)
+			for (int i = 0; i < quakeBsp.Textures.Count; i++)
 			{
-				var texture = quakeBsp.Textures[i];
-				if (replacementTextures.TryGetValue(texture.Name, out var replacementTexture))
+            Texture texture = quakeBsp.Textures[i];
+				if (replacementTextures.TryGetValue(texture.Name, out string? replacementTexture))
 					texture.Name = replacementTexture;
 			}
 		}
@@ -199,10 +189,10 @@ namespace BSPConvert.Lib
 				// Copy invisible displacement assets to content dir
 				Directory.CreateDirectory(Path.Combine(contentManager.ContentDir, "tools"));
 
-				var invisDisplacementVmt = @"tools\toolsinvisibledisplacement.vmt";
+            string invisDisplacementVmt = @"tools\toolsinvisibledisplacement.vmt";
 				File.Copy(Path.Combine(@"Assets\materials", invisDisplacementVmt), Path.Combine(contentManager.ContentDir, invisDisplacementVmt), true);
 
-				var invisDisplacementVtf = @"tools\toolsinvisibledisplacement.vtf";
+            string invisDisplacementVtf = @"tools\toolsinvisibledisplacement.vtf";
 				File.Copy(Path.Combine(@"Assets\materials", invisDisplacementVtf), Path.Combine(contentManager.ContentDir, invisDisplacementVtf), true);
 			}
 		}
@@ -221,15 +211,15 @@ namespace BSPConvert.Lib
 		private void ConvertMaterials()
 		{
 			var materialConverter = new MaterialConverter(contentManager.ContentDir, shaderDict);
-			foreach (var texture in quakeBsp.Textures)
+			foreach (Texture texture in quakeBsp.Textures)
 				materialConverter.Convert(texture.Name);
 		}
 
 		private Dictionary<string, Shader> LoadShaderDictionary()
 		{
-			var q3Shaders = GetQ3Shaders();
-			var pk3Shaders = GetPK3Shaders();
-			var allShaders = q3Shaders.Concat(pk3Shaders);
+        string[] q3Shaders = GetQ3Shaders();
+        string[] pk3Shaders = GetPK3Shaders();
+        IEnumerable<string> allShaders = q3Shaders.Concat(pk3Shaders);
 
 			var loader = new ShaderLoader(allShaders);
 			return loader.LoadShaders();
@@ -243,25 +233,25 @@ namespace BSPConvert.Lib
 
 		private string[] GetQ3Shaders()
 		{
-			var q3ScriptsDir = Path.Combine(ContentManager.GetQ3ContentDir(), "scripts");
+        string q3ScriptsDir = Path.Combine(ContentManager.GetQ3ContentDir(), "scripts");
 			if (Directory.Exists(q3ScriptsDir))
 				return Directory.GetFiles(q3ScriptsDir, "*.shader");
 
-			return new string[0];
+			return [];
 		}
 
 		private string[] GetPK3Shaders()
 		{
-			var pk3ScriptsDir = Path.Combine(contentManager.ContentDir, "scripts");
+        string pk3ScriptsDir = Path.Combine(contentManager.ContentDir, "scripts");
 			if (Directory.Exists(pk3ScriptsDir))
 				return Directory.GetFiles(pk3ScriptsDir, "*.shader");
 
-			return new string[0];
+			return [];
 		}
 
 		private void ConvertTextureFiles()
 		{
-			var converter = options.noPak ?
+        TextureConverter converter = options.noPak ?
 				new TextureConverter(contentManager.ContentDir, options.outputDir) :
 				new TextureConverter(contentManager.ContentDir, sourceBsp);
 			converter.Convert();
@@ -275,7 +265,7 @@ namespace BSPConvert.Lib
 
 		private void ConvertSounds()
 		{
-			var converter = options.noPak ?
+        SoundConverter converter = options.noPak ?
 				new SoundConverter(contentManager.ContentDir, options.outputDir, sourceBsp.Entities) :
 				new SoundConverter(contentManager.ContentDir, sourceBsp, sourceBsp.Entities);
 			converter.Convert();
@@ -283,14 +273,14 @@ namespace BSPConvert.Lib
 
 		private void ConvertTextures()
 		{
-			foreach (var texture in quakeBsp.Textures)
+			foreach (Texture texture in quakeBsp.Textures)
 				CreateTextureData(texture.Name);
 		}
 
 		private void CreateTextureData(string textureName)
 		{
-			var vtfPath = Path.Combine(contentManager.ContentDir, textureName + ".vtf");
-			var textureData = GetTextureData(vtfPath);
+        string vtfPath = Path.Combine(contentManager.ContentDir, textureName + ".vtf");
+        TextureData textureData = GetTextureData(vtfPath);
 			textureData.TextureStringOffsetIndex = CreateTextureDataStringTableEntry(textureName);
 
 			sourceBsp.TextureData.Add(textureData);
@@ -306,14 +296,14 @@ namespace BSPConvert.Lib
 
 			try
 			{
-				var textureData = CreateTextureData();
-				
-				var vtfFile = FileUtil.DeserializeFromFile(vtfPath, VTFFile.Deserialize);
-				var header = vtfFile.header;
-				
-				var r = (int)Math.Round(header.reflectivityX * 255f);
-				var g = (int)Math.Round(header.reflectivityY * 255f);
-				var b = (int)Math.Round(header.reflectivityZ * 255f);
+            TextureData textureData = CreateTextureData();
+
+            VTFFile vtfFile = FileUtil.DeserializeFromFile(vtfPath, VTFFile.Deserialize);
+            VTFFile.Header header = vtfFile.header;
+
+            int r = (int)Math.Round(header.reflectivityX * 255f);
+            int g = (int)Math.Round(header.reflectivityY * 255f);
+            int b = (int)Math.Round(header.reflectivityZ * 255f);
 				textureData.Reflectivity = ColorExtensions.FromArgb(255, r, g, b);
 				
 				var size = new Vector2(vtfFile.header.width, vtfFile.header.height);
@@ -333,7 +323,7 @@ namespace BSPConvert.Lib
 
 		private TextureData GetDefaultTextureData()
 		{
-			var textureData = CreateTextureData();
+        TextureData textureData = CreateTextureData();
 
 			textureData.Reflectivity = new Color();
 			textureData.Size = new Vector2(128, 128);
@@ -344,7 +334,7 @@ namespace BSPConvert.Lib
 
 		private TextureData CreateTextureData()
 		{
-			var data = new byte[TextureData.GetStructLength(sourceBsp.MapType)];
+        byte[] data = new byte[TextureData.GetStructLength(sourceBsp.MapType)];
 			return new TextureData(data, sourceBsp.TextureData);
 		}
 
@@ -358,9 +348,9 @@ namespace BSPConvert.Lib
 		// Note: Returns texture data byte offset instead of index
 		private int CreateTextureDataStringData(string textureName)
 		{
-			var offset = sourceBsp.Textures.Length;
+        int offset = sourceBsp.Textures.Length;
 
-			var data = System.Text.Encoding.ASCII.GetBytes(textureName);
+        byte[] data = System.Text.Encoding.ASCII.GetBytes(textureName);
 			var texture = new Texture(data, sourceBsp.Textures);
 
 			sourceBsp.Textures.Add(texture);
@@ -370,16 +360,17 @@ namespace BSPConvert.Lib
 
 		private void ConvertPlanes()
 		{
-			foreach (var qPlane in quakeBsp.Planes)
+			foreach (PlaneBSP qPlane in quakeBsp.Planes)
 			{
-				var data = new byte[PlaneBSP.GetStructLength(sourceBsp.MapType)];
-				var plane = new PlaneBSP(data, sourceBsp.Planes);
+            byte[] data = new byte[PlaneBSP.GetStructLength(sourceBsp.MapType)];
+            var plane = new PlaneBSP(data, sourceBsp.Planes)
+            {
+                Normal = qPlane.Normal,
+                Distance = qPlane.Distance,
+                Type = (int)GetVectorAxis(qPlane.Normal)
+            };
 
-				plane.Normal = qPlane.Normal;
-				plane.Distance = qPlane.Distance;
-				plane.Type = (int)GetVectorAxis(qPlane.Normal);
-
-				sourceBsp.Planes.Add(plane);
+            sourceBsp.Planes.Add(plane);
 			}
 		}
 
@@ -393,9 +384,9 @@ namespace BSPConvert.Lib
 			if (normal.Z() == 1f || normal.Z() == -1f)
 				return PlaneBSP.AxisType.PlaneZ;
 
-			var aX = Math.Abs(normal.X());
-			var aY = Math.Abs(normal.Y());
-			var aZ = Math.Abs(normal.Z());
+        float aX = Math.Abs(normal.X());
+        float aY = Math.Abs(normal.Y());
+        float aZ = Math.Abs(normal.Z());
 
 			if (aX >= aY && aX >= aZ)
 				return PlaneBSP.AxisType.PlaneAnyX;
@@ -412,24 +403,25 @@ namespace BSPConvert.Lib
 			if (!options.oldBSP)
 				SetLumpVersionNumber(Node.GetIndexForLump(sourceBsp.MapType), 1);
 
-			foreach (var qNode in quakeBsp.Nodes)
+			foreach (Node qNode in quakeBsp.Nodes)
 			{
-				var data = new byte[Node.GetStructLength(sourceBsp.MapType)];
-				var node = new Node(data, sourceBsp.Nodes);
+            byte[] data = new byte[Node.GetStructLength(sourceBsp.MapType)];
+            var node = new Node(data, sourceBsp.Nodes)
+            {
+                PlaneIndex = qNode.PlaneIndex,
+                Child1Index = qNode.Child1Index,
+                Child2Index = qNode.Child2Index,
+                Minimums = qNode.Minimums,
+                Maximums = qNode.Maximums,
 
-				node.PlaneIndex = qNode.PlaneIndex;
-				node.Child1Index = qNode.Child1Index;
-				node.Child2Index = qNode.Child2Index;
-				node.Minimums = qNode.Minimums;
-				node.Maximums = qNode.Maximums;
+                // Note: On Source BSP's, these values are used to specify which faces are used to split the node (the face will have the "onNode" flag set to true)
+                FirstFaceIndex = 0,
+                NumFaceIndices = 0,
 
-				// Note: On Source BSP's, these values are used to specify which faces are used to split the node (the face will have the "onNode" flag set to true)
-				node.FirstFaceIndex = 0;
-				node.NumFaceIndices = 0;
+                AreaIndex = 0 // TODO: Figure out how to compute areas
+            };
 
-				node.AreaIndex = 0; // TODO: Figure out how to compute areas
-
-				sourceBsp.Nodes.Add(node);
+            sourceBsp.Nodes.Add(node);
 			}
 
 			UpdateSplitFaces();
@@ -439,8 +431,8 @@ namespace BSPConvert.Lib
 		// This is necessary to get skyboxes to render correctly (and perhaps some other engine optimizations)
 		private void UpdateSplitFaces()
 		{
-			// TODO: Does this need to be done for all model head nodes?
-			var rootNode = sourceBsp.Nodes[0];
+        // TODO: Does this need to be done for all model head nodes?
+        Node rootNode = sourceBsp.Nodes[0];
 
 			UpdateSplitFacesRecursive(rootNode.Child1);
 			UpdateSplitFacesRecursive(rootNode.Child2);
@@ -452,20 +444,20 @@ namespace BSPConvert.Lib
 				return ((Leaf)obj).MarkFaces;
 
 			var node = (Node)obj;
-			var faces = UpdateSplitFacesRecursive(node.Child1).Concat(
+        IEnumerable<int> faces = UpdateSplitFacesRecursive(node.Child1).Concat(
 				UpdateSplitFacesRecursive(node.Child2));
 
-			// Find the face that splits this node
-			var vertices = sourceBsp.PrimitiveVertices;
-			foreach (var faceIndex in faces)
+        // Find the face that splits this node
+        Lump<Vector3> vertices = sourceBsp.PrimitiveVertices;
+			foreach (int faceIndex in faces)
 			{
-				var face = sourceBsp.Faces[faceIndex];
+            Face face = sourceBsp.Faces[faceIndex];
 
 				var surfaceFlags = (SourceSurfaceFlags)face.TextureInfo.Flags;
 				if (!surfaceFlags.HasFlag(SourceSurfaceFlags.SURF_SKY))
 					continue;
 
-				var primitive = sourceBsp.Primitives[face.FirstPrimitive];
+            Primitive primitive = sourceBsp.Primitives[face.FirstPrimitive];
 				var plane = Plane.CreateFromVertices(
 					vertices[primitive.FirstVertex],
 					vertices[primitive.FirstVertex + 1],
@@ -488,78 +480,43 @@ namespace BSPConvert.Lib
 
 		private bool IsPlaneCoplanarWithNode(Plane plane, ILumpObject node)
 		{
-			(var mins, var maxs) = GetMinsMaxs(node);
+			(Vector3 mins, Vector3 maxs) = GetMinsMaxs(node);
 			return plane.HasPoint(mins) || plane.HasPoint(maxs);
 		}
 
 		private bool IsPlaneBetweenNodes(Plane plane, ILumpObject node1, ILumpObject node2)
 		{
-			(var mins1, var maxs1) = GetMinsMaxs(node1);
-			(var mins2, var maxs2) = GetMinsMaxs(node2);
-			var center1 = (mins1 + maxs1) / 2;
-			var center2 = (mins2 + maxs2) / 2;
+			(Vector3 mins1, Vector3 maxs1) = GetMinsMaxs(node1);
+			(Vector3 mins2, Vector3 maxs2) = GetMinsMaxs(node2);
+        Vector3 center1 = (mins1 + maxs1) / 2;
+        Vector3 center2 = (mins2 + maxs2) / 2;
 
 			return plane.GetSide(center1) != plane.GetSide(center2);
 		}
 
 		private (Vector3, Vector3) GetMinsMaxs(ILumpObject obj)
 		{
-			if (obj is Node)
-			{
-				var node = (Node)obj;
-				return (node.Minimums, node.Maximums);
-			}
-			else
-			{
-				var leaf = (Leaf)obj;
-				return (leaf.Minimums, leaf.Maximums);
-			}
-		}
+        if (obj is Node node)
+        {
+            return (node.Minimums, node.Maximums);
+        }
+        else
+        {
+            var leaf = (Leaf)obj;
+            return (leaf.Minimums, leaf.Maximums);
+        }
+    }
 
-		private void ConvertLeaves()
+    private void ConvertLeaves_SplitFaces()
 		{
-			var version = options.oldBSP ? 1 : 2;
+        int version = options.oldBSP ? 1 : 2;
 			SetLumpVersionNumber(Leaf.GetIndexForLump(sourceBsp.MapType), version);
 
-			foreach (var qLeaf in quakeBsp.Leaves)
+        int currentFaceIndex = 0;
+
+			foreach (Leaf qLeaf in quakeBsp.Leaves)
 			{
-				var data = new byte[Leaf.GetStructLength(sourceBsp.MapType)];
-				var leaf = new Leaf(data, sourceBsp.Leaves);
-
-				if (sourceBsp.Leaves.Count == 0)
-				{
-					leaf.Contents = (int)SourceContentsFlags.CONTENTS_SOLID; // First leaf is always solid, otherwise game crashes
-					leaf.Flags = 0;
-				}
-				else
-				{
-					leaf.Contents = qLeaf.Area >= 0 ? 0 : 1; // Set to 0 when inside map, 1 when outside map or overlapping brush
-					leaf.Flags = 2; // Not sure what the flags do, but 2 shows up on all leaves besides the first one
-				}
-				leaf.Visibility = qLeaf.Visibility;
-				leaf.Area = 0; // TODO: Convert Q3 areas?
-				leaf.Minimums = qLeaf.Minimums;
-				leaf.Maximums = qLeaf.Maximums;
-				leaf.FirstMarkFaceIndex = qLeaf.FirstMarkFaceIndex;
-				leaf.NumMarkFaceIndices = qLeaf.NumMarkFaceIndices;
-				leaf.FirstMarkBrushIndex = qLeaf.FirstMarkBrushIndex;
-				leaf.NumMarkBrushIndices = qLeaf.NumMarkBrushIndices;
-				leaf.LeafWaterDataID = -1;
-
-				sourceBsp.Leaves.Add(leaf);
-			}
-		}
-
-		private void ConvertLeaves_SplitFaces()
-		{
-			var version = options.oldBSP ? 1 : 2;
-			SetLumpVersionNumber(Leaf.GetIndexForLump(sourceBsp.MapType), version);
-
-			var currentFaceIndex = 0;
-
-			foreach (var qLeaf in quakeBsp.Leaves)
-			{
-				var data = new byte[Leaf.GetStructLength(sourceBsp.MapType)];
+            byte[] data = new byte[Leaf.GetStructLength(sourceBsp.MapType)];
 				var leaf = new Leaf(data, sourceBsp.Leaves);
 
 				if (sourceBsp.Leaves.Count == 0)
@@ -578,8 +535,8 @@ namespace BSPConvert.Lib
 				leaf.Maximums = qLeaf.Maximums;
 
 				leaf.FirstMarkFaceIndex = currentFaceIndex;
-				var numFaces = 0;
-				for (var i = 0; i < qLeaf.NumMarkFaceIndices; i++)
+            int numFaces = 0;
+				for (int i = 0; i < qLeaf.NumMarkFaceIndices; i++)
 					numFaces += splitFaceDict[(int)quakeBsp.LeafFaces[qLeaf.FirstMarkFaceIndex + i]].Length;
 				leaf.NumMarkFaceIndices = numFaces;
 				currentFaceIndex += numFaces;
@@ -592,24 +549,15 @@ namespace BSPConvert.Lib
 			}
 		}
 
-		private void ConvertLeafFaces()
+    private void ConvertLeafFaces_SplitFaces()
 		{
 			if (!options.oldBSP)
 				SetLumpVersionNumber(NumList.GetIndexForLeafFacesLump(sourceBsp.MapType, out _), 1);
 
-			foreach (var qLeafFace in quakeBsp.LeafFaces)
-				sourceBsp.LeafFaces.Add(qLeafFace);
-		}
-
-		private void ConvertLeafFaces_SplitFaces()
-		{
-			if (!options.oldBSP)
-				SetLumpVersionNumber(NumList.GetIndexForLeafFacesLump(sourceBsp.MapType, out _), 1);
-
-			foreach (var qLeafFace in quakeBsp.LeafFaces)
+			foreach (long qLeafFace in quakeBsp.LeafFaces)
 			{
-				var splitFaceIndices = splitFaceDict[(int)qLeafFace];
-				for (var i = 0; i < splitFaceIndices.Length; i++)
+            int[] splitFaceIndices = splitFaceDict[(int)qLeafFace];
+				for (int i = 0; i < splitFaceIndices.Length; i++)
 					sourceBsp.LeafFaces.Add(splitFaceIndices[i]);
 			}
 		}
@@ -619,26 +567,26 @@ namespace BSPConvert.Lib
 			if (!options.oldBSP)
 				SetLumpVersionNumber(NumList.GetIndexForLeafBrushesLump(sourceBsp.MapType, out _), 1);
 
-			foreach (var qLeafBrush in quakeBsp.LeafBrushes)
+			foreach (long qLeafBrush in quakeBsp.LeafBrushes)
 				sourceBsp.LeafBrushes.Add(qLeafBrush);
 		}
 
 		private void ConvertModels()
 		{
-			var exceededMaxExtents = false;
+        bool exceededMaxExtents = false;
 
-			for (var i = 0; i < quakeBsp.Models.Count; i++)
+			for (int i = 0; i < quakeBsp.Models.Count; i++)
 			{
-				var qModel = quakeBsp.Models[i];
+            Model qModel = quakeBsp.Models[i];
 
-				var data = new byte[Model.GetStructLength(sourceBsp.MapType)];
+            byte[] data = new byte[Model.GetStructLength(sourceBsp.MapType)];
 				var sModel = new Model(data, sourceBsp.Models);
 
 				if (i == 0)
 					sModel.HeadNodeIndex = 0;
 				else
 				{
-					if (!TryCreateHeadNode(qModel.FirstBrushIndex, out var nodeIndex))
+					if (!TryCreateHeadNode(qModel.FirstBrushIndex, out int nodeIndex))
 					{
 						logger.Log($"Failed to convert model: {i}");
 						continue;
@@ -647,10 +595,10 @@ namespace BSPConvert.Lib
 					sModel.HeadNodeIndex = nodeIndex;
 				}
 
-				var mins = qModel.Minimums;
-				var maxs = qModel.Maximums;
-				var minExtents = options.oldBSP ? -16384 : -65536;
-				var maxExtents = options.oldBSP ? 16384 : 65536;
+            Vector3 mins = qModel.Minimums;
+            Vector3 maxs = qModel.Maximums;
+            int minExtents = options.oldBSP ? -16384 : -65536;
+            int maxExtents = options.oldBSP ? 16384 : 65536;
 				//sModel.Minimums = new Vector3(Math.Clamp(mins.X(), minExtents, maxExtents), Math.Clamp(mins.Y(), minExtents, maxExtents), Math.Clamp(mins.Z(), minExtents, maxExtents));
 				//sModel.Maximums = new Vector3(Math.Clamp(maxs.X(), minExtents, maxExtents), Math.Clamp(maxs.Y(), minExtents, maxExtents), Math.Clamp(maxs.Z(), minExtents, maxExtents));
 
@@ -682,21 +630,22 @@ namespace BSPConvert.Lib
 		// Creates a head node using the leaf that references the brush index (seems to be required to get trigger collisions working)
 		private bool TryCreateHeadNode(int brushIndex, out int nodeIndex)
 		{
-			var leafIndex = FindLeafIndex(brushIndex);
+        int leafIndex = FindLeafIndex(brushIndex);
 			if (leafIndex < 0)
 			{
 				nodeIndex = -1;
 				return false;
 			}
 
-			var data = new byte[Node.GetStructLength(sourceBsp.MapType)];
-			var node = new Node(data, sourceBsp.Nodes);
-			
-			node.Child1Index = -leafIndex - 1;
-			node.Child2Index = -leafIndex - 1;
+        byte[] data = new byte[Node.GetStructLength(sourceBsp.MapType)];
+        var node = new Node(data, sourceBsp.Nodes)
+        {
+            Child1Index = -leafIndex - 1,
+            Child2Index = -leafIndex - 1
+        };
 
-			// Note: This fixes translucent brush entities not rendering
-			var leaf = sourceBsp.Leaves[leafIndex];
+        // Note: This fixes translucent brush entities not rendering
+        Leaf leaf = sourceBsp.Leaves[leafIndex];
 			if (leaf.NumMarkFaceIndices > 0)
 			{
 				// For some reason the faces are in reverse order
@@ -713,12 +662,12 @@ namespace BSPConvert.Lib
 		// Finds a leaf that references the brush index
 		private int FindLeafIndex(int brushIndex)
 		{
-			var leafBrushes = sourceBsp.LeafBrushes;
+        NumList leafBrushes = sourceBsp.LeafBrushes;
 
-			for (var i = 0; i < sourceBsp.Leaves.Count; i++)
+			for (int i = 0; i < sourceBsp.Leaves.Count; i++)
 			{
-				var leaf = sourceBsp.Leaves[i];
-				for (var j = 0; j < leaf.NumMarkBrushIndices; j++)
+            Leaf leaf = sourceBsp.Leaves[i];
+				for (int j = 0; j < leaf.NumMarkBrushIndices; j++)
 				{
 					if (leafBrushes[leaf.FirstMarkBrushIndex + j] == brushIndex)
 						return i;
@@ -730,23 +679,24 @@ namespace BSPConvert.Lib
 
 		private void ConvertBrushes()
 		{
-			foreach (var qBrush in quakeBsp.Brushes)
+			foreach (Brush qBrush in quakeBsp.Brushes)
 			{
-				var data = new byte[Brush.GetStructLength(sourceBsp.MapType)];
-				var sBrush = new Brush(data, sourceBsp.Brushes);
+            byte[] data = new byte[Brush.GetStructLength(sourceBsp.MapType)];
+            var sBrush = new Brush(data, sourceBsp.Brushes)
+            {
+                FirstSideIndex = qBrush.FirstSideIndex,
+                NumSides = qBrush.NumSides,
+                Contents = GetBrushContents(qBrush.Texture)
+            };
 
-				sBrush.FirstSideIndex = qBrush.FirstSideIndex;
-				sBrush.NumSides = qBrush.NumSides;
-				sBrush.Contents = GetBrushContents(qBrush.Texture);
-
-				sourceBsp.Brushes.Add(sBrush);
+            sourceBsp.Brushes.Add(sBrush);
 			}
 		}
 
 		private int GetBrushContents(Texture texture)
 		{
-			// TODO: Handle other texture contents flags
-			var sourceContents = SourceContentsFlags.CONTENTS_EMPTY;
+        // TODO: Handle other texture contents flags
+        SourceContentsFlags sourceContents = SourceContentsFlags.CONTENTS_EMPTY;
 			var q3Contents = (Q3ContentsFlags)texture.Contents;
 
 			if (q3Contents.HasFlag(Q3ContentsFlags.CONTENTS_SOLID))
@@ -775,28 +725,29 @@ namespace BSPConvert.Lib
 			if (!options.oldBSP)
 				SetLumpVersionNumber(BrushSide.GetIndexForLump(sourceBsp.MapType), 1);
 
-			foreach (var qBrushSide in quakeBsp.BrushSides)
+			foreach (BrushSide qBrushSide in quakeBsp.BrushSides)
 			{
-				var data = new byte[BrushSide.GetStructLength(sourceBsp.MapType)];
-				var sBrushSide = new BrushSide(data, sourceBsp.BrushSides);
+            byte[] data = new byte[BrushSide.GetStructLength(sourceBsp.MapType)];
+            var sBrushSide = new BrushSide(data, sourceBsp.BrushSides)
+            {
+                PlaneIndex = qBrushSide.PlaneIndex,
+                TextureIndex = GetBrushSideTextureInfoIndex(qBrushSide),
+                DisplacementIndex = 0,
+                IsBevel = false
+            };
 
-				sBrushSide.PlaneIndex = qBrushSide.PlaneIndex;
-				sBrushSide.TextureIndex = GetBrushSideTextureInfoIndex(qBrushSide);
-				sBrushSide.DisplacementIndex = 0;
-				sBrushSide.IsBevel = false;
-
-				sourceBsp.BrushSides.Add(sBrushSide);
+            sourceBsp.BrushSides.Add(sBrushSide);
 			}
 		}
 
 		// Lookup texture info index using brush side's texture name. If it doesn't exist, create a new texture info.
 		private int GetBrushSideTextureInfoIndex(BrushSide qBrushSide)
 		{
-			var textureIndex = LookupTextureInfoIndex(qBrushSide.Texture.Name);
+        int textureIndex = LookupTextureInfoIndex(qBrushSide.Texture.Name);
 			if (textureIndex > -1)
 				return textureIndex;
 			
-			(var uAxis, var vAxis) = GetTextureVectorsWithNormal(qBrushSide.Plane.Normal);
+			(Vector3 uAxis, Vector3 vAxis) = GetTextureVectorsWithNormal(qBrushSide.Plane.Normal);
 			return CreateTextureInfo(qBrushSide.Texture, uAxis, vAxis);
 		}
 
@@ -819,10 +770,10 @@ namespace BSPConvert.Lib
 			// Map needs at least one surface edge to load
 			//CreateEdge(default, default, 0);
 
-			for (var faceIndex = 0; faceIndex < quakeBsp.Faces.Count; faceIndex++)
+			for (int faceIndex = 0; faceIndex < quakeBsp.Faces.Count; faceIndex++)
 			{
-				// TODO: Handle different face types
-				var qFace = quakeBsp.Faces[faceIndex];
+            // TODO: Handle different face types
+            Face qFace = quakeBsp.Faces[faceIndex];
 
 				sourceBsp.Normals.Add(qFace.Normal);
 
@@ -845,24 +796,26 @@ namespace BSPConvert.Lib
 
 		private void AddPrimitiveTextureInfoToGameLumps()
 		{
-			var lumpInfo = new LumpInfo();
-			lumpInfo.ident = (int)GameLumpType.pmti;
-			lumpInfo.flags = 0; // Don't compress this game lump
-			sourceBsp.GameLump.Add(GameLumpType.pmti, lumpInfo);
+        var lumpInfo = new LumpInfo
+        {
+            ident = (int)GameLumpType.pmti,
+            flags = 0 // Don't compress this game lump
+        };
+        sourceBsp.GameLump.Add(GameLumpType.pmti, lumpInfo);
 		}
 
 		private void ConvertPolygon(int faceIndex)
 		{
-			var qFace = quakeBsp.Faces[faceIndex];
+        Face qFace = quakeBsp.Faces[faceIndex];
 
-			var sFace = CreateFace();
+        Face sFace = CreateFace();
 			// TODO: Re-use brush planes?
 			sFace.PlaneIndex = CreatePlane(qFace); // Quake faces don't have planes, so create one
 			sFace.TextureInfoIndex = CreateTextureInfo(qFace, qFace.FirstIndexIndex);
 			sFace.DisplacementIndex = -1;
 
 			// Surface edges
-			(var surfEdgeIndex, var numEdges) = CreateSurfaceEdges(faceIndex);
+			(int surfEdgeIndex, int numEdges) = CreateSurfaceEdges(faceIndex);
 			sFace.FirstEdgeIndexIndex = surfEdgeIndex;
 			sFace.NumEdgeIndices = numEdges;
 
@@ -870,58 +823,23 @@ namespace BSPConvert.Lib
 			sFace.FirstPrimitive = CreatePrimitive(qFace.Vertices.ToArray(), qFace.Indices.ToArray());
 			sFace.NumPrimitives = 1;
 
-			splitFaceDict[faceIndex] = new int[] { sourceBsp.Faces.Count - 1 };
+			splitFaceDict[faceIndex] = [sourceBsp.Faces.Count - 1];
 		}
 
-		private void ConvertFaces_SplitFaces()
+    private void ConvertPolygon_SplitFaces(int faceIndex)
 		{
-			if (!options.oldBSP)
-			{
-				SetLumpVersionNumber(Face.GetIndexForLump(sourceBsp.MapType), 2);
-				SetLumpVersionNumber(Displacement.GetIndexForLump(sourceBsp.MapType), 1);
-				SetLumpVersionNumber(Edge.GetIndexForLump(sourceBsp.MapType), 1);
-				SetLumpVersionNumber(NumList.GetIndexForIndicesLump(sourceBsp.MapType, out _), 1);
-			}
-			else
-				SetLumpVersionNumber(Face.GetIndexForLump(sourceBsp.MapType), 1);
+        // Create a face for each triangle
+        Face qFace = quakeBsp.Faces[faceIndex];
 
-			for (var faceIndex = 0; faceIndex < quakeBsp.Faces.Count; faceIndex++)
-			{
-				var qFace = quakeBsp.Faces[faceIndex];
-
-				sourceBsp.Normals.Add(qFace.Normal);
-
-				switch (qFace.Type)
-				{
-					case FaceType.Polygon:
-					case FaceType.Mesh: // Used for Q3 models
-					case FaceType.Billboard:
-						ConvertPolygon_SplitFaces(faceIndex);
-						break;
-					case FaceType.Patch:
-						ConvertPatch(faceIndex);
-						break;
-					default:
-						logger.Log("Unsupported face type: " + qFace.Type);
-						break;
-				}
-			}
-		}
-
-		private void ConvertPolygon_SplitFaces(int faceIndex)
-		{
-			// Create a face for each triangle
-			var qFace = quakeBsp.Faces[faceIndex];
-
-			// TODO: Remove ToArray() calls
-			var vertices = qFace.Vertices.ToArray();
-			var indices = qFace.Indices.ToArray();
+        // TODO: Remove ToArray() calls
+        Vertex[] vertices = qFace.Vertices.ToArray();
+        int[] indices = qFace.Indices.ToArray();
 
 			splitFaceDict[faceIndex] = new int[indices.Length / 3];
 
-			for (var i = 0; i < indices.Length; i += 3)
+			for (int i = 0; i < indices.Length; i += 3)
 			{
-				var sFace = CreateFace();
+            Face sFace = CreateFace();
 				sFace.PlaneIndex = CreatePlane(qFace); // Quake faces don't have planes, so create one
 				sFace.TextureInfoIndex = CreateTextureInfo(qFace, i);
 				sFace.DisplacementIndex = -1;
@@ -929,9 +847,9 @@ namespace BSPConvert.Lib
 				sFace.FirstEdgeIndexIndex = sourceBsp.FaceEdges.Count;
 				sFace.NumEdgeIndices = 3;
 
-				var v1 = vertices[indices[i]];
-				var v2 = vertices[indices[i + 1]];
-				var v3 = vertices[indices[i + 2]];
+            Vertex v1 = vertices[indices[i]];
+            Vertex v2 = vertices[indices[i + 1]];
+            Vertex v3 = vertices[indices[i + 2]];
 
 				CreateEdge(v1, v2, faceIndex);
 				CreateEdge(v2, v3, faceIndex);
@@ -943,47 +861,48 @@ namespace BSPConvert.Lib
 
 		private Face CreateFace()
 		{
-			var data = new byte[Face.GetStructLength(sourceBsp.MapType)];
-			var face = new Face(data, sourceBsp.Faces);
+        byte[] data = new byte[Face.GetStructLength(sourceBsp.MapType)];
+        var face = new Face(data, sourceBsp.Faces)
+        {
+            PlaneSide = true,
+            IsOnNode = false, // Set to false in order for face to be visible across multiple leaves?
+            SurfaceFogVolumeID = -1,
+            LightmapStyles =
+        [
+                0,
+                255,
+                255,
+                255
+        ],
+            Lightmap = 0,
+            Area = 0, // TODO: Check if this needs to be computed
+            LightmapStart = new Vector2(),
+            LightmapSize = new Vector2(), // TODO: Set to 128x128?
+            OriginalFaceIndex = -1, // Ignore since Quake 3 maps don't have split faces
+            FirstPrimitive = 0,
+            NumPrimitives = 0,
+            SmoothingGroups = 0
+        };
 
-			face.PlaneSide = true;
-			face.IsOnNode = false; // Set to false in order for face to be visible across multiple leaves?
-			face.SurfaceFogVolumeID = -1;
-			face.LightmapStyles = new byte[4]
-			{
-				0,
-				255,
-				255,
-				255
-			};
-			face.Lightmap = 0;
-			face.Area = 0; // TODO: Check if this needs to be computed
-			face.LightmapStart = new Vector2();
-			face.LightmapSize = new Vector2(); // TODO: Set to 128x128?
-			face.OriginalFaceIndex = -1; // Ignore since Quake 3 maps don't have split faces
-			face.FirstPrimitive = 0;
-			face.NumPrimitives = 0;
-			face.SmoothingGroups = 0;
-
-			sourceBsp.Faces.Add(face);
+        sourceBsp.Faces.Add(face);
 			
 			return face;
 		}
 
 		private void ConvertPatch(int faceIndex)
 		{
-			var qFace = quakeBsp.Faces[faceIndex];
-			var numPatchesWidth = ((int)qFace.PatchSize.X - 1) / 2;
-			var numPatchesHeight = ((int)qFace.PatchSize.Y - 1) / 2;
+        Face qFace = quakeBsp.Faces[faceIndex];
+        int numPatchesWidth = ((int)qFace.PatchSize.X - 1) / 2;
+        int numPatchesHeight = ((int)qFace.PatchSize.Y - 1) / 2;
 			splitFaceDict[faceIndex] = new int[numPatchesWidth * numPatchesHeight];
 
-			var currentPatch = 0;
-			for (var y = 0; y < qFace.PatchSize.Y - 1; y += 2)
+        int currentPatch = 0;
+			for (int y = 0; y < qFace.PatchSize.Y - 1; y += 2)
 			{
-				for (var x = 0; x < qFace.PatchSize.X - 1; x += 2)
+				for (int x = 0; x < qFace.PatchSize.X - 1; x += 2)
 				{
-					var patchStartVertex = qFace.FirstVertexIndex + x + y * (int)qFace.PatchSize.X;
-					var patchFaceIndex = CreatePatch(faceIndex, patchStartVertex);
+                int patchStartVertex = qFace.FirstVertexIndex + x + (y * (int)qFace.PatchSize.X);
+                int patchFaceIndex = CreatePatch(faceIndex, patchStartVertex);
 
 					splitFaceDict[faceIndex][currentPatch] = patchFaceIndex;
 					currentPatch++;
@@ -993,17 +912,17 @@ namespace BSPConvert.Lib
 
 		private int CreatePatch(int qFaceIndex, int patchStartVertex)
 		{
-			var qFace = quakeBsp.Faces[qFaceIndex];
-			var patchWidth = (int)qFace.PatchSize.X;
+        Face qFace = quakeBsp.Faces[qFaceIndex];
+        int patchWidth = (int)qFace.PatchSize.X;
 			var faceVerts = new Vertex[]
 			{
 				quakeBsp.Vertices[patchStartVertex],
 				quakeBsp.Vertices[patchStartVertex + 2],
-				quakeBsp.Vertices[patchStartVertex + 2 + 2 * patchWidth],
-				quakeBsp.Vertices[patchStartVertex + 2 * patchWidth]
+				quakeBsp.Vertices[patchStartVertex + 2 + (2 * patchWidth)],
+				quakeBsp.Vertices[patchStartVertex + (2 * patchWidth)]
 			};
 
-			var sFaceIndex = CreatePatchFace(faceVerts, qFaceIndex);
+        int sFaceIndex = CreatePatchFace(faceVerts, qFaceIndex);
 			CreatePatchDisplacement(sFaceIndex, faceVerts, patchWidth, patchStartVertex, qFace);
 
 			return sFaceIndex;
@@ -1011,23 +930,23 @@ namespace BSPConvert.Lib
 
 		private int CreatePatchFace(Vertex[] faceVerts, int faceIndex)
 		{
-			var sFace = CreateFace();
-			
-			var dispIndex = sourceBsp.Displacements.Count;
+        Face sFace = CreateFace();
+
+        int dispIndex = sourceBsp.Displacements.Count;
 			sFace.DisplacementIndex = dispIndex;
 
-			// Create face plane
-			var v1 = faceVerts[0].position - faceVerts[1].position;
-			var v2 = faceVerts[0].position - faceVerts[2].position;
-			var normal = Vector3.Cross(v1, v2).GetNormalized();
-			var dist = Vector3.Dot(faceVerts[0].position, normal);
+        // Create face plane
+        Vector3 v1 = faceVerts[0].position - faceVerts[1].position;
+        Vector3 v2 = faceVerts[0].position - faceVerts[2].position;
+        Vector3 normal = Vector3.Cross(v1, v2).GetNormalized();
+        float dist = Vector3.Dot(faceVerts[0].position, normal);
 			sFace.PlaneIndex = CreatePlane(normal, dist);
 
-			// TODO: Improve UV mapping
-			var uAxis = (faceVerts[1].position - faceVerts[0].position).GetNormalized() * 2f;
-			var vAxis = (faceVerts[3].position - faceVerts[0].position).GetNormalized() * 2f;
+        // TODO: Improve UV mapping
+        Vector3 uAxis = (faceVerts[1].position - faceVerts[0].position).GetNormalized() * 2f;
+        Vector3 vAxis = (faceVerts[3].position - faceVerts[0].position).GetNormalized() * 2f;
 
-			var qFace = quakeBsp.Faces[faceIndex];
+        Face qFace = quakeBsp.Faces[faceIndex];
 			ReplaceToolTextureWithInvisibleDisplacement(qFace);
 			sFace.TextureInfoIndex = CreateTextureInfo(qFace.Texture, uAxis, vAxis);
 
@@ -1045,7 +964,7 @@ namespace BSPConvert.Lib
 
 		private void ReplaceToolTextureWithInvisibleDisplacement(Face qFace)
 		{
-			var texture = qFace.Texture;
+        Texture texture = qFace.Texture;
 			if (texture.Name.StartsWith("tools/"))
 			{
 				texture.Name = invisibleDisplacementTexture;
@@ -1059,10 +978,10 @@ namespace BSPConvert.Lib
 			if (options.noToolDisplacements && qFace.Texture.Name.StartsWith("tools/"))
 				return;
 
-			var data = new byte[Displacement.GetStructLength(sourceBsp.MapType)];
+        byte[] data = new byte[Displacement.GetStructLength(sourceBsp.MapType)];
 			var displacement = new Displacement(data, sourceBsp.Displacements);
 
-			var power = options.DisplacementPower;
+        int power = options.DisplacementPower;
 
 			displacement.StartPosition = quakeBsp.Vertices[patchStartVertex].position;
 			displacement.FirstVertexIndex = CreateDisplacementVertices(faceVerts, patchWidth, patchStartVertex, power);
@@ -1075,8 +994,8 @@ namespace BSPConvert.Lib
 			displacement.LightmapAlphaStart = 0;
 			displacement.LightmapSamplePositionStart = 0;
 
-			var allowedVerts = new uint[10];
-			for (var i = 0; i < allowedVerts.Length; i++)
+        uint[] allowedVerts = new uint[10];
+			for (int i = 0; i < allowedVerts.Length; i++)
 				allowedVerts[i] = 4294967295;
 
 			displacement.AllowedVertices = allowedVerts;
@@ -1086,10 +1005,10 @@ namespace BSPConvert.Lib
 
 		private int GetMinTesselation(Face qFace)
 		{
-			var texture = qFace.Texture.Name;
-			var minTess = -2147483648;
+        string texture = qFace.Texture.Name;
+        int minTess = -2147483648;
 
-			if (shaderDict.TryGetValue(texture, out var shader) && shader.surfaceFlags.HasFlag(Q3SurfaceFlags.SURF_NONSOLID))
+			if (shaderDict.TryGetValue(texture, out Shader? shader) && shader.surfaceFlags.HasFlag(Q3SurfaceFlags.SURF_NONSOLID))
 				minTess |= (int)DisplacementFlags.SURF_NOHULL_COLL | (int)DisplacementFlags.SURF_NORAY_COLL;
 			
 			return minTess;
@@ -1097,22 +1016,22 @@ namespace BSPConvert.Lib
 
 		private int CreateDisplacementVertices(Vertex[] faceVerts, int patchWidth, int patchStartVertex, int power)
 		{
-			var firstVertex = sourceBsp.DisplacementVertices.Count;
+        int firstVertex = sourceBsp.DisplacementVertices.Count;
 
-			var controlPoints = GetPatchControlPoints(patchStartVertex, patchWidth);
+        Vector3[] controlPoints = GetPatchControlPoints(patchStartVertex, patchWidth);
 			var patch = new BezierPatch(controlPoints);
 
-			// Create displacement vertices using bezier patch
-			var subdiv = (1 << power) + 1;
-			for (var y = 0; y < subdiv; y++)
+        // Create displacement vertices using bezier patch
+        int subdiv = (1 << power) + 1;
+			for (int y = 0; y < subdiv; y++)
 			{
-				for (var x = 0; x < subdiv; x++)
+				for (int x = 0; x < subdiv; x++)
 				{
-					var widthT = x / (subdiv - 1f);
-					var heightT = y / (subdiv - 1f);
+                float widthT = x / (subdiv - 1f);
+                float heightT = y / (subdiv - 1f);
 
-					// Get point on quadratic bezier patch
-					var point = patch.GetPoint(widthT, heightT);
+                // Get point on quadratic bezier patch
+                Vector3 point = patch.GetPoint(widthT, heightT);
 
 					// Get interpolated position on face
 					var v1 = Vector3.Lerp(faceVerts[0].position, faceVerts[1].position, widthT);
@@ -1133,11 +1052,11 @@ namespace BSPConvert.Lib
 		private Vector3[] GetPatchControlPoints(int patchStartVertex, int patchWidth)
 		{
 			var controlPoints = new Vector3[9];
-			for (var i = 0; i < 3; i++)
+			for (int i = 0; i < 3; i++)
 			{
-				for (var j = 0; j < 3; j++)
+				for (int j = 0; j < 3; j++)
 				{
-					controlPoints[i + j * 3] = quakeBsp.Vertices[patchStartVertex + i + j * patchWidth].position;
+					controlPoints[i + (j * 3)] = quakeBsp.Vertices[patchStartVertex + i + (j * patchWidth)].position;
 				}
 			}
 
@@ -1146,21 +1065,22 @@ namespace BSPConvert.Lib
 
 		private void CreateDisplacementVertex(Vector3 point)
 		{
-			var data = new byte[DisplacementVertex.GetStructLength(sourceBsp.MapType)];
-			var dispVert = new DisplacementVertex(data, sourceBsp.DisplacementVertices);
+        byte[] data = new byte[DisplacementVertex.GetStructLength(sourceBsp.MapType)];
+        var dispVert = new DisplacementVertex(data, sourceBsp.DisplacementVertices)
+        {
+            Normal = point.GetNormalized(),
+            Magnitude = point.Magnitude()
+        };
 
-			dispVert.Normal = point.GetNormalized();
-			dispVert.Magnitude = point.Magnitude();
-
-			sourceBsp.DisplacementVertices.Add(dispVert);
+        sourceBsp.DisplacementVertices.Add(dispVert);
 		}
 
 		private int CreateDisplacementTriangles(int power)
 		{
-			var firstTriangle = sourceBsp.DisplacementTriangles.Count;
+        int firstTriangle = sourceBsp.DisplacementTriangles.Count;
 
-			var numTriangles = (1 << (power)) * (1 << (power)) * 2;
-			for (var i = 0; i < numTriangles; i++)
+        int numTriangles = (1 << (power)) * (1 << (power)) * 2;
+			for (int i = 0; i < numTriangles; i++)
 				sourceBsp.DisplacementTriangles.Add(6); // TODO: Set displacement flags?
 
 			return firstTriangle;
@@ -1168,19 +1088,20 @@ namespace BSPConvert.Lib
 
 		private int CreatePlane(Face face)
 		{
-			// TODO: Avoid adding duplicate planes
-			var distance = Vector3.Dot(face.Vertices.First().position, face.Normal);
+        // TODO: Avoid adding duplicate planes
+        float distance = Vector3.Dot(face.Vertices.First().position, face.Normal);
 			return CreatePlane(face.Normal, distance);
 		}
 
 		private int CreatePlane(Vector3 normal, float distance)
 		{
-			var data = new byte[PlaneBSP.GetStructLength(sourceBsp.MapType)];
-			var plane = new PlaneBSP(data, sourceBsp.Planes);
-
-			plane.Normal = normal;
-			plane.Distance = distance;
-			plane.Type = (int)GetVectorAxis(plane.Normal);
+        byte[] data = new byte[PlaneBSP.GetStructLength(sourceBsp.MapType)];
+        var plane = new PlaneBSP(data, sourceBsp.Planes)
+        {
+            Normal = normal,
+            Distance = distance
+        };
+        plane.Type = (int)GetVectorAxis(plane.Normal);
 
 			sourceBsp.Planes.Add(plane);
 
@@ -1189,45 +1110,48 @@ namespace BSPConvert.Lib
 
 		private int CreatePrimitive(Vertex[] vertices, int[] indices)
 		{
-			var primitiveIndex = sourceBsp.Primitives.Count;
+        int primitiveIndex = sourceBsp.Primitives.Count;
 
-			var data = new byte[Primitive.GetStructLength(sourceBsp.MapType)];
-			var primitive = new Primitive(data, sourceBsp.Primitives);
+        byte[] data = new byte[Primitive.GetStructLength(sourceBsp.MapType)];
+        var primitive = new Primitive(data, sourceBsp.Primitives)
+        {
+            Type = Primitive.PrimitiveType.PRIM_TRILIST,
 
-			primitive.Type = Primitive.PrimitiveType.PRIM_TRILIST;
+            FirstVertex = CreatePrimitiveVertices(vertices),
+            VertexCount = vertices.Length,
 
-			primitive.FirstVertex = CreatePrimitiveVertices(vertices);
-			primitive.VertexCount = vertices.Length;
+            FirstIndex = CreatePrimitiveIndices(indices),
+            IndexCount = indices.Length
+        };
 
-			primitive.FirstIndex = CreatePrimitiveIndices(indices);
-			primitive.IndexCount = indices.Length;
-
-			sourceBsp.Primitives.Add(primitive);
+        sourceBsp.Primitives.Add(primitive);
 
 			return primitiveIndex;
 		}
 
 		private int CreatePrimitiveVertices(Vertex[] vertices)
 		{
-			var firstPrimVertex = sourceBsp.PrimitiveVertices.Count;
+        int firstPrimVertex = sourceBsp.PrimitiveVertices.Count;
 
-			var lightmapSize = Q3_LIGHTMAP_SIZE;
+        int lightmapSize = Q3_LIGHTMAP_SIZE;
 			if (quakeBsp.Lightmaps.Data.Length == 0 && externalLightmaps.Any())
 				lightmapSize = (int)externalLightmaps.First().Value.size.X;
 
-			(var min, var max) = GetLightmapExtents(vertices, lightmapSize);
+			(Vector2 min, Vector2 max) = GetLightmapExtents(vertices, lightmapSize);
 			min /= lightmapSize;
 			max /= lightmapSize;
 
-			foreach (var vertex in vertices)
+			foreach (Vertex vertex in vertices)
 			{
 				sourceBsp.PrimitiveVertices.Add(vertex.position);
 
-				var bytes = new byte[PrimitiveTextureInfo.GetStructLength(sourceBsp.MapType)];
-				var texInfo = new PrimitiveTextureInfo(bytes, sourceBsp.PrimitiveTextureInfo);
-				texInfo.TexCoord = vertex.uv0;
+            byte[] bytes = new byte[PrimitiveTextureInfo.GetStructLength(sourceBsp.MapType)];
+            var texInfo = new PrimitiveTextureInfo(bytes, sourceBsp.PrimitiveTextureInfo)
+            {
+                TexCoord = vertex.uv0
+            };
 
-				var lightCoord = vertex.uv1;
+            Vector2 lightCoord = vertex.uv1;
 				texInfo.LightmapCoord = (lightCoord - min) / (max - min);
 
 				sourceBsp.PrimitiveTextureInfo.Add(texInfo);
@@ -1238,9 +1162,9 @@ namespace BSPConvert.Lib
 
 		private int CreatePrimitiveIndices(int[] indices)
 		{
-			var firstPrimIndex = sourceBsp.PrimitiveIndices.Count;
+        int firstPrimIndex = sourceBsp.PrimitiveIndices.Count;
 
-			foreach (var index in indices)
+			foreach (int index in indices)
 				sourceBsp.PrimitiveIndices.Add(index);
 
 			return firstPrimIndex;
@@ -1248,15 +1172,15 @@ namespace BSPConvert.Lib
 
 		private (int surfEdgeIndex, int numEdges) CreateSurfaceEdges(int faceIndex)
 		{
-			var surfEdgeIndex = sourceBsp.FaceEdges.Count;
+        int surfEdgeIndex = sourceBsp.FaceEdges.Count;
 
-			var qFace = quakeBsp.Faces[faceIndex];
-			var vertices = qFace.Vertices.ToArray();
+        Face qFace = quakeBsp.Faces[faceIndex];
+        Vertex[] vertices = qFace.Vertices.ToArray();
 
-			// Convert triangle meshes from Q3 to Source engine's edge loop format
-			// Note: Some Q3 faces are concave polygons, so this approach does not always work
-			var hullVerts = HullConverter.ConvertConvexHull(vertices, qFace.Normal);
-			var numEdges = hullVerts.Count;
+        // Convert triangle meshes from Q3 to Source engine's edge loop format
+        // Note: Some Q3 faces are concave polygons, so this approach does not always work
+        List<Vertex> hullVerts = HullConverter.ConvertConvexHull(vertices, qFace.Normal);
+        int numEdges = hullVerts.Count;
 
 			// Note: Edges are continuous, so treating them as triangles will cause issues
 			//for (var i = 0; i < indices.Length; i += 3)
@@ -1274,9 +1198,9 @@ namespace BSPConvert.Lib
 			//	sourceBsp.FaceEdges.Add(e3);
 			//}
 
-			for (var i = 0; i < hullVerts.Count; i++)
+			for (int i = 0; i < hullVerts.Count; i++)
 			{
-				var nextIndex = (i + 1) % hullVerts.Count;
+            int nextIndex = (i + 1) % hullVerts.Count;
 				CreateEdge(hullVerts[nextIndex], hullVerts[i], faceIndex);
 			}
 
@@ -1285,13 +1209,15 @@ namespace BSPConvert.Lib
 
 		private void CreateEdge(Vertex firstVertex, Vertex secondVertex, int faceIndex)
 		{
-			// TODO: Prevent adding duplicate edges?
-			var data = new byte[Edge.GetStructLength(sourceBsp.MapType)];
-			var edge = new Edge(data, sourceBsp.Edges);
-			edge.FirstVertexIndex = CreateVertex(firstVertex, faceIndex);
-			edge.SecondVertexIndex = CreateVertex(secondVertex, faceIndex);
+        // TODO: Prevent adding duplicate edges?
+        byte[] data = new byte[Edge.GetStructLength(sourceBsp.MapType)];
+        var edge = new Edge(data, sourceBsp.Edges)
+        {
+            FirstVertexIndex = CreateVertex(firstVertex, faceIndex),
+            SecondVertexIndex = CreateVertex(secondVertex, faceIndex)
+        };
 
-			sourceBsp.Edges.Add(edge);
+        sourceBsp.Edges.Add(edge);
 			sourceBsp.FaceEdges.Add(sourceBsp.Edges.Count - 1);
 		}
 
@@ -1306,23 +1232,24 @@ namespace BSPConvert.Lib
 
 		private int CreateTextureInfo(Face qFace, int firstIndex)
 		{
-			(var uAxis, var vAxis) = GetTextureVectors(qFace, firstIndex);
+			(Vector3 uAxis, Vector3 vAxis) = GetTextureVectors(qFace, firstIndex);
 			return CreateTextureInfo(qFace.Texture, uAxis, vAxis);
 		}
 
 		private int CreateTextureInfo(Texture texture, Vector3 uAxis, Vector3 vAxis)
 		{
-			var data = new byte[TextureInfo.GetStructLength(sourceBsp.MapType)];
-			var textureInfo = new TextureInfo(data, sourceBsp.TextureInfo);
-			
-			// TODO: Get UV data from face vertices
-			textureInfo.UAxis = uAxis;
-			textureInfo.VAxis = vAxis;
-			textureInfo.LightmapUAxis = uAxis / 32f;
-			textureInfo.LightmapVAxis = vAxis / 32f;
-			textureInfo.TextureIndex = LookupTextureDataIndex(texture.Name);
+        byte[] data = new byte[TextureInfo.GetStructLength(sourceBsp.MapType)];
+        var textureInfo = new TextureInfo(data, sourceBsp.TextureInfo)
+        {
+            // TODO: Get UV data from face vertices
+            UAxis = uAxis,
+            VAxis = vAxis,
+            LightmapUAxis = uAxis / 32f,
+            LightmapVAxis = vAxis / 32f,
+            TextureIndex = LookupTextureDataIndex(texture.Name)
+        };
 
-			var q3Flags = (Q3SurfaceFlags)texture.Flags;
+        var q3Flags = (Q3SurfaceFlags)texture.Flags;
 			if (q3Flags.HasFlag(Q3SurfaceFlags.SURF_SLICK))
 				textureInfo.Flags |= (int)SourceSurfaceFlags.SURF_SLICK;
 
@@ -1335,9 +1262,9 @@ namespace BSPConvert.Lib
 			if (q3Flags.HasFlag(Q3SurfaceFlags.SURF_NODRAW))
 				textureInfo.Flags |= (int)SourceSurfaceFlags.SURF_NODRAW;
 
-			// Avoid adding duplicate texture info
-			var hashCode = BSPUtil.GetHashCode(textureInfo);
-			if (textureInfoHashCodeDict.TryGetValue(hashCode, out var textureInfoIndex))
+        // Avoid adding duplicate texture info
+        int hashCode = BSPUtil.GetHashCode(textureInfo);
+			if (textureInfoHashCodeDict.TryGetValue(hashCode, out int textureInfoIndex))
 				return textureInfoIndex;
 			else
 			{
@@ -1355,32 +1282,32 @@ namespace BSPConvert.Lib
 
 		private (Vector3 uAxis, Vector3 vAxis) GetTextureVectors(Face qFace, int firstIndex)
 		{
-			// Tangent basis vector derivation: https://www.cs.upc.edu/~virtual/G/1.%20Teoria/06.%20Textures/Tangent%20Space%20Calculation.pdf
-			// Note: This only works for face-aligned textures. World-aligned textures will need to be handled differently
-			var vertices = quakeBsp.Vertices;
-			var indices = quakeBsp.Indices;
+        // Tangent basis vector derivation: https://www.cs.upc.edu/~virtual/G/1.%20Teoria/06.%20Textures/Tangent%20Space%20Calculation.pdf
+        // Note: This only works for face-aligned textures. World-aligned textures will need to be handled differently
+        Lump<Vertex> vertices = quakeBsp.Vertices;
+        NumList indices = quakeBsp.Indices;
 
-			var i0 = (int)indices[firstIndex];
-			var i1 = (int)indices[firstIndex + 1];
-			var i2 = (int)indices[firstIndex + 2];
+        int i0 = (int)indices[firstIndex];
+        int i1 = (int)indices[firstIndex + 1];
+        int i2 = (int)indices[firstIndex + 2];
 
-			var v0 = vertices[qFace.FirstVertexIndex + i0];
-			var v1 = vertices[qFace.FirstVertexIndex + i1];
-			var v2 = vertices[qFace.FirstVertexIndex + i2];
+        Vertex v0 = vertices[qFace.FirstVertexIndex + i0];
+        Vertex v1 = vertices[qFace.FirstVertexIndex + i1];
+        Vertex v2 = vertices[qFace.FirstVertexIndex + i2];
 
-			var deltaPos1 = v1.position - v0.position;
-			var deltaPos2 = v2.position - v0.position;
+        Vector3 deltaPos1 = v1.position - v0.position;
+        Vector3 deltaPos2 = v2.position - v0.position;
 
-			var deltaUV1 = v1.uv0 - v0.uv0;
-			var deltaUV2 = v2.uv0 - v0.uv0;
+        Vector2 deltaUV1 = v1.uv0 - v0.uv0;
+        Vector2 deltaUV2 = v2.uv0 - v0.uv0;
 
-			var den = deltaUV1.X * deltaUV2.Y - deltaUV2.X * deltaUV1.Y;
+        float den = (deltaUV1.X * deltaUV2.Y) - (deltaUV2.X * deltaUV1.Y);
 			if (Math.Abs(den) < 0.01f)
 				return GetTextureVectorsWithNormal(qFace.Normal);
-			
-			var r = 1f / den;
-			var tangent = (deltaPos1 * deltaUV2.Y - deltaPos2 * deltaUV1.Y) * r / 32f;
-			var binormal = (deltaPos2 * deltaUV1.X - deltaPos1 * deltaUV2.X) * r / 32f;
+
+        float r = 1f / den;
+        Vector3 tangent = ((deltaPos1 * deltaUV2.Y) - (deltaPos2 * deltaUV1.Y)) * r / 32f;
+        Vector3 binormal = ((deltaPos2 * deltaUV1.X) - (deltaPos1 * deltaUV2.X)) * r / 32f;
 
 			return (tangent, binormal);
 		}
@@ -1388,26 +1315,19 @@ namespace BSPConvert.Lib
 		// Fallback for when faces have unusual uv deltas
 		private (Vector3 uAxis, Vector3 vAxis) GetTextureVectorsWithNormal(Vector3 faceNormal)
 		{
-			var axis = GetVectorAxis(faceNormal);
-			switch (axis)
-			{
-				case PlaneBSP.AxisType.PlaneX:
-				case PlaneBSP.AxisType.PlaneAnyX:
-					return (new Vector3(0f, 2f, 0f), new Vector3(0f, 0f, -2f));
-				case PlaneBSP.AxisType.PlaneY:
-				case PlaneBSP.AxisType.PlaneAnyY:
-					return (new Vector3(2f, 0f, 0f), new Vector3(0f, 0f, -2f));
-				case PlaneBSP.AxisType.PlaneZ:
-				case PlaneBSP.AxisType.PlaneAnyZ:
-					return (new Vector3(2f, 0f, 0f), new Vector3(0f, -2f, 0f));
-				default:
-					return (new Vector3(0f, 0f, 0f), new Vector3(0f, 0f, 0f));
-			}
-		}
+        PlaneBSP.AxisType axis = GetVectorAxis(faceNormal);
+        return axis switch
+        {
+            PlaneBSP.AxisType.PlaneX or PlaneBSP.AxisType.PlaneAnyX => (new Vector3(0f, 2f, 0f), new Vector3(0f, 0f, -2f)),
+            PlaneBSP.AxisType.PlaneY or PlaneBSP.AxisType.PlaneAnyY => (new Vector3(2f, 0f, 0f), new Vector3(0f, 0f, -2f)),
+            PlaneBSP.AxisType.PlaneZ or PlaneBSP.AxisType.PlaneAnyZ => (new Vector3(2f, 0f, 0f), new Vector3(0f, -2f, 0f)),
+            _ => (new Vector3(0f, 0f, 0f), new Vector3(0f, 0f, 0f)),
+        };
+    }
 
 		private int LookupTextureInfoIndex(string textureName)
 		{
-			if (textureInfoLookup.TryGetValue(textureName, out var textureInfoIndex))
+			if (textureInfoLookup.TryGetValue(textureName, out int textureInfoIndex))
 				return textureInfoIndex;
 
 			return -1;
@@ -1415,7 +1335,7 @@ namespace BSPConvert.Lib
 
 		private int LookupTextureDataIndex(string textureName)
 		{
-			if (textureDataLookup.TryGetValue(textureName, out var textureDataIndex))
+			if (textureDataLookup.TryGetValue(textureName, out int textureDataIndex))
 				return textureDataIndex;
 
 			return -1;
@@ -1433,63 +1353,63 @@ namespace BSPConvert.Lib
 
 		private void ConvertInternalLightmaps()
 		{
-			var qLightmapData = quakeBsp.Lightmaps.Data;
+        byte[] qLightmapData = quakeBsp.Lightmaps.Data;
 			var lmColors = new List<ColorRGBExp32>();
 
-			for (var faceIndex = 0; faceIndex < quakeBsp.Faces.Count; faceIndex++)
+			for (int faceIndex = 0; faceIndex < quakeBsp.Faces.Count; faceIndex++)
 			{
-				var qFace = quakeBsp.Faces[faceIndex];
-				var lmIndex = qFace.Lightmap;
+            Face qFace = quakeBsp.Faces[faceIndex];
+            int lmIndex = qFace.Lightmap;
 				if (lmIndex < 0)
 					continue;
 
-				(var lmStart, var lmEnd) = GetLightmapExtents(qFace.Vertices, Q3_LIGHTMAP_SIZE);
-				var lmSize = lmEnd - lmStart;
+				(Vector2 lmStart, Vector2 lmEnd) = GetLightmapExtents(qFace.Vertices, Q3_LIGHTMAP_SIZE);
+            Vector2 lmSize = lmEnd - lmStart;
 
-				// TODO: Faces need to be split since Source lightmaps only go up to 35x35 luxels whereas Q3 goes up to 128x128
-				//if (lmSize.X - 1 > 35 || lmSize.Y - 1 > 35)
-				//	continue;
+            // TODO: Faces need to be split since Source lightmaps only go up to 35x35 luxels whereas Q3 goes up to 128x128
+            //if (lmSize.X - 1 > 35 || lmSize.Y - 1 > 35)
+            //	continue;
 
-				var q3LightmapSize = Q3_LIGHTMAP_SIZE * Q3_LIGHTMAP_SIZE * 3;
-				var q3LightmapOffset = lmIndex * q3LightmapSize;
+            int q3LightmapSize = Q3_LIGHTMAP_SIZE * Q3_LIGHTMAP_SIZE * 3;
+            int q3LightmapOffset = lmIndex * q3LightmapSize;
 
-				var sourceLightmapOffset = lmColors.Count * 4;
+            int sourceLightmapOffset = lmColors.Count * 4;
 
 				// Add lightmap colors
-				for (var y = (int)lmStart.Y; y < lmEnd.Y; y++)
+				for (int y = (int)lmStart.Y; y < lmEnd.Y; y++)
 				{
-					for (var x = (int)lmStart.X; x < lmEnd.X; x++)
+					for (int x = (int)lmStart.X; x < lmEnd.X; x++)
 					{
-						// Remove padding
-						var xCoord = Math.Clamp(x, (int)lmStart.X + LIGHTMAP_PADDING, (int)lmEnd.X - LIGHTMAP_PADDING);
-						var yCoord = Math.Clamp(y, (int)lmStart.Y + LIGHTMAP_PADDING, (int)lmEnd.Y - LIGHTMAP_PADDING);
-						var index = xCoord + yCoord * Q3_LIGHTMAP_SIZE;
+                    // Remove padding
+                    int xCoord = Math.Clamp(x, (int)lmStart.X + LIGHTMAP_PADDING, (int)lmEnd.X - LIGHTMAP_PADDING);
+                    int yCoord = Math.Clamp(y, (int)lmStart.Y + LIGHTMAP_PADDING, (int)lmEnd.Y - LIGHTMAP_PADDING);
+                    int index = xCoord + (yCoord * Q3_LIGHTMAP_SIZE);
 
-						var color = ColorUtil.ConvertQ3LightmapToColorRGBExp32(
-							qLightmapData[q3LightmapOffset + index * 3 + 0],
-							qLightmapData[q3LightmapOffset + index * 3 + 1],
-							qLightmapData[q3LightmapOffset + index * 3 + 2]);
+                    ColorRGBExp32 color = ColorUtil.ConvertQ3LightmapToColorRGBExp32(
+							qLightmapData[q3LightmapOffset + (index * 3) + 0],
+							qLightmapData[q3LightmapOffset + (index * 3) + 1],
+							qLightmapData[q3LightmapOffset + (index * 3) + 2]);
 
 						lmColors.Add(color);
 					}
 				}
 
 				// Update face lightmap info
-				foreach (var splitFaceIndex in splitFaceDict[faceIndex])
+				foreach (int splitFaceIndex in splitFaceDict[faceIndex])
 				{
-					var sFace = sourceBsp.Faces[splitFaceIndex];
+                Face sFace = sourceBsp.Faces[splitFaceIndex];
 					sFace.Lightmap = sourceLightmapOffset;
 					sFace.LightmapStart = GetLightmapStart(sFace);
 					sFace.LightmapSize = new Vector2(lmSize.X - LIGHTMAP_PADDING, lmSize.Y - LIGHTMAP_PADDING);
 				}
 			}
 
-			// Copy colors into lightmap data
-			var data = new byte[lmColors.Count * 4];
-			for (var i = 0; i < lmColors.Count; i++)
+        // Copy colors into lightmap data
+        byte[] data = new byte[lmColors.Count * 4];
+			for (int i = 0; i < lmColors.Count; i++)
 			{
-				var color = lmColors[i];
-				var dataIndex = i * 4;
+            ColorRGBExp32 color = lmColors[i];
+            int dataIndex = i * 4;
 				data[dataIndex + 0] = color.r;
 				data[dataIndex + 1] = color.g;
 				data[dataIndex + 2] = color.b;
@@ -1503,60 +1423,60 @@ namespace BSPConvert.Lib
 		{
 			var lmColors = new List<ColorRGBExp32>();
 
-			for (var faceIndex = 0; faceIndex < quakeBsp.Faces.Count; faceIndex++)
+			for (int faceIndex = 0; faceIndex < quakeBsp.Faces.Count; faceIndex++)
 			{
-				var qFace = quakeBsp.Faces[faceIndex];
-				var texture = qFace.Texture.Name;
-				if (!shaderDict.TryGetValue(texture, out var shader))
+            Face qFace = quakeBsp.Faces[faceIndex];
+            string texture = qFace.Texture.Name;
+				if (!shaderDict.TryGetValue(texture, out Shader? shader))
 					continue;
 
-				var stage = shader.stages.FirstOrDefault(x => x.bundles[0].tcGen == TexCoordGen.TCGEN_LIGHTMAP && x.bundles[0].images[0] != "$lightmap");
+            ShaderStage? stage = shader.stages.FirstOrDefault(x => x.bundles[0].tcGen == TexCoordGen.TCGEN_LIGHTMAP && x.bundles[0].images[0] != "$lightmap");
 				if (stage == null)
 					continue;
 
-				var lmImage = stage.bundles[0].images[0];
-				if (!externalLightmaps.TryGetValue(lmImage, out var lmData))
+            string lmImage = stage.bundles[0].images[0];
+				if (!externalLightmaps.TryGetValue(lmImage, out LightmapData? lmData))
 					continue;
 
-				(var lmStart, var lmEnd) = GetLightmapExtents(qFace.Vertices, lmData.size.X);
-				var lmSize = lmEnd - lmStart;
+				(Vector2 lmStart, Vector2 lmEnd) = GetLightmapExtents(qFace.Vertices, lmData.size.X);
+            Vector2 lmSize = lmEnd - lmStart;
 
-				var lightmapOffset = lmColors.Count * 4;
+            int lightmapOffset = lmColors.Count * 4;
 
 				// Add lightmap colors
-				for (var y = (int)lmStart.Y; y < lmEnd.Y; y++)
+				for (int y = (int)lmStart.Y; y < lmEnd.Y; y++)
 				{
-					for (var x = (int)lmStart.X; x < lmEnd.X; x++)
+					for (int x = (int)lmStart.X; x < lmEnd.X; x++)
 					{
-						// Remove padding
-						var xCoord = Math.Clamp(x, (int)lmStart.X + LIGHTMAP_PADDING, (int)lmEnd.X - LIGHTMAP_PADDING);
-						var yCoord = Math.Clamp(y, (int)lmStart.Y + LIGHTMAP_PADDING, (int)lmEnd.Y - LIGHTMAP_PADDING);
-						var index = xCoord + yCoord * (int)lmData.size.X;
+                    // Remove padding
+                    int xCoord = Math.Clamp(x, (int)lmStart.X + LIGHTMAP_PADDING, (int)lmEnd.X - LIGHTMAP_PADDING);
+                    int yCoord = Math.Clamp(y, (int)lmStart.Y + LIGHTMAP_PADDING, (int)lmEnd.Y - LIGHTMAP_PADDING);
+                    int index = xCoord + (yCoord * (int)lmData.size.X);
 
-						var color = ColorUtil.ConvertQ3LightmapToColorRGBExp32(
-							lmData.data[index * 3 + 0],
-							lmData.data[index * 3 + 1],
-							lmData.data[index * 3 + 2]);
+                    ColorRGBExp32 color = ColorUtil.ConvertQ3LightmapToColorRGBExp32(
+							lmData.data[(index * 3) + 0],
+							lmData.data[(index * 3) + 1],
+							lmData.data[(index * 3) + 2]);
 
 						lmColors.Add(color);
 					}
 				}
 
-				foreach (var splitFaceIndex in splitFaceDict[faceIndex])
+				foreach (int splitFaceIndex in splitFaceDict[faceIndex])
 				{
-					var sFace = sourceBsp.Faces[splitFaceIndex];
+                Face sFace = sourceBsp.Faces[splitFaceIndex];
 					sFace.Lightmap = lightmapOffset;
 					sFace.LightmapStart = GetLightmapStart(sFace);
 					sFace.LightmapSize = new Vector2(lmSize.X - LIGHTMAP_PADDING, lmSize.Y - LIGHTMAP_PADDING);
 				}
 			}
 
-			// Copy colors into lightmap data
-			var data = new byte[lmColors.Count * 4];
-			for (var i = 0; i < lmColors.Count; i++)
+        // Copy colors into lightmap data
+        byte[] data = new byte[lmColors.Count * 4];
+			for (int i = 0; i < lmColors.Count; i++)
 			{
-				var color = lmColors[i];
-				var dataIndex = i * 4;
+            ColorRGBExp32 color = lmColors[i];
+            int dataIndex = i * 4;
 				data[dataIndex + 0] = color.r;
 				data[dataIndex + 1] = color.g;
 				data[dataIndex + 2] = color.b;
@@ -1570,7 +1490,7 @@ namespace BSPConvert.Lib
 		{
 			var uvMin = new Vector2(float.MaxValue, float.MaxValue);
 			var uvMax = new Vector2(float.MinValue, float.MinValue);
-			foreach (var vert in vertices)
+			foreach (Vertex vert in vertices)
 			{
 				if (vert.uv1.X < uvMin.X)
 					uvMin.X = vert.uv1.X;
@@ -1593,21 +1513,21 @@ namespace BSPConvert.Lib
 		private Vector2 GetLightmapStart(Face face)
 		{
 			var lightmapStart = new Vector2(float.MaxValue, float.MaxValue);
-			var texInfo = face.TextureInfo;
-			var lightmapUAxis = texInfo.LightmapUAxis;
-			var lightmapVAxis = texInfo.LightmapVAxis;
+        TextureInfo texInfo = face.TextureInfo;
+        Vector3 lightmapUAxis = texInfo.LightmapUAxis;
+        Vector3 lightmapVAxis = texInfo.LightmapVAxis;
 
 			// Find the minimum values for world space uv offsets
-			foreach (var edgeIndex in face.EdgeIndices)
+			foreach (int edgeIndex in face.EdgeIndices)
 			{
-				var edge = sourceBsp.Edges[edgeIndex];
-				var vertex = edge.FirstVertex.position;
+            Edge edge = sourceBsp.Edges[edgeIndex];
+            Vector3 vertex = edge.FirstVertex.position;
 
-				var uOffset = Vector3.Dot(vertex, lightmapUAxis);
+            float uOffset = Vector3.Dot(vertex, lightmapUAxis);
 				if (uOffset < lightmapStart.X)
 					lightmapStart.X = uOffset;
 
-				var vOffset = Vector3.Dot(vertex, lightmapVAxis);
+            float vOffset = Vector3.Dot(vertex, lightmapVAxis);
 				if (vOffset < lightmapStart.Y)
 					lightmapStart.Y = vOffset;
 			}
@@ -1619,44 +1539,44 @@ namespace BSPConvert.Lib
 		{
 			if (quakeBsp.Visibility.Data.Length == 0) // No VisData
 			{
-				sourceBsp.Visibility.Data = new byte[0];
+				sourceBsp.Visibility.Data = [];
 				return;
 			}
 
 			var visDataList = new List<byte>();
 
-			var numClusters = quakeBsp.Visibility.NumClusters;
-			var clusterSize = quakeBsp.Visibility.ClusterSize;
-			var numClusterBytes = (numClusters + 7) >> 3; // Number of bytes to store each cluster bit
+        int numClusters = quakeBsp.Visibility.NumClusters;
+        int clusterSize = quakeBsp.Visibility.ClusterSize;
+        int numClusterBytes = (numClusters + 7) >> 3; // Number of bytes to store each cluster bit
 
-			var byteOffsets = new int[numClusters][];
-			var visDataStartLength = 4 + numClusters * 8; // Byte length of numClusters and byteOffsets
-			var currentOffset = visDataStartLength;
+        int[][] byteOffsets = new int[numClusters][];
+        int visDataStartLength = 4 + (numClusters * 8); // Byte length of numClusters and byteOffsets
+        int currentOffset = visDataStartLength;
 
 			// Get byte offsets and vis data
-			for (var i = 0; i < numClusters; i++)
+			for (int i = 0; i < numClusters; i++)
 			{
 				byteOffsets[i] = new int[2];
 				byteOffsets[i][0] = currentOffset; // PVS offset
 				byteOffsets[i][1] = currentOffset; // PAS offset (PVS and PAS share the same data for now since the Quake BSP does not have any info on sound detection)
 
-				var vecOffset = 8 + i * clusterSize;
-				var uncompressed = new byte[numClusterBytes]; // Note: Use numClusterBytes instead of clusterSize since Source engine expects the length of the vis data to not exceed the number of cluster bits
+            int vecOffset = 8 + (i * clusterSize);
+            byte[] uncompressed = new byte[numClusterBytes]; // Note: Use numClusterBytes instead of clusterSize since Source engine expects the length of the vis data to not exceed the number of cluster bits
 				Buffer.BlockCopy(quakeBsp.Visibility.Data, vecOffset, uncompressed, 0, numClusterBytes);
-				var compressed = Visibility.Compress(uncompressed); // This will compress Q3 vis data into something compatible for Source engine
+            byte[] compressed = Visibility.Compress(uncompressed); // This will compress Q3 vis data into something compatible for Source engine
 
 				visDataList.AddRange(compressed);
 
 				currentOffset += compressed.Length;
 			}
 
-			// Copy numClusters and byteOffsets to visData buffer
-			var visData = new byte[visDataStartLength + visDataList.Count];
+        // Copy numClusters and byteOffsets to visData buffer
+        byte[] visData = new byte[visDataStartLength + visDataList.Count];
 			BitConverter.GetBytes(numClusters).CopyTo(visData, 0);
-			for (var i = 0; i < numClusters; i++)
+			for (int i = 0; i < numClusters; i++)
 			{
-				BitConverter.GetBytes(byteOffsets[i][0]).CopyTo(visData, 4 + i * 8);
-				BitConverter.GetBytes(byteOffsets[i][1]).CopyTo(visData, 8 + i * 8);
+				BitConverter.GetBytes(byteOffsets[i][0]).CopyTo(visData, 4 + (i * 8));
+				BitConverter.GetBytes(byteOffsets[i][1]).CopyTo(visData, 8 + (i * 8));
 			}
 
 			// Copy visData
@@ -1667,8 +1587,8 @@ namespace BSPConvert.Lib
 
 		private void ConvertAreas()
 		{
-			// Create an area in order to have valid node/leaf area references
-			var areaBytes = new byte[Area.GetStructLength(sourceBsp.MapType)];
+        // Create an area in order to have valid node/leaf area references
+        byte[] areaBytes = new byte[Area.GetStructLength(sourceBsp.MapType)];
 			var area = new Area(areaBytes, sourceBsp.Areas);
 			sourceBsp.Areas.Add(area);
 		}
@@ -1678,8 +1598,8 @@ namespace BSPConvert.Lib
 			if (!options.oldBSP)
 				SetLumpVersionNumber(AreaPortal.GetIndexForLump(sourceBsp.MapType), 1);
 
-			// Create an area portal for the first area
-			var areaPortalBytes = new byte[AreaPortal.GetStructLength(sourceBsp.MapType)];
+        // Create an area portal for the first area
+        byte[] areaPortalBytes = new byte[AreaPortal.GetStructLength(sourceBsp.MapType)];
 			var areaPortal = new AreaPortal(areaPortalBytes, sourceBsp.AreaPortals);
 			sourceBsp.AreaPortals.Add(areaPortal);
 		}
@@ -1688,31 +1608,30 @@ namespace BSPConvert.Lib
 		{
 			SetLumpVersionNumber(WorldLight.GetIndexForLump(sourceBsp.MapType), 1);
 
-			// Add worldlight to disable fullbright
-			// TODO: How to check for fullbright maps?
-			var worldLightBytes = new byte[WorldLight.GetStructLength(sourceBsp.MapType)];
+        // Add worldlight to disable fullbright
+        // TODO: How to check for fullbright maps?
+        byte[] worldLightBytes = new byte[WorldLight.GetStructLength(sourceBsp.MapType)];
 			var worldLight = new WorldLight(worldLightBytes, sourceBsp.WorldLights);
 			sourceBsp.WorldLights.Add(worldLight);
 		}
 
 		private void SetLumpVersionNumber(int lumpIndex, int lumpVersion)
 		{
-			var lumpInfo = sourceBsp[lumpIndex];
+        LumpInfo lumpInfo = sourceBsp[lumpIndex];
 			lumpInfo.version = lumpVersion;
 			sourceBsp[lumpIndex] = lumpInfo;
 		}
 
 		private void WriteBSP()
 		{
-			var mapsDir = Path.Combine(options.outputDir, "maps");
+        string mapsDir = Path.Combine(options.outputDir, "maps");
 			if (!Directory.Exists(mapsDir))
 				Directory.CreateDirectory(mapsDir);
 
 			var writer = new BSPWriter(sourceBsp);
-			var bspPath = Path.Combine(mapsDir, $"{options.prefix}{quakeBsp.MapName}.bsp");
+        string bspPath = Path.Combine(mapsDir, $"{options.prefix}{quakeBsp.MapName}.bsp");
 			writer.WriteBSP(bspPath);
 			
 			logger.Log($"Converted BSP: {bspPath}");
 		}
 	}
-}

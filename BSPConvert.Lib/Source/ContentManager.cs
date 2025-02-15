@@ -1,28 +1,15 @@
-﻿using LibBSP;
+﻿namespace BSPConvert.Lib;
+using LibBSP;
 using System;
-using System.Collections.Generic;
 using System.IO.Compression;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
-namespace BSPConvert.Lib
-{
-	public class ContentManager : IDisposable
+public class ContentManager : IDisposable
 	{
-		private string contentDir;
-		public string ContentDir
-		{
-			get { return contentDir; }
-		}
+    public string ContentDir { get; private set; }
 
-		private BSP[] bspFiles;
-		public BSP[] BSPFiles
-		{
-			get { return bspFiles; }
-		}
-		
-		private static string Q3CONTENT_FOLDER = "Q3Content";
+    public BSP[] BSPFiles { get; private set; }
+
+    private static readonly string Q3CONTENT_FOLDER = "Q3Content";
 
 		public ContentManager(string inputFile)
 		{
@@ -36,45 +23,41 @@ namespace BSPConvert.Lib
 		// Create a temp directory used for converting assets across engines
 		private void CreateContentDir(string inputFile)
 		{
-			var fileName = Path.GetFileNameWithoutExtension(inputFile);
-			contentDir = Path.Combine(Path.GetTempPath(), fileName);
+        string fileName = Path.GetFileNameWithoutExtension(inputFile);
+			ContentDir = Path.Combine(Path.GetTempPath(), fileName);
 
 			// Delete any pre-existing temp content directory
-			if (Directory.Exists(contentDir))
-				Directory.Delete(contentDir, true);
+			if (Directory.Exists(ContentDir))
+				Directory.Delete(ContentDir, true);
 
-			Directory.CreateDirectory(contentDir);
+			Directory.CreateDirectory(ContentDir);
 		}
 
 		private void LoadBSPFiles(string inputFile)
 		{
-			var ext = Path.GetExtension(inputFile);
+        string ext = Path.GetExtension(inputFile);
 			if (ext == ".bsp")
-				bspFiles = new BSP[] { new BSP(new FileInfo(inputFile)) };
+				BSPFiles = [new BSP(new FileInfo(inputFile))];
 			else if (ext == ".pk3")
 			{
 				// Extract bsp's from pk3 archive
-				ZipFile.ExtractToDirectory(inputFile, contentDir);
+				ZipFile.ExtractToDirectory(inputFile, ContentDir);
 
-				var files = Directory.GetFiles(ContentDir, "*.bsp", SearchOption.AllDirectories);
-				bspFiles = new BSP[files.Length];
-				for (var i = 0; i < files.Length; i++)
-					bspFiles[i] = new BSP(new FileInfo(files[i]));
+            string[] files = Directory.GetFiles(ContentDir, "*.bsp", SearchOption.AllDirectories);
+				BSPFiles = new BSP[files.Length];
+				for (int i = 0; i < files.Length; i++)
+					BSPFiles[i] = new BSP(new FileInfo(files[i]));
 			}
 			else
 				throw new Exception("Invalid input file extension: " + ext);
 		}
 
-		public static string GetQ3ContentDir()
-		{
-			return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, Q3CONTENT_FOLDER);
-		}
+    public static string GetQ3ContentDir() => Path.Combine(AppDomain.CurrentDomain.BaseDirectory, Q3CONTENT_FOLDER);
 
-		public void Dispose()
+    public void Dispose()
 		{
 			// Delete temp content directory
-			if (Directory.Exists(contentDir))
-				Directory.Delete(contentDir, true);
+			if (Directory.Exists(ContentDir))
+				Directory.Delete(ContentDir, true);
 		}
 	}
-}

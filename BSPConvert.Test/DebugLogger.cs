@@ -1,13 +1,8 @@
-﻿using BSPConvert.Lib;
+﻿namespace BSPConvert.Test;
+using BSPConvert.Lib;
 using System.Diagnostics;
 
-namespace BSPConvert.Test
-{
-	public class DebugLogger : ILogger
+public class DebugLogger : ILogger
 	{
-		public void Log(string message)
-		{
-			Debug.WriteLine(message);
-		}
-	}
+    public void Log(string message) => Debug.WriteLine(message);
 }

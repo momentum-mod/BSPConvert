@@ -1,8 +1,7 @@
-﻿using System.Numerics;
+﻿namespace BSPConvert.Lib;
+using System.Numerics;
 
-namespace BSPConvert.Lib
-{
-	[Flags]
+[Flags]
 	public enum ShaderStageFlags
 	{
 		GLS_SRCBLEND_ZERO =						0x00000001,
@@ -125,7 +124,7 @@ namespace BSPConvert.Lib
 	public class TexModInfo
 	{
 		public TexMod type;
-		public WaveForm wave = new WaveForm();
+		public WaveForm wave = new();
 		public float[][] matrix = new float[2][];
 		public float[] translate = new float[2];
 		public float[] scale = new float[2];
@@ -134,7 +133,7 @@ namespace BSPConvert.Lib
 
 		public TexModInfo()
 		{
-			for (var i = 0; i < 2; i++)
+			for (int i = 0; i < 2; i++)
 				matrix[i] = new float[2];
 		}
 	}
@@ -146,17 +145,17 @@ namespace BSPConvert.Lib
 		public TextureBundle[] bundles = new TextureBundle[NUM_TEXTURE_BUNDLES]; // Path to image file
 		public ShaderStageFlags flags;
 
-		public WaveForm rgbWave = new WaveForm();
+		public WaveForm rgbWave = new();
 		public ColorGen rgbGen;
 
-		public WaveForm alphaWave = new WaveForm();
+		public WaveForm alphaWave = new();
 		public AlphaGen alphaGen;
 
 		public byte[] constantColor = new byte[4];
 
 		public ShaderStage()
 		{
-			for (var i = 0; i < NUM_TEXTURE_BUNDLES; i++)
+			for (int i = 0; i < NUM_TEXTURE_BUNDLES; i++)
 				bundles[i] = new TextureBundle();
 		}
 	}
@@ -171,7 +170,7 @@ namespace BSPConvert.Lib
 
 		public TexCoordGen tcGen;
 		public Vector3[] tcGenVectors = new Vector3[2];
-		public List<TexModInfo> texMods = new List<TexModInfo>();
+		public List<TexModInfo> texMods = [];
 	}
 
 	public class Shader
@@ -196,13 +195,9 @@ namespace BSPConvert.Lib
 		public CullType cullType;
 		public ShaderStage[] stages;
 
-		/// <summary>
-		/// Returns all stages with images (ignores $lightmap and $whiteimage)
-		/// </summary>
-		public IEnumerable<ShaderStage> GetImageStages()
-		{
-			return stages.Where(s => !string.IsNullOrEmpty(s.bundles[0].images[0]) &&
-				!s.bundles[0].images[0].StartsWith('$'));
-		}
-	}
+    /// <summary>
+    /// Returns all stages with images (ignores $lightmap and $whiteimage)
+    /// </summary>
+    public IEnumerable<ShaderStage> GetImageStages() => stages.Where(s => !string.IsNullOrEmpty(s.bundles[0].images[0]) &&
+                                                                     !s.bundles[0].images[0].StartsWith('$'));
 }

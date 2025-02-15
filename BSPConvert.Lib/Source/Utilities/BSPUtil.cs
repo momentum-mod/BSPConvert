@@ -1,17 +1,7 @@
-﻿using LibBSP;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿namespace BSPConvert.Lib;
+using LibBSP;
 
-namespace BSPConvert.Lib
-{
-	public static class BSPUtil
+public static class BSPUtil
 	{
-		public static int GetHashCode(TextureInfo textureInfo)
-		{
-			return (textureInfo.UAxis, textureInfo.VAxis, textureInfo.LightmapUAxis, textureInfo.LightmapVAxis, textureInfo.TextureIndex).GetHashCode();
-		}
-	}
+    public static int GetHashCode(TextureInfo textureInfo) => (textureInfo.UAxis, textureInfo.VAxis, textureInfo.LightmapUAxis, textureInfo.LightmapVAxis, textureInfo.TextureIndex).GetHashCode();
 }

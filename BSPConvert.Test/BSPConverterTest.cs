@@ -1,14 +1,13 @@
+namespace BSPConvert.Test;
 using BSPConvert.Lib;
 
-namespace BSPConvert.Test
-{
-	public class Tests
+public class Tests
 	{
 		[SetUp]
 		public void Setup()
 		{
-			// Clear "Converted" folder
-			var outputDir = Path.Combine(TestContext.CurrentContext.TestDirectory, "Converted");
+        // Clear "Converted" folder
+        string outputDir = Path.Combine(TestContext.CurrentContext.TestDirectory, "Converted");
 			if (Directory.Exists(outputDir))
 				Directory.Delete(outputDir, true);
 
@@ -18,9 +17,9 @@ namespace BSPConvert.Test
 		[Test]
 		public void ConvertTestFiles()
 		{
-			var testFilesDir = Path.Combine(TestContext.CurrentContext.TestDirectory, "Test Files");
-			var files = Directory.GetFiles(testFilesDir, "*.bsp", SearchOption.AllDirectories);
-			foreach (var file in files)
+        string testFilesDir = Path.Combine(TestContext.CurrentContext.TestDirectory, "Test Files");
+        string[] files = Directory.GetFiles(testFilesDir, "*.bsp", SearchOption.AllDirectories);
+			foreach (string file in files)
 				Convert(file);
 			
 			Assert.Pass();
@@ -28,7 +27,7 @@ namespace BSPConvert.Test
 
 		private void Convert(string bspFile)
 		{
-			var outputDir = Path.Combine(TestContext.CurrentContext.TestDirectory, "Converted");
+        string outputDir = Path.Combine(TestContext.CurrentContext.TestDirectory, "Converted");
 			var options = new BSPConverterOptions()
 			{
 				noPak = false,
@@ -45,4 +44,3 @@ namespace BSPConvert.Test
 			converter.Convert();
 		}
 	}
-}

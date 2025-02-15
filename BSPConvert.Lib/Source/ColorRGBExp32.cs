@@ -1,5 +1,5 @@
-﻿namespace BSPConvert.Lib
-{
+﻿namespace BSPConvert.Lib;
+
 	public struct ColorRGBExp32
 	{
 		public byte r;
@@ -7,4 +7,3 @@
 		public byte b;
 		public sbyte exponent;
 	}
-}
