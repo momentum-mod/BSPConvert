@@ -78,15 +78,15 @@ internal sealed class Program
         {
             var converterOptions = new BSPConverterOptions()
             {
-                noPak = options.NoPak,
-                noToolDisplacements = options.NoToolDisplacements,
+                NoPak = options.NoPak,
+                NoToolDisplacements = options.NoToolDisplacements,
                 DisplacementPower = options.DisplacementPower,
-                minDamageToConvertTrigger = options.MinDamageToConvertTrigger,
-                ignoreZones = options.IgnoreZones,
+                MinDamageToConvertTrigger = options.MinDamageToConvertTrigger,
+                IgnoreZones = options.IgnoreZones,
                 //oldBSP = options.OldBSP,
-                prefix = options.Prefix,
-                inputFile = inputEntry,
-                outputDir = options.OutputDirectory,
+                Prefix = options.Prefix,
+                InputFile = inputEntry,
+                OutputDir = options.OutputDirectory,
             };
             var converter = new BSPConverter(converterOptions, new ConsoleLogger());
             converter.Convert();

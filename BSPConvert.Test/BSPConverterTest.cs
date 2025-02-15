@@ -31,14 +31,14 @@ public class Tests
         string outputDir = Path.Combine(TestContext.CurrentContext.TestDirectory, "Converted");
         var options = new BSPConverterOptions()
         {
-            noPak = false,
+            NoPak = false,
             DisplacementPower = 4,
-            minDamageToConvertTrigger = 50,
-            ignoreZones = false,
-            oldBSP = false,
-            prefix = "df_",
-            inputFile = bspFile,
-            outputDir = outputDir,
+            MinDamageToConvertTrigger = 50,
+            IgnoreZones = false,
+            OldBsp = false,
+            Prefix = "df_",
+            InputFile = bspFile,
+            OutputDir = outputDir,
         };
 
         var converter = new BSPConverter(options, new DebugLogger());

@@ -42,31 +42,28 @@ using Color = System.Drawing.Color;
 
 public class BSPConverterOptions
 {
-    public bool noPak;
-    public bool noToolDisplacements;
-    private int displacementPower;
+    public bool NoPak { get; set; }
+    public bool NoToolDisplacements { get; set; }
+    private int _displacementPower;
     public int DisplacementPower
     {
-        get => displacementPower;
-        set => displacementPower = Math.Clamp(value, 2, 4);
+        get => _displacementPower;
+        set => _displacementPower = Math.Clamp(value, 2, 4);
     }
-    public int minDamageToConvertTrigger;
-    public bool ignoreZones;
-    public bool oldBSP;
-    public string prefix;
-    public string inputFile;
-    public string outputDir;
+    public int MinDamageToConvertTrigger { get; set; }
+    public bool IgnoreZones { get; set; }
+    public bool OldBsp { get; set; }
+    public required string Prefix { get; set; }
+    public required string InputFile { get; set; }
+    public required string OutputDir { get; set; }
 }
 
-public class BSPConverter(BSPConverterOptions options, ILogger logger) : IDisposable
+public sealed class BSPConverter(BSPConverterOptions options, ILogger logger) : IDisposable
 {
-    private readonly BSPConverterOptions options = options;
-    private readonly ILogger logger = logger;
+    private BSP quakeBsp = null!; // Inited by Convert
+    private BSP sourceBsp = null!;
 
-    private BSP quakeBsp;
-    private BSP sourceBsp;
-
-    private ContentManager contentManager;
+    private ContentManager contentManager = null!;
 
     private Dictionary<string, Shader> shaderDict = [];
     private Dictionary<string, LightmapData> externalLightmaps = [];
@@ -76,17 +73,18 @@ public class BSPConverter(BSPConverterOptions options, ILogger logger) : IDispos
     private readonly Dictionary<int, int[]> splitFaceDict = []; // Maps the original face index to the new face indices split by triangles
 
     // TODO: Replace weapon clip textures
-    private static readonly Dictionary<string, string> replacementTextures = new()
-    {
-        { "textures/common/caulk", "tools/toolsnodraw" },
-        { "textures/common/nodraw", "tools/toolsnodraw" },
-        { "textures/common/clip", "tools/toolsplayerclip" },
-        { "textures/common/full_clip", "tools/clip" },
-        { "textures/common/trigger", "tools/toolstrigger" },
-        { "textures/common/hint", "tools/toolshint" },
-        { "textures/common/skip", "tools/toolsskip" },
-        { "textures/common/areaportal", "tools/toolsareaportal" },
-    };
+    private static readonly Dictionary<string, string> replacementTextures =
+        new()
+        {
+            { "textures/common/caulk", "tools/toolsnodraw" },
+            { "textures/common/nodraw", "tools/toolsnodraw" },
+            { "textures/common/clip", "tools/toolsplayerclip" },
+            { "textures/common/full_clip", "tools/clip" },
+            { "textures/common/trigger", "tools/toolstrigger" },
+            { "textures/common/hint", "tools/toolshint" },
+            { "textures/common/skip", "tools/toolsskip" },
+            { "textures/common/areaportal", "tools/toolsareaportal" },
+        };
 
     private const int Q3_LIGHTMAP_SIZE = 128;
     private const int LIGHTMAP_PADDING = 1; // Pixel padding to prevent lightmap bleeding
@@ -94,7 +92,7 @@ public class BSPConverter(BSPConverterOptions options, ILogger logger) : IDispos
 
     public void Convert()
     {
-        if (!File.Exists(options.inputFile))
+        if (!File.Exists(options.InputFile))
         {
             logger.Log("Error: Input BSP file does not exist");
             return;
@@ -102,7 +100,7 @@ public class BSPConverter(BSPConverterOptions options, ILogger logger) : IDispos
 
         CheckQ3Content();
 
-        contentManager = new ContentManager(options.inputFile);
+        contentManager = new ContentManager(options.InputFile);
         shaderDict = LoadShaderDictionary();
         externalLightmaps = LoadExternalLightmaps();
 
@@ -160,7 +158,7 @@ public class BSPConverter(BSPConverterOptions options, ILogger logger) : IDispos
 
         quakeBsp = bsp;
 
-        MapType mapType = options.oldBSP ? MapType.Source20 : MapType.Source25;
+        MapType mapType = options.OldBsp ? MapType.Source20 : MapType.Source25;
         sourceBsp = new BSP(bspName, mapType);
     }
 
@@ -183,36 +181,38 @@ public class BSPConverter(BSPConverterOptions options, ILogger logger) : IDispos
 
     private void PrepareAssets()
     {
-        if (quakeBsp.Faces.Any(x => x.Type == FaceType.Patch && x.Texture.Name.StartsWith("tools/")))
-        {
-            // Copy invisible displacement assets to content dir
-            Directory.CreateDirectory(Path.Combine(contentManager.ContentDir, "tools"));
+        if (
+            !quakeBsp.Faces.Any(x =>
+                x.Type == FaceType.Patch && x.Texture.Name.StartsWith("tools/", StringComparison.Ordinal)
+            )
+        )
+            return;
 
-            string invisDisplacementVmt = @"tools\toolsinvisibledisplacement.vmt";
-            File.Copy(
-                Path.Combine(@"Assets\materials", invisDisplacementVmt),
-                Path.Combine(contentManager.ContentDir, invisDisplacementVmt),
-                true
-            );
+        // Copy invisible displacement assets to content dir
+        Directory.CreateDirectory(Path.Combine(contentManager.ContentDir, "tools"));
 
-            string invisDisplacementVtf = @"tools\toolsinvisibledisplacement.vtf";
-            File.Copy(
-                Path.Combine(@"Assets\materials", invisDisplacementVtf),
-                Path.Combine(contentManager.ContentDir, invisDisplacementVtf),
-                true
-            );
-        }
+        const string invisDisplacementVmt = @"tools\toolsinvisibledisplacement.vmt";
+        File.Copy(
+            Path.Combine(@"Assets\materials", invisDisplacementVmt),
+            Path.Combine(contentManager.ContentDir, invisDisplacementVmt),
+            true
+        );
+
+        const string invisDisplacementVtf = @"tools\toolsinvisibledisplacement.vtf";
+        File.Copy(
+            Path.Combine(@"Assets\materials", invisDisplacementVtf),
+            Path.Combine(contentManager.ContentDir, invisDisplacementVtf),
+            true
+        );
     }
 
     private void CreatePakFile()
     {
-        if (options.noPak)
+        if (options.NoPak)
             return;
 
-        using (var archive = ZipArchive.Create())
-        {
-            sourceBsp.PakFile.SetZipArchive(archive, true);
-        }
+        using var archive = ZipArchive.Create();
+        sourceBsp.PakFile.SetZipArchive(archive, true);
     }
 
     private void ConvertMaterials()
@@ -258,8 +258,8 @@ public class BSPConverter(BSPConverterOptions options, ILogger logger) : IDispos
 
     private void ConvertTextureFiles()
     {
-        TextureConverter converter = options.noPak
-            ? new TextureConverter(contentManager.ContentDir, options.outputDir)
+        TextureConverter converter = options.NoPak
+            ? new TextureConverter(contentManager.ContentDir, options.OutputDir)
             : new TextureConverter(contentManager.ContentDir, sourceBsp);
         converter.Convert();
     }
@@ -271,16 +271,16 @@ public class BSPConverter(BSPConverterOptions options, ILogger logger) : IDispos
             quakeBsp.Entities,
             sourceBsp.Entities,
             shaderDict,
-            options.minDamageToConvertTrigger,
-            options.ignoreZones
+            options.MinDamageToConvertTrigger,
+            options.IgnoreZones
         );
         converter.Convert();
     }
 
     private void ConvertSounds()
     {
-        SoundConverter converter = options.noPak
-            ? new SoundConverter(contentManager.ContentDir, options.outputDir, sourceBsp.Entities)
+        SoundConverter converter = options.NoPak
+            ? new SoundConverter(contentManager.ContentDir, options.OutputDir, sourceBsp.Entities)
             : new SoundConverter(contentManager.ContentDir, sourceBsp, sourceBsp.Entities);
         converter.Convert();
     }
@@ -414,7 +414,7 @@ public class BSPConverter(BSPConverterOptions options, ILogger logger) : IDispos
     // Note: This needs to be called after converting split faces in order to fix skyboxes not rendering
     private void ConvertNodes()
     {
-        if (!options.oldBSP)
+        if (!options.OldBsp)
             SetLumpVersionNumber(Node.GetIndexForLump(sourceBsp.MapType), 1);
 
         foreach (Node qNode in quakeBsp.Nodes)
@@ -526,7 +526,7 @@ public class BSPConverter(BSPConverterOptions options, ILogger logger) : IDispos
 
     private void ConvertLeaves_SplitFaces()
     {
-        int version = options.oldBSP ? 1 : 2;
+        int version = options.OldBsp ? 1 : 2;
         SetLumpVersionNumber(Leaf.GetIndexForLump(sourceBsp.MapType), version);
 
         int currentFaceIndex = 0;
@@ -568,7 +568,7 @@ public class BSPConverter(BSPConverterOptions options, ILogger logger) : IDispos
 
     private void ConvertLeafFaces_SplitFaces()
     {
-        if (!options.oldBSP)
+        if (!options.OldBsp)
             SetLumpVersionNumber(NumList.GetIndexForLeafFacesLump(sourceBsp.MapType, out _), 1);
 
         foreach (long qLeafFace in quakeBsp.LeafFaces)
@@ -581,7 +581,7 @@ public class BSPConverter(BSPConverterOptions options, ILogger logger) : IDispos
 
     private void ConvertLeafBrushes()
     {
-        if (!options.oldBSP)
+        if (!options.OldBsp)
             SetLumpVersionNumber(NumList.GetIndexForLeafBrushesLump(sourceBsp.MapType, out _), 1);
 
         foreach (long qLeafBrush in quakeBsp.LeafBrushes)
@@ -614,8 +614,8 @@ public class BSPConverter(BSPConverterOptions options, ILogger logger) : IDispos
 
             Vector3 mins = qModel.Minimums;
             Vector3 maxs = qModel.Maximums;
-            int minExtents = options.oldBSP ? -16384 : -65536;
-            int maxExtents = options.oldBSP ? 16384 : 65536;
+            int minExtents = options.OldBsp ? -16384 : -65536;
+            int maxExtents = options.OldBsp ? 16384 : 65536;
             //sModel.Minimums = new Vector3(Math.Clamp(mins.X(), minExtents, maxExtents), Math.Clamp(mins.Y(), minExtents, maxExtents), Math.Clamp(mins.Z(), minExtents, maxExtents));
             //sModel.Maximums = new Vector3(Math.Clamp(maxs.X(), minExtents, maxExtents), Math.Clamp(maxs.Y(), minExtents, maxExtents), Math.Clamp(maxs.Z(), minExtents, maxExtents));
 
@@ -740,7 +740,7 @@ public class BSPConverter(BSPConverterOptions options, ILogger logger) : IDispos
 
     private void ConvertBrushSides()
     {
-        if (!options.oldBSP)
+        if (!options.OldBsp)
             SetLumpVersionNumber(BrushSide.GetIndexForLump(sourceBsp.MapType), 1);
 
         foreach (BrushSide qBrushSide in quakeBsp.BrushSides)
@@ -771,7 +771,7 @@ public class BSPConverter(BSPConverterOptions options, ILogger logger) : IDispos
 
     private void ConvertFaces()
     {
-        if (!options.oldBSP)
+        if (!options.OldBsp)
         {
             SetLumpVersionNumber(Face.GetIndexForLump(sourceBsp.MapType), 2);
             SetLumpVersionNumber(Displacement.GetIndexForLump(sourceBsp.MapType), 1);
@@ -977,7 +977,7 @@ public class BSPConverter(BSPConverterOptions options, ILogger logger) : IDispos
     private void ReplaceToolTextureWithInvisibleDisplacement(Face qFace)
     {
         Texture texture = qFace.Texture;
-        if (texture.Name.StartsWith("tools/"))
+        if (texture.Name.StartsWith("tools/", StringComparison.Ordinal))
         {
             texture.Name = invisibleDisplacementTexture;
             if (LookupTextureDataIndex(invisibleDisplacementTexture) < 0)
@@ -993,7 +993,7 @@ public class BSPConverter(BSPConverterOptions options, ILogger logger) : IDispos
         Face qFace
     )
     {
-        if (options.noToolDisplacements && qFace.Texture.Name.StartsWith("tools/"))
+        if (options.NoToolDisplacements && qFace.Texture.Name.StartsWith("tools/", StringComparison.Ordinal))
             return;
 
         byte[] data = new byte[Displacement.GetStructLength(sourceBsp.MapType)];
@@ -1332,18 +1332,15 @@ public class BSPConverter(BSPConverterOptions options, ILogger logger) : IDispos
         PlaneBSP.AxisType axis = GetVectorAxis(faceNormal);
         return axis switch
         {
-            PlaneBSP.AxisType.PlaneX or PlaneBSP.AxisType.PlaneAnyX => (
-                new Vector3(0f, 2f, 0f),
-                new Vector3(0f, 0f, -2f)
-            ),
-            PlaneBSP.AxisType.PlaneY or PlaneBSP.AxisType.PlaneAnyY => (
-                new Vector3(2f, 0f, 0f),
-                new Vector3(0f, 0f, -2f)
-            ),
-            PlaneBSP.AxisType.PlaneZ or PlaneBSP.AxisType.PlaneAnyZ => (
-                new Vector3(2f, 0f, 0f),
-                new Vector3(0f, -2f, 0f)
-            ),
+            PlaneBSP.AxisType.PlaneX
+            or PlaneBSP.AxisType.PlaneAnyX
+                => (new Vector3(0f, 2f, 0f), new Vector3(0f, 0f, -2f)),
+            PlaneBSP.AxisType.PlaneY
+            or PlaneBSP.AxisType.PlaneAnyY
+                => (new Vector3(2f, 0f, 0f), new Vector3(0f, 0f, -2f)),
+            PlaneBSP.AxisType.PlaneZ
+            or PlaneBSP.AxisType.PlaneAnyZ
+                => (new Vector3(2f, 0f, 0f), new Vector3(0f, -2f, 0f)),
             _ => (new Vector3(0f, 0f, 0f), new Vector3(0f, 0f, 0f)),
         };
     }
@@ -1628,7 +1625,7 @@ public class BSPConverter(BSPConverterOptions options, ILogger logger) : IDispos
 
     private void ConvertAreaPortals()
     {
-        if (!options.oldBSP)
+        if (!options.OldBsp)
             SetLumpVersionNumber(AreaPortal.GetIndexForLump(sourceBsp.MapType), 1);
 
         // Create an area portal for the first area
@@ -1657,19 +1654,16 @@ public class BSPConverter(BSPConverterOptions options, ILogger logger) : IDispos
 
     private void WriteBSP()
     {
-        string mapsDir = Path.Combine(options.outputDir, "maps");
+        string mapsDir = Path.Combine(options.OutputDir, "maps");
         if (!Directory.Exists(mapsDir))
             Directory.CreateDirectory(mapsDir);
 
         var writer = new BSPWriter(sourceBsp);
-        string bspPath = Path.Combine(mapsDir, $"{options.prefix}{quakeBsp.MapName}.bsp");
+        string bspPath = Path.Combine(mapsDir, $"{options.Prefix}{quakeBsp.MapName}.bsp");
         writer.WriteBSP(bspPath);
 
         logger.Log($"Converted BSP: {bspPath}");
     }
 
-    public void Dispose()
-    {
-        throw new NotImplementedException();
-    }
+    public void Dispose() => contentManager.Dispose();
 }
