@@ -513,10 +513,18 @@ namespace BSPConvert.Lib
 			var targets = GetTargetEntities(targetTeleporter);
 			foreach (var target in targets)
 			{
-				target.ClassName = "point_teleport";
-				target["target"] = "!player";
+				if (target.ClassName != "point_teleport")
+				{
+					if (target.ClassName != "info_teleport_destination") //if already a teleport_destination, origin has been fixed elsewhere
+						SetTeleportOrigin(target);
 
-				// TODO: Implement teleport velocity modes, fix teleport origin
+					target.ClassName = "point_teleport";
+					target["target"] = "!player";
+					target["velocitymode"] = "3";
+					target["setspeed"] = target.Spawnflags == 1 ? "0" : "400"; //spawnflag 1 is keep speed, else set speed to 400
+					target.Spawnflags = 0;
+					target["usedestinationangles"] = "1";
+				}
 
 				var connection = new Entity.EntityConnection()
 				{
