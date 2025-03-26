@@ -315,7 +315,14 @@ namespace BSPConvert.Lib
 			var delay = 0f;
 			ConvertEntityTargetsRecursive(button, button, "OnPressed", delay, new HashSet<Entity>());
 
-			if (button["wait"] == "-1") // A value of -1 in quake is instantly reset position, in source it is don't reset position.
+			if (string.IsNullOrEmpty(button["speed"]))
+				button["speed"] = "40";
+			else if (button["speed"] == "-1") //A value of -1 in quake is teleport to end position, in source it is don't move. Set speed as fast as possible in source.
+				button["speed"] = "99999";
+
+			if (string.IsNullOrEmpty(button["wait"]))
+				button["wait"] = "1";
+			else if (button["wait"] == "-1") // A value of -1 in quake is instantly reset position, in source it is don't reset position.
 				button["wait"] = "0.001"; // exactly 0 also behaves as don't reset in source, so the delay is as short as possible without being 0.
 
 			button["customsound"] = "movers/switches/butn2.wav";
