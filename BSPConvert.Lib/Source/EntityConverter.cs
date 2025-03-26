@@ -355,7 +355,8 @@ namespace BSPConvert.Lib
 			};
 			entity.connections.Add(connection);
 
-			ConvertTargetSpeed(targetSpeed);
+			if (targetSpeed.ClassName != "player_speed")
+				ConvertTargetSpeed(targetSpeed);
 		}
 
 		private static void SetButtonFlags(Entity button)
@@ -485,6 +486,7 @@ namespace BSPConvert.Lib
 						FireTargetPrintOnOutput(entity, target, output, delay);
 						break;
 					case "target_speed":
+					case "player_speed":
 						FireTargetSpeedOnOutput(entity, target, output, delay);
 						break;
 					case "target_push":
