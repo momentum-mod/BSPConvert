@@ -317,7 +317,7 @@ namespace BSPConvert.Lib
 
 			if (string.IsNullOrEmpty(button["speed"]))
 				button["speed"] = "40";
-			else if (button["speed"] == "-1") //A value of -1 in quake is teleport to end position, in source it is don't move. Set speed as fast as possible in source.
+			else if (button["speed"] == "-1") // A value of -1 in quake is teleport to end position, in source it is don't move. Set speed as fast as possible in source.
 				button["speed"] = "99999";
 
 			if (string.IsNullOrEmpty(button["wait"]))
