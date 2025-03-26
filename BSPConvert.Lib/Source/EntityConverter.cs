@@ -1277,6 +1277,10 @@ namespace BSPConvert.Lib
 
 		private void ConvertWeapon(Entity weaponEnt)
 		{
+			var target = GetTargetEntities(weaponEnt).FirstOrDefault();
+			if (target != null)
+				ConvertEntityTargetsRecursive(weaponEnt, weaponEnt, "OnPickup", 0, new HashSet<Entity>());
+
 			weaponEnt["resettime"] = GetWeaponRespawnTime(weaponEnt);
 			weaponEnt["weaponname"] = GetMomentumWeaponName(weaponEnt.ClassName);
 			weaponEnt["pickupammo"] = ConvertWeaponAmmoCount(weaponEnt.ClassName, weaponEnt["count"]);
@@ -1324,6 +1328,10 @@ namespace BSPConvert.Lib
 
 		private void ConvertAmmo(Entity ammoEnt)
 		{
+			var target = GetTargetEntities(ammoEnt).FirstOrDefault();
+			if (target != null)
+				ConvertEntityTargetsRecursive(ammoEnt, ammoEnt, "OnPickup", 0, new HashSet<Entity>());
+
 			ammoEnt["resettime"] = ConvertAmmoRespawnTime(ammoEnt);
 			ammoEnt["ammoname"] = GetMomentumAmmoName(ammoEnt.ClassName);
 			ammoEnt["pickupammo"] = ConvertAmmoCount(ammoEnt.ClassName, ammoEnt["count"]);
@@ -1365,6 +1373,18 @@ namespace BSPConvert.Lib
 
 		private void ConvertItem(Entity itemEnt)
 		{
+			var target = GetTargetEntities(itemEnt).FirstOrDefault();
+			if (target != null)
+			{
+				ConvertEntityTargetsRecursive(itemEnt, itemEnt, "OnPickup", 0, new HashSet<Entity>());
+
+				if (itemEnt.ClassName.StartsWith("item_armor") || itemEnt.ClassName.StartsWith("item_health"))
+				{
+					CreatePlaceHolderItem(itemEnt); // needs a placeholder pickup to trigger target entities since we dont have health/armor
+					return;
+				}
+			}
+
 			itemEnt.ClassName = GetMomentumItemName(itemEnt.ClassName);
 			itemEnt["resettime"] = GetItemRespawnTime(itemEnt);
 
@@ -1372,6 +1392,14 @@ namespace BSPConvert.Lib
 				itemEnt["hastetime"] = ConvertPowerupCount(itemEnt["count"]);
 			else if (itemEnt.ClassName == "momentum_powerup_damage_boost")
 				itemEnt["damageboosttime"] = ConvertPowerupCount(itemEnt["count"]);
+		}
+
+		private void CreatePlaceHolderItem(Entity itemEnt)
+		{
+			itemEnt.ClassName = "momentum_pickup_ammo";
+			itemEnt["ammoname"] = "bullets";
+			itemEnt["pickupammo"] = "0";
+			itemEnt["resettime"] = GetItemRespawnTime(itemEnt);
 		}
 
 		private string GetItemRespawnTime(Entity itemEnt)
