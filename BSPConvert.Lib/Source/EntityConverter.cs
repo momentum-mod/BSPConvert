@@ -896,7 +896,6 @@ namespace BSPConvert.Lib
 			}
 			if (!spawnflags.HasFlag(TargetInitFlags.KeepWeapons))
 			{
-				RemoveWeaponOnOutput(entity, "weapon_momentum_df_knife", output, delay);
 				RemoveWeaponOnOutput(entity, "weapon_momentum_df_grenadelauncher", output, delay);
 				RemoveWeaponOnOutput(entity, "weapon_momentum_df_rocketlauncher", output, delay);
 				RemoveWeaponOnOutput(entity, "weapon_momentum_df_plasmagun", output, delay);
