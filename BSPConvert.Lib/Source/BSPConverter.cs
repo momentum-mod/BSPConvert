@@ -1216,6 +1216,8 @@ namespace BSPConvert.Lib
 				lightmapSize = (int)externalLightmaps.First().Value.size.X;
 
 			(var min, var max) = GetLightmapExtents(vertices, lightmapSize);
+			(min, max) = AddLightmapPadding(min, max);
+
 			min /= lightmapSize;
 			max /= lightmapSize;
 
@@ -1234,6 +1236,16 @@ namespace BSPConvert.Lib
 			}
 
 			return firstPrimVertex;
+		}
+
+		private (Vector2, Vector2) AddLightmapPadding(Vector2 min, Vector2 max)
+		{
+			min.X -= LIGHTMAP_PADDING;
+			min.Y -= LIGHTMAP_PADDING;
+			max.X += LIGHTMAP_PADDING;
+			max.Y += LIGHTMAP_PADDING;
+
+			return (min, max);
 		}
 
 		private int CreatePrimitiveIndices(int[] indices)
@@ -1458,12 +1470,9 @@ namespace BSPConvert.Lib
 				// Add lightmap colors
 				for (var y = (int)lmStart.Y; y < lmEnd.Y; y++)
 				{
-					for (var x = (int)lmStart.X; x < lmEnd.X; x++)
+					for (var x = (int)lmStart.X; x <= lmEnd.X; x++)
 					{
-						// Remove padding
-						var xCoord = Math.Clamp(x, (int)lmStart.X + LIGHTMAP_PADDING, (int)lmEnd.X - LIGHTMAP_PADDING);
-						var yCoord = Math.Clamp(y, (int)lmStart.Y + LIGHTMAP_PADDING, (int)lmEnd.Y - LIGHTMAP_PADDING);
-						var index = xCoord + yCoord * Q3_LIGHTMAP_SIZE;
+						var index = x + (y * Q3_LIGHTMAP_SIZE);
 
 						var color = ColorUtil.ConvertQ3LightmapToColorRGBExp32(
 							qLightmapData[q3LightmapOffset + index * 3 + 0],
@@ -1480,7 +1489,7 @@ namespace BSPConvert.Lib
 					var sFace = sourceBsp.Faces[splitFaceIndex];
 					sFace.Lightmap = sourceLightmapOffset;
 					sFace.LightmapStart = GetLightmapStart(sFace);
-					sFace.LightmapSize = new Vector2(lmSize.X - LIGHTMAP_PADDING, lmSize.Y - LIGHTMAP_PADDING);
+					sFace.LightmapSize = new Vector2(lmSize.X, lmSize.Y);
 				}
 			}
 
@@ -1526,12 +1535,9 @@ namespace BSPConvert.Lib
 				// Add lightmap colors
 				for (var y = (int)lmStart.Y; y < lmEnd.Y; y++)
 				{
-					for (var x = (int)lmStart.X; x < lmEnd.X; x++)
+					for (var x = (int)lmStart.X; x <= lmEnd.X; x++)
 					{
-						// Remove padding
-						var xCoord = Math.Clamp(x, (int)lmStart.X + LIGHTMAP_PADDING, (int)lmEnd.X - LIGHTMAP_PADDING);
-						var yCoord = Math.Clamp(y, (int)lmStart.Y + LIGHTMAP_PADDING, (int)lmEnd.Y - LIGHTMAP_PADDING);
-						var index = xCoord + yCoord * (int)lmData.size.X;
+						var index = x + y * (int)lmData.size.X;
 
 						var color = ColorUtil.ConvertQ3LightmapToColorRGBExp32(
 							lmData.data[index * 3 + 0],
@@ -1547,7 +1553,7 @@ namespace BSPConvert.Lib
 					var sFace = sourceBsp.Faces[splitFaceIndex];
 					sFace.Lightmap = lightmapOffset;
 					sFace.LightmapStart = GetLightmapStart(sFace);
-					sFace.LightmapSize = new Vector2(lmSize.X - LIGHTMAP_PADDING, lmSize.Y - LIGHTMAP_PADDING);
+					sFace.LightmapSize = new Vector2(lmSize.X, lmSize.Y);
 				}
 			}
 
@@ -1583,8 +1589,8 @@ namespace BSPConvert.Lib
 					uvMax.Y = vert.uv1.Y;
 			}
 
-			var lmStart = new Vector2((int)Math.Floor(uvMin.X * (lightmapSize - 1)) - LIGHTMAP_PADDING, (int)Math.Floor(uvMin.Y * (lightmapSize - 1)) - LIGHTMAP_PADDING);
-			var lmEnd = new Vector2((int)Math.Ceiling(uvMax.X * (lightmapSize - 1)) + LIGHTMAP_PADDING, (int)Math.Ceiling(uvMax.Y * (lightmapSize - 1)) + LIGHTMAP_PADDING);
+			var lmStart = new Vector2((int)Math.Floor(uvMin.X * lightmapSize), (int)Math.Floor(uvMin.Y * lightmapSize));
+			var lmEnd = new Vector2((int)Math.Ceiling(uvMax.X * lightmapSize), (int)Math.Ceiling(uvMax.Y * lightmapSize));
 
 			return (lmStart, lmEnd);
 		}
