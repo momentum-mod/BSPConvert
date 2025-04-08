@@ -326,6 +326,7 @@ namespace BSPConvert.Lib
 				button["wait"] = "0.001"; // exactly 0 also behaves as don't reset in source, so the delay is as short as possible without being 0.
 
 			button["customsound"] = "movers/switches/butn2.wav";
+			button["sounds"] = "-1";
 		}
 
 		private static void OpenDoorOnOutput(Entity entity, Entity door, string output, float delay)
