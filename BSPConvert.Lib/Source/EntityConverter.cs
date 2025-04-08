@@ -325,6 +325,11 @@ namespace BSPConvert.Lib
 			else if (button["wait"] == "-1") // A value of -1 in quake is instantly reset position, in source it is don't reset position.
 				button["wait"] = "0.001"; // exactly 0 also behaves as don't reset in source, so the delay is as short as possible without being 0.
 
+			if (!float.TryParse(button["lip"], out var lip))
+				button["lip"] = "2";
+			else
+				button["lip"] = $"{lip - q3LipMod}";
+
 			button["customsound"] = "movers/switches/butn2.wav";
 		}
 
