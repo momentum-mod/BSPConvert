@@ -1183,10 +1183,12 @@ namespace BSPConvert.Lib
 
 		private string ConvertPowerupCount(string count)
 		{
-			if (!string.IsNullOrEmpty(count) && count != "0")
+			if (float.TryParse(count, out var duration) && duration != 0 && duration < 99)
 				return count;
-
-			return "30";
+			else if (duration >= 99)
+				return "-1";
+			else
+				return "30";
 		}
 
 		private void ConvertTeleportTrigger(Entity trigger, Entity targetTele)
