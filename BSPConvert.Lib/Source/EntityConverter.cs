@@ -327,7 +327,7 @@ namespace BSPConvert.Lib
 				door["spawnpos"] = "1";
 				door.Spawnflags = (int)FuncDoorFlags.Toggle;
 
-				ResetDoorPositon(door); // Door doesn't automatically reopen if StartOpen spawnflag is set
+				ResetDoorPosition(door); // Door doesn't automatically reopen if StartOpen spawnflag is set
 			}
 
 			if (float.TryParse(door["health"], out _))
@@ -367,7 +367,7 @@ namespace BSPConvert.Lib
 			OpenDoorOnOutput(button, door, "OnPressed", 0);
 		}
 
-		private static void ResetDoorPositon(Entity door)
+		private static void ResetDoorPosition(Entity door)
 		{
 			if (!float.TryParse(door["wait"], out var delay))
 				return;
