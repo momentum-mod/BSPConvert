@@ -463,9 +463,13 @@ namespace BSPConvert.Lib
 		private static void SetMoveDir(Entity entity)
 		{
 			if (!float.TryParse(entity["angle"], out var angle))
-				return;
-
-			if (angle == -1) // UP
+			{
+				if (!string.IsNullOrEmpty(entity["angles"]))
+					entity["movedir"] = entity["angles"];
+				else
+					entity["movedir"] = "0 0 0";
+			}
+			else if (angle == -1) // UP
 				entity["movedir"] = "-90 0 0";
 			else if (angle == -2) // DOWN
 				entity["movedir"] = "90 0 0";
@@ -473,6 +477,7 @@ namespace BSPConvert.Lib
 				entity["movedir"] = $"0 {angle} 0";
 
 			entity.Remove("angle");
+			entity.Remove("angles");
 		}
 
 		private void ConvertWorldspawn(Entity worldspawn)
