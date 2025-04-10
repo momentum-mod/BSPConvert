@@ -390,7 +390,7 @@ namespace BSPConvert.Lib
 			SetButtonFlags(button);
 
 			var delay = 0f;
-			ConvertEntityTargetsRecursive(button, button, "OnPressed", delay, new HashSet<Entity>());
+			ConvertEntityTargetsRecursive(button, button, "OnIn", delay, new HashSet<Entity>());
 
 			if (string.IsNullOrEmpty(button["speed"]))
 				button["speed"] = "40";
