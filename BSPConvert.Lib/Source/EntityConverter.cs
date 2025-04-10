@@ -32,6 +32,14 @@ namespace BSPConvert.Lib
 		}
 
 		[Flags]
+		private enum FuncDoorFlags
+		{
+			StartOpen = 1,
+			Passable = 8,
+			Toggle = 32,
+		}
+
+		[Flags]
 		private enum Q3TriggerTeleportFlags
 		{
 			Spectator = 1,
@@ -88,6 +96,7 @@ namespace BSPConvert.Lib
 		private const string MOMENTUM_START_ENTITY = "_momentum_player_start_";
 		private const string MOMENTUM_MATH_COUNTER = "_momentum_math_counter_";
 		private const string MOMENTUM_LOGIC_CASE = "_momentum_logic_case_";
+		private const int q3LipMod = 2; // Quake adds 2 units to button/door lip for some reason
 
 		public EntityConverter(Lump<Model> q3Models, Entities q3Entities, Entities sourceEntities, Dictionary<string, Shader> shaderDict, int minDamageToConvertTrigger, bool ignoreZones)
 		{
@@ -224,7 +233,6 @@ namespace BSPConvert.Lib
 
 		private void ConvertFuncPlat(Entity entity)
 		{
-			const int q3LipMod = 2; // Quake adds 2 units to lip for some reason
 			var moveDistance = 0f;
 			var brushThickness = GetBrushThickness(entity);
 
@@ -299,12 +307,81 @@ namespace BSPConvert.Lib
 
 			if (string.IsNullOrEmpty(door["wait"]))
 				door["wait"] = "2";
-			
+			else if (door["wait"] == "-1") // A value of -1 in quake is instantly reset position, in source it is don't reset position.
+				door["wait"] = "0.001"; // exactly 0 also behaves as don't reset in source, so the delay is as short as possible without being 0.
+
+			if (string.IsNullOrEmpty(door["speed"]))
+				door["speed"] = "400";
+			else if (door["speed"] == "-1") // A value of -1 in quake is teleport to end position, in source it is don't move. Set speed as fast as possible in source.
+				door["speed"] = "99999";
+
+			if (!float.TryParse(door["lip"], out var lip))
+				door["lip"] = "6";
+			else
+				door["lip"] = $"{lip - q3LipMod}";
+
+			var spawnflags = (FuncDoorFlags)door.Spawnflags;
+
+			if (spawnflags.HasFlag(FuncDoorFlags.StartOpen))
+			{
+				door["spawnpos"] = "1";
+				door.Spawnflags = (int)FuncDoorFlags.Toggle;
+
+				ResetDoorPosition(door); // Door doesn't automatically reopen if StartOpen spawnflag is set
+			}
+
 			if (float.TryParse(door["health"], out _))
 			{
-				door.ClassName = "func_button"; // Health is obsolete on func_door, maybe fix in engine and update this
-				ConvertFuncButton(door);
+				CreateNewDoorButton(door); // Health is obsolete on func_door, make a new button parented to the door to open it. TODO: Fix in engine and delete this?
+				door.Spawnflags |= (int)FuncDoorFlags.Passable; // Make the door non-solid so you can shoot the new parented button through the door
 			}
+
+			var target = GetTargetEntities(door).FirstOrDefault();
+			if (target != null)
+			{
+				var input = "OnFullyOpen";
+				if (door["spawnpos"] == "1")
+					input = "OnFullyClosed";
+
+				ConvertEntityTargetsRecursive(door, door, input, 0, new HashSet<Entity>());
+			}
+		}
+
+		private void CreateNewDoorButton(Entity door)
+		{
+			var button = new Entity();
+
+			if (string.IsNullOrEmpty(door.Name))
+				door.Name = $"door{door.ModelNumber}";
+
+			button["parentname"] = door.Name;
+			button.ClassName = "func_button";
+			button.Model = door.Model;
+			button["rendermode"] = "1";
+			button["renderamt"] = "0"; // Make button invisible
+			button.Spawnflags |= (int)FuncButtonFlags.DamageActivates;
+			button.Spawnflags |= (int)FuncButtonFlags.DontMove;
+
+			sourceEntities.Add(button);
+
+			OpenDoorOnOutput(button, door, "OnPressed", 0);
+		}
+
+		private static void ResetDoorPosition(Entity door)
+		{
+			if (!float.TryParse(door["wait"], out var delay))
+				return;
+
+			var connection = new Entity.EntityConnection()
+			{
+				name = "OnFullyClosed",
+				target = "!self",
+				action = "Open",
+				param = null,
+				delay = delay,
+				fireOnce = -1
+			};
+			door.connections.Add(connection);
 		}
 
 		private void ConvertFuncButton(Entity button)
@@ -330,11 +407,17 @@ namespace BSPConvert.Lib
 
 		private static void OpenDoorOnOutput(Entity entity, Entity door, string output, float delay)
 		{
+			var input = "Open";
+			var spawnflags = (FuncDoorFlags)door.Spawnflags;
+
+			if (spawnflags.HasFlag(FuncDoorFlags.StartOpen) || door["spawnpos"] == "1")
+				input = "Close";
+
 			var connection = new Entity.EntityConnection()
 			{
 				name = output,
 				target = door["targetname"],
-				action = "Open",
+				action = input,
 				param = null,
 				delay = delay,
 				fireOnce = -1
