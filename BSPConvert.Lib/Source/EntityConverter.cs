@@ -618,7 +618,7 @@ namespace BSPConvert.Lib
 					target.ClassName = "point_teleport";
 					target["target"] = "!player";
 					target["velocitymode"] = "3";
-					target["setspeed"] = target.Spawnflags == 1 ? "0" : "400"; //spawnflag 1 is keep speed, else set speed to 400
+					target["setspeed"] = targetTeleporter.Spawnflags == 1 ? "0" : "400"; //spawnflag 1 is keep speed, else set speed to 400
 					target.Spawnflags = 0;
 					target["usedestinationangles"] = "1";
 				}
