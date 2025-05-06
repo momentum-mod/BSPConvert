@@ -1,0 +1,24 @@
+root = true
+
+[*]
+end_of_line = lf
+charset = utf-8
+indent_style = tab
+indent_size = 4
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+# Tom: Disabling all default rules for now. Have a stronger ruleset on the 
+# wip/format-and-linting branch.
+[*.cs]
+dotnet_analyzer_diagnostic.severity = none
+
+dotnet_diagnostic.CA1304.severity = error
+dotnet_diagnostic.CA1304.severity = error
+dotnet_diagnostic.CA1305.severity = error
+dotnet_diagnostic.CA1307.severity = error
+dotnet_diagnostic.CA1308.severity = suggestion # "Normalize strings to uppercase", someone unwanted
+dotnet_diagnostic.CA1309.severity = error
+dotnet_diagnostic.CA1310.severity = error
+dotnet_diagnostic.CA1311.severity = error
+dotnet_diagnostic.CA2101.severity = error
