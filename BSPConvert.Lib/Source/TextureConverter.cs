@@ -61,7 +61,7 @@ namespace BSPConvert.Lib
 			{
 				foreach (var file in textureFiles)
 				{
-					var newPath = file.Replace(pk3Dir, "materials");
+					var newPath = file.Replace(pk3Dir, "materials", StringComparison.OrdinalIgnoreCase);
 					archive.AddEntry(newPath, new FileInfo(file));
 				}
 
@@ -75,7 +75,7 @@ namespace BSPConvert.Lib
 			foreach (var file in textureFiles)
 			{
 				var materialDir = Path.Combine(outputDir, "materials");
-				var newPath = file.Replace(pk3Dir, materialDir);
+				var newPath = file.Replace(pk3Dir, materialDir, StringComparison.OrdinalIgnoreCase);
 				FileUtil.MoveFile(file, newPath);
 			}
 		}

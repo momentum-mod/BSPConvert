@@ -7,6 +7,7 @@ using System.Numerics;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
+using System.Globalization;
 
 namespace BSPConvert.Lib
 {
@@ -218,9 +219,9 @@ namespace BSPConvert.Lib
 		{
 			if (!float.TryParse(funcRotating["speed"], out var speed))
 				speed = 100;
-			
+
 			funcRotating["spawnflags"] = "1";
-			funcRotating["maxspeed"] = speed.ToString();
+			funcRotating["maxspeed"] = speed.ToString(CultureInfo.InvariantCulture);
 		}
 
 		private void ConvertFuncStatic(Entity funcStatic)
@@ -247,7 +248,7 @@ namespace BSPConvert.Lib
 				CreatePlatTrigger(entity);
 			}
 			entity.ClassName = "func_door";
-			entity["lip"] = moveDistance.ToString();
+			entity["lip"] = moveDistance.ToString(CultureInfo.InvariantCulture);
 			entity["movedir"] = "-90 0 0";
 			entity["spawnpos"] = "1";
 			entity["spawnflags"] = "0";
@@ -463,7 +464,7 @@ namespace BSPConvert.Lib
 			else
 				spawnflags |= (int)FuncButtonFlags.DamageActivates;
 
-			button["spawnflags"] = spawnflags.ToString();
+			button["spawnflags"] = spawnflags.ToString(CultureInfo.InvariantCulture);
 		}
 
 		private static void SetMoveDir(Entity entity)
@@ -650,7 +651,7 @@ namespace BSPConvert.Lib
 			if (!float.TryParse(targetScore["count"], out var count))
 				count = 1;
 
-			ModifyMathCounter(entity, output, "Add", count.ToString(), delay);
+			ModifyMathCounter(entity, output, "Add", count.ToString(CultureInfo.InvariantCulture), delay);
 		}
 
 		private Entity CreateLogicCase()
@@ -662,7 +663,7 @@ namespace BSPConvert.Lib
 			for (var i = 1; i <= 16; i++) // Logic_case supports 16 different outputs
 			{
 				var caseNum = $"case{i:D2}";
-				logicCase[caseNum] = (i-1).ToString(); // case01 = 0, case02 = 1 etc
+				logicCase[caseNum] = (i-1).ToString(CultureInfo.InvariantCulture); // case01 = 0, case02 = 1 etc
 			}
 
 			var connection = new Entity.EntityConnection()
@@ -719,7 +720,7 @@ namespace BSPConvert.Lib
 			if (spawnflags.HasFlag(TargetFragsFilterFlags.Reset)) // Reset frags to 0
 				ModifyMathCounter(targetFragsFilter, "OnTrigger", "SetValue", "0", delay);
 			else if (spawnflags.HasFlag(TargetFragsFilterFlags.Remover)) // Remove frags when used
-				ModifyMathCounter(targetFragsFilter, "OnTrigger", "Subtract", frags.ToString(), delay);
+				ModifyMathCounter(targetFragsFilter, "OnTrigger", "Subtract", frags.ToString(CultureInfo.InvariantCulture), delay);
 
 			if (spawnflags.HasFlag(TargetFragsFilterFlags.Match))
 				match = true;
@@ -840,15 +841,15 @@ namespace BSPConvert.Lib
 
 			var angleString = angles.Split(' ');
 
-			var pitchDegrees = float.Parse(angleString[0]);
-			var yawDegrees = float.Parse(angleString[1]);
+			var pitchDegrees = float.Parse(angleString[0], CultureInfo.InvariantCulture);
+			var yawDegrees = float.Parse(angleString[1], CultureInfo.InvariantCulture);
 
 			var launchDir = ConvertAnglesToVector(pitchDegrees, yawDegrees);
 
 			if (!float.TryParse(targetPush["speed"], out var speed))
 				speed = 1000;
 			else
-				speed = float.Parse(targetPush["speed"]);
+				speed = float.Parse(targetPush["speed"], CultureInfo.InvariantCulture);
 
 			var launchVector = launchDir * speed;
 			return $"{launchVector.X} {launchVector.Y} {launchVector.Z}";
@@ -905,7 +906,7 @@ namespace BSPConvert.Lib
 				fireOnce = -1
 			};
 			entity.connections.Add(connection);
-			
+
 			if (targetPrint.ClassName != "game_text")
 				ConvertTargetPrint(targetPrint);
 		}
@@ -913,7 +914,7 @@ namespace BSPConvert.Lib
 		private void ConvertTargetPrint(Entity targetPrint)
 		{
 			var regex = new Regex("\\^[1-9]");
-			targetPrint["message"] = regex.Replace(targetPrint["message"].Replace("\\n", "\n"), ""); // Removes q3 colour codes from string and fixes broken newline character
+			targetPrint["message"] = regex.Replace(targetPrint["message"].Replace("\\n", "\n", StringComparison.InvariantCulture), ""); // Removes q3 colour codes from string and fixes broken newline character
 			targetPrint.ClassName = "game_text";
 			targetPrint["color"] = "255 255 255";
 			targetPrint["color2"] = "255 255 255";
@@ -937,7 +938,7 @@ namespace BSPConvert.Lib
 				fireOnce = -1
 			};
 			entity.connections.Add(connection);
-			
+
 			if (targetSpeaker.ClassName != "ambient_generic")
 				ConvertTargetSpeaker(targetSpeaker);
 		}
@@ -958,9 +959,9 @@ namespace BSPConvert.Lib
 
 		private string RemoveFirstOccurrence(string noise, string removeStr)
 		{
-			if (!noise.StartsWith(removeStr))
+			if (!noise.StartsWith(removeStr, StringComparison.OrdinalIgnoreCase))
 				return noise;
-			
+
 			return noise.Remove(0, removeStr.Length);
 		}
 
@@ -977,7 +978,7 @@ namespace BSPConvert.Lib
 			if (q3flags.HasFlag(TargetSpeakerFlags.Global) || q3flags.HasFlag(TargetSpeakerFlags.Activator))
 				sourceflags |= (int)AmbientGenericFlags.InfiniteRange;
 
-			targetSpeaker["spawnflags"] = sourceflags.ToString();
+			targetSpeaker["spawnflags"] = sourceflags.ToString(CultureInfo.InvariantCulture);
 		}
 
 		private void FireTargetInitOnOutput(Entity entity, Entity targetInit, string output, float delay)
@@ -1020,7 +1021,7 @@ namespace BSPConvert.Lib
 
 		private void ConvertKillTrigger(Entity trigger)
 		{
-			if (!trigger.ClassName.StartsWith("trigger"))
+			if (!trigger.ClassName.StartsWith("trigger", StringComparison.OrdinalIgnoreCase))
 				return;
 
 			trigger.ClassName = "trigger_teleport";
@@ -1030,15 +1031,15 @@ namespace BSPConvert.Lib
 
 		private void ConvertTimerTrigger(Entity trigger, string className, int zoneNumber)
 		{
-			if (ignoreZones || !trigger.ClassName.StartsWith("trigger"))
+			if (ignoreZones || !trigger.ClassName.StartsWith("trigger", StringComparison.OrdinalIgnoreCase))
 				return;
 
 			var newTrigger = new Entity();
-			
+
 			newTrigger.ClassName = className;
 			newTrigger.Model = trigger.Model;
 			newTrigger.Spawnflags = 1;
-			newTrigger["zone_number"] = zoneNumber.ToString();
+			newTrigger["zone_number"] = zoneNumber.ToString(CultureInfo.InvariantCulture);
 
 			sourceEntities.Add(newTrigger);
 		}
@@ -1063,9 +1064,9 @@ namespace BSPConvert.Lib
 						SetQuadOnOutput(entity, ConvertPowerupCount(target["count"]), output, delay + 0.008f); //hack to make giving quad happen after target_init strip
 						break;
 					default:
-						if (target.ClassName.StartsWith("weapon_"))
+						if (target.ClassName.StartsWith("weapon_", StringComparison.OrdinalIgnoreCase))
 							GiveWeaponOnOutput(entity, target, output, delay);
-						else if (target.ClassName.StartsWith("ammo_"))
+						else if (target.ClassName.StartsWith("ammo_", StringComparison.OrdinalIgnoreCase))
 							GiveAmmoOnOutput(entity, target, output, delay);
 						break;
 				}
@@ -1126,7 +1127,7 @@ namespace BSPConvert.Lib
 		private void GiveWeaponAmmoOnOutput(Entity entity, Entity weaponEnt, string output, float delay)
 		{
 			var count = ConvertWeaponAmmoCount(weaponEnt.ClassName, weaponEnt["count"]);
-			if (float.Parse(count) < 0)
+			if (float.Parse(count, CultureInfo.InvariantCulture) < 0)
 				return;
 
 			var ammoType = GetWeaponAmmoType(weaponEnt.ClassName);
@@ -1206,8 +1207,8 @@ namespace BSPConvert.Lib
 				return;
 
 			var count = ConvertAmmoCount(ammoEnt.ClassName, ammoEnt["count"]);
-			if (float.Parse(count) < 0)
-				ammoOutput = ammoOutput.Replace("Add", "Set"); // Applies infinite ammo when count is set to a negative value to mimic q3 behaviour
+			if (float.Parse(count, CultureInfo.InvariantCulture) < 0)
+				ammoOutput = ammoOutput.Replace("Add", "Set", StringComparison.OrdinalIgnoreCase); // Applies infinite ammo when count is set to a negative value to mimic q3 behaviour
 
 			var connection = new Entity.EntityConnection()
 			{
@@ -1225,7 +1226,7 @@ namespace BSPConvert.Lib
 		{
 			if (!string.IsNullOrEmpty(count) && count != "0")
 				return count;
-			
+
 			switch (ammoName)
 			{
 				case "ammo_bfg":
@@ -1362,11 +1363,11 @@ namespace BSPConvert.Lib
 
 		private void ConvertEquipment(Entity entity)
 		{
-			if (entity.ClassName.StartsWith("weapon_"))
+			if (entity.ClassName.StartsWith("weapon_", StringComparison.OrdinalIgnoreCase))
 				ConvertWeapon(entity);
-			else if (entity.ClassName.StartsWith("ammo_"))
+			else if (entity.ClassName.StartsWith("ammo_", StringComparison.OrdinalIgnoreCase))
 				ConvertAmmo(entity);
-			else if (entity.ClassName.StartsWith("item_"))
+			else if (entity.ClassName.StartsWith("item_", StringComparison.OrdinalIgnoreCase))
 				ConvertItem(entity);
 		}
 
@@ -1473,7 +1474,8 @@ namespace BSPConvert.Lib
 			{
 				ConvertEntityTargetsRecursive(itemEnt, itemEnt, "OnPickup", 0, new HashSet<Entity>());
 
-				if (itemEnt.ClassName.StartsWith("item_armor") || itemEnt.ClassName.StartsWith("item_health"))
+				if (itemEnt.ClassName.StartsWith("item_armor", StringComparison.OrdinalIgnoreCase)
+					|| itemEnt.ClassName.StartsWith("item_health", StringComparison.OrdinalIgnoreCase))
 				{
 					CreatePlaceHolderItem(itemEnt); // needs a placeholder pickup to trigger target entities since we dont have health/armor
 					return;

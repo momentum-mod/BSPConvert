@@ -70,7 +70,7 @@ namespace BSPConvert.Lib.Source
 			var soundPath = Path.Combine(q3ContentDir, "sound", sound);
 			if (!File.Exists(soundPath))
 				return;
-			
+
 			var newPath = Path.Combine(pk3Dir, "sound", sound);
 			Directory.CreateDirectory(Path.GetDirectoryName(newPath));
 
@@ -83,8 +83,8 @@ namespace BSPConvert.Lib.Source
 			for (var i = 0; i < soundFiles.Length; i++)
 			{
 				var file = soundFiles[i];
-				var relativePath = file.Replace(pk3Dir + Path.DirectorySeparatorChar, "");
-				if (!relativePath.StartsWith("sound" + Path.DirectorySeparatorChar)) // Sound file is not in "sound" folder
+				var relativePath = file.Replace(pk3Dir + Path.DirectorySeparatorChar, "", StringComparison.OrdinalIgnoreCase);
+				if (!relativePath.StartsWith("sound" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) // Sound file is not in "sound" folder
 				{
 					var newPath = Path.Combine(pk3Dir, "sound", relativePath);
 					Directory.CreateDirectory(Path.GetDirectoryName(newPath));
@@ -101,7 +101,7 @@ namespace BSPConvert.Lib.Source
 			{
 				foreach (var file in soundFiles)
 				{
-					var newPath = file.Replace(pk3Dir + Path.DirectorySeparatorChar, "");
+					var newPath = file.Replace(pk3Dir + Path.DirectorySeparatorChar, "", StringComparison.OrdinalIgnoreCase);
 					archive.AddEntry(newPath, new FileInfo(file));
 				}
 
@@ -113,7 +113,7 @@ namespace BSPConvert.Lib.Source
 		{
 			foreach (var file in soundFiles)
 			{
-				var newPath = file.Replace(pk3Dir, outputDir);
+				var newPath = file.Replace(pk3Dir, outputDir, StringComparison.OrdinalIgnoreCase);
 				FileUtil.MoveFile(file, newPath);
 			}
 		}
