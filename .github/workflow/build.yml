@@ -1,0 +1,25 @@
+name: Format Check
+
+on:
+    pull_request:
+        branches: [ "master", "develop" ]
+
+jobs:
+    build:
+        permissions:
+            contents: write
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+              with:
+                  submodules: true
+
+            - name: Setup .NET
+              uses: actions/setup-dotnet@v4
+              with:
+                  dotnet-version: 7.0.x
+
+            - name: Check dotnet format
+              run: dotnet format analyzers --verify-no-changes
