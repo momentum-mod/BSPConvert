@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using System.Globalization;
 
 namespace BSPConvert.Lib
 {
@@ -41,8 +42,11 @@ namespace BSPConvert.Lib
 				var ext = Path.GetExtension(file);
 				if (ext == ".tga" || ext == ".jpg")
 				{
-					var texturePath = file.Replace(contentDir + Path.DirectorySeparatorChar, "")
-						.Replace(Path.DirectorySeparatorChar, '/').Replace(ext, "").ToLower();
+					var texturePath = file
+						.Replace(contentDir + Path.DirectorySeparatorChar, "", StringComparison.OrdinalIgnoreCase)
+						.Replace(Path.DirectorySeparatorChar, '/')
+						.Replace(ext, "", StringComparison.OrdinalIgnoreCase)
+						.ToLower(CultureInfo.InvariantCulture);
 
 					if (!imageDict.ContainsKey(texturePath))
 						imageDict.Add(texturePath, file);
@@ -92,7 +96,7 @@ namespace BSPConvert.Lib
 						$refractamount 0
 
 						$scale "[1 1]"
-	
+
 						$bottommaterial "dev/dev_water3_beneath"
 
 						$normalmap "dev/bump_normal"
@@ -106,7 +110,7 @@ namespace BSPConvert.Lib
 						$fogstart 0
 						$fogend {{fogParms.depthForOpaque}}
 
-						$abovewater 1	
+						$abovewater 1
 					}
 					""";
 		}
@@ -131,7 +135,7 @@ namespace BSPConvert.Lib
 			var skyboxDir = Path.Combine(pk3Dir, "skybox");
 			if (pk3ImageDict.TryGetValue(skyTexture, out var pk3Path))
 			{
-				var newPath = pk3Path.Replace(pk3Dir, skyboxDir);
+				var newPath = pk3Path.Replace(pk3Dir, skyboxDir, StringComparison.OrdinalIgnoreCase);
 				var destFile = newPath.Remove(newPath.LastIndexOf('_'), 1); // Remove underscore from skybox suffix
 
 				FileUtil.MoveFile(pk3Path, destFile);
@@ -141,7 +145,7 @@ namespace BSPConvert.Lib
 			else if (q3ImageDict.TryGetValue(skyTexture, out var q3Path))
 			{
 				var q3ContentDir = ContentManager.GetQ3ContentDir();
-				var newPath = q3Path.Replace(q3ContentDir, skyboxDir);
+				var newPath = q3Path.Replace(q3ContentDir, skyboxDir, StringComparison.OrdinalIgnoreCase);
 				var destFile = newPath.Remove(newPath.LastIndexOf('_'), 1); // Remove underscore from skybox suffix
 
 				FileUtil.CopyFile(q3Path, destFile);
@@ -190,7 +194,7 @@ namespace BSPConvert.Lib
 			if (q3ImageDict.TryGetValue(texturePath, out var q3TexturePath))
 			{
 				var q3ContentDir = ContentManager.GetQ3ContentDir();
-				var newPath = q3TexturePath.Replace(q3ContentDir, pk3Dir);
+				var newPath = q3TexturePath.Replace(q3ContentDir, pk3Dir, StringComparison.OrdinalIgnoreCase);
 				FileUtil.CopyFile(q3TexturePath, newPath);
 			}
 		}
@@ -228,7 +232,7 @@ namespace BSPConvert.Lib
 			if (textureStage != null)
 			{
 				var texture = Path.ChangeExtension(textureStage.bundles[0].images[0], null);
-				sb.AppendLine($"\t$basetexture \"{texture}\"");
+				sb.AppendLine(CultureInfo.InvariantCulture, $"\t$basetexture \"{texture}\"");
 
 				if (textureStage.rgbGen.HasFlag(ColorGen.CGEN_CONST))
 				{
@@ -240,7 +244,7 @@ namespace BSPConvert.Lib
 				if (textureStage.alphaGen.HasFlag(AlphaGen.AGEN_CONST))
 				{
 					var alpha = (float)textureStage.constantColor[3] / 255;
-					sb.AppendLine($"\t$alpha {alpha}");
+					sb.AppendLine(CultureInfo.InvariantCulture, $"\t$alpha {alpha}");
 				}
 			}
 
@@ -252,12 +256,12 @@ namespace BSPConvert.Lib
 				if (envMapStage.alphaGen == AlphaGen.AGEN_CONST)
 				{
 					var alpha = (float)envMapStage.constantColor[3] / 255;
-					sb.AppendLine($"\t$envmaptint \"[{alpha} {alpha} {alpha}]\"");
+					sb.AppendLine(CultureInfo.InvariantCulture, $"\t$envmaptint \"[{alpha} {alpha} {alpha}]\"");
 				}
 				else if (envMapStage.rgbGen == ColorGen.CGEN_WAVEFORM)
 				{
 					var alpha = envMapStage.rgbWave.base_;
-					sb.AppendLine($"\t$envmaptint \"[{alpha} {alpha} {alpha}]\"");
+					sb.AppendLine(CultureInfo.InvariantCulture, $"\t$envmaptint \"[{alpha} {alpha} {alpha}]\"");
 				}
 			}
 
@@ -323,7 +327,7 @@ namespace BSPConvert.Lib
 				else if (texModInfo.type == TexMod.TMOD_STRETCH || texModInfo.type == TexMod.TMOD_SCALE)
 					sb.AppendLine("\t\t\tscaleVar $scale");
 			}
-			
+
 			sb.AppendLine("\t\t\tinitialValue 0");
 			sb.AppendLine("\t\t\tresultVar $basetexturetransform");
 			sb.AppendLine("\t\t}");
@@ -341,15 +345,15 @@ namespace BSPConvert.Lib
 				else if (texModInfo.type == TexMod.TMOD_SCROLL)
 					sb.AppendLine("\t$translate \"[0.0 0.0]\"");
 				else if (texModInfo.type == TexMod.TMOD_SCALE)
-					sb.AppendLine($"\t$scale \"[{texModInfo.scale[0]} {texModInfo.scale[1]}]\"");
+					sb.AppendLine(CultureInfo.InvariantCulture, $"\t$scale \"[{texModInfo.scale[0]} {texModInfo.scale[1]}]\"");
 				else if (texModInfo.type == TexMod.TMOD_STRETCH)
 					sb.AppendLine("\t$scale 1");
 
 				if (texModInfo.wave.func == GenFunc.GF_SQUARE)
 				{
-					sb.AppendLine($"\t$min {texModInfo.wave.base_}");
-					sb.AppendLine($"\t$max {texModInfo.wave.amplitude}");
-					sb.AppendLine($"\t$mid {(texModInfo.wave.amplitude + texModInfo.wave.base_) / 2}");
+					sb.AppendLine(CultureInfo.InvariantCulture, $"\t$min {texModInfo.wave.base_}");
+					sb.AppendLine(CultureInfo.InvariantCulture, $"\t$max {texModInfo.wave.amplitude}");
+					sb.AppendLine(CultureInfo.InvariantCulture, $"\t$mid {(texModInfo.wave.amplitude + texModInfo.wave.base_) / 2}");
 				}
 			}
 
@@ -378,9 +382,9 @@ namespace BSPConvert.Lib
 		{
 			sb.AppendLine("\t\tSine");
 			sb.AppendLine("\t\t{");
-			sb.AppendLine($"\t\t\tsinemin {texModInfo.wave.base_}");
-			sb.AppendLine($"\t\t\tsinemax {texModInfo.wave.amplitude}");
-			sb.AppendLine($"\t\t\tsineperiod {1 / texModInfo.wave.frequency}");
+			sb.AppendLine(CultureInfo.InvariantCulture, $"\t\t\tsinemin {texModInfo.wave.base_}");
+			sb.AppendLine(CultureInfo.InvariantCulture, $"\t\t\tsinemax {texModInfo.wave.amplitude}");
+			sb.AppendLine(CultureInfo.InvariantCulture, $"\t\t\tsineperiod {1 / texModInfo.wave.frequency}");
 			sb.AppendLine("\t\t\tinitialValue 0.0");
 			sb.AppendLine("\t\t\tresultVar $scale");
 			sb.AppendLine("\t\t}");
@@ -390,9 +394,9 @@ namespace BSPConvert.Lib
 		{
 			sb.AppendLine("\t\tSine");
 			sb.AppendLine("\t\t{");
-			sb.AppendLine($"\t\t\tsinemin {texModInfo.wave.base_}");
-			sb.AppendLine($"\t\t\tsinemax {texModInfo.wave.amplitude}");
-			sb.AppendLine($"\t\t\tsineperiod {1 / texModInfo.wave.frequency}");
+			sb.AppendLine(CultureInfo.InvariantCulture, $"\t\t\tsinemin {texModInfo.wave.base_}");
+			sb.AppendLine(CultureInfo.InvariantCulture, $"\t\t\tsinemax {texModInfo.wave.amplitude}");
+			sb.AppendLine(CultureInfo.InvariantCulture, $"\t\t\tsineperiod {1 / texModInfo.wave.frequency}");
 			sb.AppendLine("\t\t\tinitialValue 0.0");
 			sb.AppendLine("\t\t\tresultVar $sineOutput");
 			sb.AppendLine("\t\t}");
@@ -411,14 +415,14 @@ namespace BSPConvert.Lib
 		{
 			sb.AppendLine("\t\tLinearRamp");
 			sb.AppendLine("\t\t{");
-			sb.AppendLine($"\t\t\trate {texModInfo.scroll[0]}");
+			sb.AppendLine(CultureInfo.InvariantCulture, $"\t\t\trate {texModInfo.scroll[0]}");
 			sb.AppendLine("\t\t\tinitialValue 0.0");
 			sb.AppendLine("\t\t\tresultVar \"$translate[0]\"");
 			sb.AppendLine("\t\t}");
 
 			sb.AppendLine("\t\tLinearRamp");
 			sb.AppendLine("\t\t{");
-			sb.AppendLine($"\t\t\trate {texModInfo.scroll[1]}");
+			sb.AppendLine(CultureInfo.InvariantCulture, $"\t\t\trate {texModInfo.scroll[1]}");
 			sb.AppendLine("\t\t\tinitialValue 0.0");
 			sb.AppendLine("\t\t\tresultVar \"$translate[1]\"");
 			sb.AppendLine("\t\t}");
@@ -428,7 +432,7 @@ namespace BSPConvert.Lib
 		{
 			sb.AppendLine("\t\tLinearRamp");
 			sb.AppendLine("\t\t{");
-			sb.AppendLine($"\t\t\trate {texModInfo.rotateSpeed}");
+			sb.AppendLine(CultureInfo.InvariantCulture, $"\t\t\trate {texModInfo.rotateSpeed}");
 			sb.AppendLine("\t\t\tinitialValue 0.0");
 			sb.AppendLine("\t\t\tresultVar $angle");
 			sb.AppendLine("\t\t}");
@@ -440,7 +444,7 @@ namespace BSPConvert.Lib
 			sb.AppendLine("UnlitGeneric");
 			sb.AppendLine("{");
 
-			sb.AppendLine($"\t\"$basetexture\" \"{baseTexture}\"");
+			sb.AppendLine(CultureInfo.InvariantCulture, $"\t\"$basetexture\" \"{baseTexture}\"");
 			sb.AppendLine("\t\"$nofog\" 1");
 			sb.AppendLine("\t\"$ignorez\" 1");
 

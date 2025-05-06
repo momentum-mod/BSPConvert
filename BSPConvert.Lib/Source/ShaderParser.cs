@@ -5,6 +5,7 @@ using System.Linq;
 using System.Numerics;
 using System.Text;
 using System.Threading.Tasks;
+using System.Globalization;
 
 namespace BSPConvert.Lib
 {
@@ -57,7 +58,7 @@ namespace BSPConvert.Lib
 
 				// Parse shader parameter
 				var split = line.Split();
-				switch (split[0].ToLower())
+				switch (split[0].ToUpperInvariant())
 				{
 					case "q3map_sun":
 						break;
@@ -100,9 +101,9 @@ namespace BSPConvert.Lib
 					case "sort":
 						break;
 					default:
-						if (!split[0].ToLower().StartsWith("qer"))
+						if (!split[0].StartsWith("qer", StringComparison.OrdinalIgnoreCase))
 							Debug.WriteLine("Warning: Unknown shader parameter '" + split[0] + "' in shader file: " + shaderFile);
-						
+
 						break;
 				}
 			}
@@ -123,7 +124,7 @@ namespace BSPConvert.Lib
 					break;
 
 				var split = line.Split((char[])null, StringSplitOptions.RemoveEmptyEntries);
-				switch (split[0].ToLower())
+				switch (split[0].ToUpperInvariant())
 				{
 					case "map":
 						stage.bundles[0].images[0] = split[1];
@@ -179,13 +180,13 @@ namespace BSPConvert.Lib
 				return bundle;
 			}
 
-			bundle.imageAnimationSpeed = float.Parse(split[1]);
+			bundle.imageAnimationSpeed = float.Parse(split[1], CultureInfo.InvariantCulture);
 
 			for (var i = 2; i < split.Length; i++)
 			{
 				if (bundle.numImageAnimations >= TextureBundle.MAX_IMAGE_ANIMATIONS)
 					break;
-				
+
 				bundle.images[bundle.numImageAnimations] = split[i];
 				bundle.numImageAnimations++;
 			}
@@ -249,7 +250,7 @@ namespace BSPConvert.Lib
 
 		private CullType ParseCullType(string cullType)
 		{
-			switch (cullType.ToLower())
+			switch (cullType.ToUpperInvariant())
 			{
 				case "none":
 				case "twosided":
@@ -266,7 +267,7 @@ namespace BSPConvert.Lib
 
 		private ShaderStageFlags ParseAlphaFunc(string func)
 		{
-			switch (func.ToLower())
+			switch (func.ToUpperInvariant())
 			{
 				case "gt0":
 					return ShaderStageFlags.GLS_ATEST_GT_0;
@@ -282,7 +283,7 @@ namespace BSPConvert.Lib
 
 		private ShaderStageFlags ParseBlendFunc(string[] split)
 		{
-			switch (split[1].ToLower())
+			switch (split[1].ToUpperInvariant())
 			{
 				case "add":
 					return ShaderStageFlags.GLS_SRCBLEND_ONE | ShaderStageFlags.GLS_DSTBLEND_ONE;
@@ -300,7 +301,7 @@ namespace BSPConvert.Lib
 
 		private ShaderStageFlags ParseSrcBlendMode(string src)
 		{
-			switch (src.ToUpper())
+			switch (src.ToUpperInvariant())
 			{
 				case "GL_ONE":
 					return ShaderStageFlags.GLS_SRCBLEND_ONE;
@@ -328,7 +329,7 @@ namespace BSPConvert.Lib
 
 		private ShaderStageFlags ParseDestBlendMode(string dest)
 		{
-			switch (dest.ToUpper())
+			switch (dest.ToUpperInvariant())
 			{
 				case "GL_ONE":
 					return ShaderStageFlags.GLS_DSTBLEND_ONE;
@@ -354,7 +355,7 @@ namespace BSPConvert.Lib
 
 		private void ParseRGBGen(ShaderStage stage, string[] split)
 		{
-			switch (split[1].ToLower())
+			switch (split[1].ToUpperInvariant())
 			{
 				case "wave":
 					{
@@ -414,9 +415,9 @@ namespace BSPConvert.Lib
 			}
 
 			return new Vector3(
-				float.Parse(split[1]),
-				float.Parse(split[2]),
-				float.Parse(split[3]));
+				float.Parse(split[1], CultureInfo.InvariantCulture),
+				float.Parse(split[2], CultureInfo.InvariantCulture),
+				float.Parse(split[3], CultureInfo.InvariantCulture));
 		}
 
 		private WaveForm ParseWaveform(ArraySegment<string> split)
@@ -434,7 +435,7 @@ namespace BSPConvert.Lib
 
 		private void ParseAlphaGen(ShaderStage stage, string[] split)
 		{
-			switch (split[1].ToLower())
+			switch (split[1].ToUpperInvariant())
 			{
 				case "wave":
 					{
@@ -482,7 +483,7 @@ namespace BSPConvert.Lib
 
 		private TexCoordGen ParseTCGen(string tcGen)
 		{
-			switch (tcGen.ToLower())
+			switch (tcGen.ToUpperInvariant())
 			{
 				case "environment":
 					return TexCoordGen.TCGEN_ENVIRONMENT_MAPPED;
@@ -504,7 +505,7 @@ namespace BSPConvert.Lib
 
 		private TexModInfo ParseTCModInfo(string[] tcMod)
 		{
-			switch (tcMod[1].ToLower())
+			switch (tcMod[1].ToUpperInvariant())
 			{
 				case "turb":
 					return ParseTCModInfoTurb(tcMod);
@@ -534,14 +535,14 @@ namespace BSPConvert.Lib
 				Debug.WriteLine("Warning: missing tcMod turb in shader: " + shaderFile);
 				return texModInfo;
 			}
-			
+
 			float.TryParse(tcMod[2], out texModInfo.wave.base_);
 			float.TryParse(tcMod[3], out texModInfo.wave.amplitude);
 			float.TryParse(tcMod[4], out texModInfo.wave.phase);
 			float.TryParse(tcMod[5], out texModInfo.wave.frequency);
-			
+
 			texModInfo.type = TexMod.TMOD_TURBULENT;
-			
+
 			return texModInfo;
 		}
 
@@ -553,12 +554,12 @@ namespace BSPConvert.Lib
 				Debug.WriteLine("Warning: missing scale parms in shader: " + shaderFile);
 				return texModInfo;
 			}
-			
+
 			float.TryParse(tcMod[2], out texModInfo.scale[0]);
 			float.TryParse(tcMod[3], out texModInfo.scale[1]);
-			
+
 			texModInfo.type = TexMod.TMOD_SCALE;
-			
+
 			return texModInfo;
 		}
 
@@ -570,12 +571,12 @@ namespace BSPConvert.Lib
 				Debug.WriteLine("Warning: missing scale scroll parms in shader: " + shaderFile);
 				return texModInfo;
 			}
-			
+
 			float.TryParse(tcMod[2], out texModInfo.scroll[0]);
 			float.TryParse(tcMod[3], out texModInfo.scroll[1]);
-			
+
 			texModInfo.type = TexMod.TMOD_SCROLL;
-			
+
 			return texModInfo;
 		}
 
@@ -587,15 +588,15 @@ namespace BSPConvert.Lib
 				Debug.WriteLine("Warning: missing stretch parms in shader: " + shaderFile);
 				return texModInfo;
 			}
-			
+
 			texModInfo.wave.func = NameToGenFunc(tcMod[2]);
 			float.TryParse(tcMod[3], out texModInfo.wave.base_);
 			float.TryParse(tcMod[4], out texModInfo.wave.amplitude);
 			float.TryParse(tcMod[5], out texModInfo.wave.phase);
 			float.TryParse(tcMod[6], out texModInfo.wave.frequency);
-			
+
 			texModInfo.type = TexMod.TMOD_STRETCH;
-			
+
 			return texModInfo;
 		}
 
@@ -607,16 +608,16 @@ namespace BSPConvert.Lib
 				Debug.WriteLine("Warning: missing transform parms in shader: " + shaderFile);
 				return texModInfo;
 			}
-			
+
 			float.TryParse(tcMod[2], out texModInfo.matrix[0][0]);
 			float.TryParse(tcMod[3], out texModInfo.matrix[0][1]);
 			float.TryParse(tcMod[4], out texModInfo.matrix[1][0]);
 			float.TryParse(tcMod[5], out texModInfo.matrix[1][1]);
 			float.TryParse(tcMod[6], out texModInfo.translate[0]);
 			float.TryParse(tcMod[7], out texModInfo.translate[1]);
-			
+
 			texModInfo.type = TexMod.TMOD_TRANSFORM;
-			
+
 			return texModInfo;
 		}
 
@@ -628,20 +629,20 @@ namespace BSPConvert.Lib
 				Debug.WriteLine("Warning: missing scale parms in shader: " + shaderFile);
 				return texModInfo;
 			}
-			
-			texModInfo.rotateSpeed = float.Parse(tcMod[2]);
-			
+
+			texModInfo.rotateSpeed = float.Parse(tcMod[2], CultureInfo.InvariantCulture);
+
 			texModInfo.type = TexMod.TMOD_ROTATE;
-			
+
 			return texModInfo;
 		}
 
 		private TexModInfo ParseTCModInfoTranslate(string[] tcMod)
 		{
 			var texModInfo = new TexModInfo();
-			
+
 			texModInfo.type = TexMod.TMOD_ENTITY_TRANSLATE;
-			
+
 			return texModInfo;
 		}
 
@@ -685,11 +686,11 @@ namespace BSPConvert.Lib
 			var trimmed = line.Trim();
 
 			// Remove comments from line
-			if (trimmed.Contains("//"))
-				trimmed = trimmed.Substring(0, trimmed.IndexOf("//"));
+			if (trimmed.Contains("//", StringComparison.OrdinalIgnoreCase))
+				trimmed = trimmed.Substring(0, trimmed.IndexOf("//", StringComparison.OrdinalIgnoreCase));
 
 			// TODO: Handle multi-line comments
-			
+
 			return trimmed;
 		}
 	}
