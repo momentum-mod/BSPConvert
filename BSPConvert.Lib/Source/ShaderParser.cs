@@ -58,7 +58,7 @@ namespace BSPConvert.Lib
 
 				// Parse shader parameter
 				var split = line.Split();
-				switch (split[0].ToUpperInvariant())
+				switch (split[0].ToLowerInvariant())
 				{
 					case "q3map_sun":
 						break;
@@ -124,7 +124,7 @@ namespace BSPConvert.Lib
 					break;
 
 				var split = line.Split((char[])null, StringSplitOptions.RemoveEmptyEntries);
-				switch (split[0].ToUpperInvariant())
+				switch (split[0].ToLowerInvariant())
 				{
 					case "map":
 						stage.bundles[0].images[0] = split[1];
@@ -250,7 +250,7 @@ namespace BSPConvert.Lib
 
 		private CullType ParseCullType(string cullType)
 		{
-			switch (cullType.ToUpperInvariant())
+			switch (cullType.ToLowerInvariant())
 			{
 				case "none":
 				case "twosided":
@@ -267,7 +267,7 @@ namespace BSPConvert.Lib
 
 		private ShaderStageFlags ParseAlphaFunc(string func)
 		{
-			switch (func.ToUpperInvariant())
+			switch (func.ToLowerInvariant())
 			{
 				case "gt0":
 					return ShaderStageFlags.GLS_ATEST_GT_0;
@@ -283,7 +283,7 @@ namespace BSPConvert.Lib
 
 		private ShaderStageFlags ParseBlendFunc(string[] split)
 		{
-			switch (split[1].ToUpperInvariant())
+			switch (split[1].ToLowerInvariant())
 			{
 				case "add":
 					return ShaderStageFlags.GLS_SRCBLEND_ONE | ShaderStageFlags.GLS_DSTBLEND_ONE;
@@ -301,7 +301,7 @@ namespace BSPConvert.Lib
 
 		private ShaderStageFlags ParseSrcBlendMode(string src)
 		{
-			switch (src.ToUpperInvariant())
+			switch (src.ToLowerInvariant())
 			{
 				case "GL_ONE":
 					return ShaderStageFlags.GLS_SRCBLEND_ONE;
@@ -329,7 +329,7 @@ namespace BSPConvert.Lib
 
 		private ShaderStageFlags ParseDestBlendMode(string dest)
 		{
-			switch (dest.ToUpperInvariant())
+			switch (dest.ToLowerInvariant())
 			{
 				case "GL_ONE":
 					return ShaderStageFlags.GLS_DSTBLEND_ONE;
@@ -355,7 +355,7 @@ namespace BSPConvert.Lib
 
 		private void ParseRGBGen(ShaderStage stage, string[] split)
 		{
-			switch (split[1].ToUpperInvariant())
+			switch (split[1].ToLowerInvariant())
 			{
 				case "wave":
 					{
@@ -435,7 +435,7 @@ namespace BSPConvert.Lib
 
 		private void ParseAlphaGen(ShaderStage stage, string[] split)
 		{
-			switch (split[1].ToUpperInvariant())
+			switch (split[1].ToLowerInvariant())
 			{
 				case "wave":
 					{
@@ -483,7 +483,7 @@ namespace BSPConvert.Lib
 
 		private TexCoordGen ParseTCGen(string tcGen)
 		{
-			switch (tcGen.ToUpperInvariant())
+			switch (tcGen.ToLowerInvariant())
 			{
 				case "environment":
 					return TexCoordGen.TCGEN_ENVIRONMENT_MAPPED;
@@ -505,7 +505,7 @@ namespace BSPConvert.Lib
 
 		private TexModInfo ParseTCModInfo(string[] tcMod)
 		{
-			switch (tcMod[1].ToUpperInvariant())
+			switch (tcMod[1].ToLowerInvariant())
 			{
 				case "turb":
 					return ParseTCModInfoTurb(tcMod);
