@@ -1,4 +1,4 @@
-﻿using LibBSP;
+using LibBSP;
 using SharpCompress.Common;
 using System;
 using System.Collections.Generic;
@@ -550,10 +550,10 @@ namespace BSPConvert.Lib
 				switch (target.ClassName)
 				{
 					case "target_stopTimer":
-						ConvertTimerTrigger(entity, "trigger_momentum_timer_stop", 0);
+						ConvertEndZoneTrigger(entity);
 						break;
 					case "target_checkpoint":
-						ConvertTimerTrigger(entity, "trigger_momentum_timer_checkpoint", currentCheckpointIndex);
+						ConvertCheckpointTrigger(entity, currentCheckpointIndex);
 						currentCheckpointIndex++;
 						break;
 					case "target_delay":
@@ -1029,19 +1029,35 @@ namespace BSPConvert.Lib
 			trigger["velocitymode"] = "1";
 		}
 
-		private void ConvertTimerTrigger(Entity trigger, string className, int zoneNumber)
+		private void ConvertEndZoneTrigger(Entity trigger)
 		{
 			if (ignoreZones || !trigger.ClassName.StartsWith("trigger", StringComparison.OrdinalIgnoreCase))
 				return;
 
 			var newTrigger = new Entity();
 
-			newTrigger.ClassName = className;
+			newTrigger.ClassName = "zone_timer_end";
 			newTrigger.Model = trigger.Model;
-			newTrigger.Spawnflags = 1;
-			newTrigger["zone_number"] = zoneNumber.ToString(CultureInfo.InvariantCulture);
 
 			sourceEntities.Add(newTrigger);
+
+			removeEntities.Add(trigger);
+		}
+
+		private void ConvertCheckpointTrigger(Entity trigger, int checkpointNum)
+		{
+			if (ignoreZones || !trigger.ClassName.StartsWith("trigger", StringComparison.OrdinalIgnoreCase))
+				return;
+
+			var newTrigger = new Entity();
+
+			newTrigger.ClassName = "zone_timer_checkpoint";
+			newTrigger.Model = trigger.Model;
+			newTrigger["checkpoint_number"] = checkpointNum.ToString(CultureInfo.InvariantCulture);
+
+			sourceEntities.Add(newTrigger);
+
+			removeEntities.Add(trigger);
 		}
 
 		// TODO: Convert target_give for player spawn entities

@@ -1,4 +1,4 @@
-﻿using BSPConvert.Lib;
+using BSPConvert.Lib;
 using CommandLine;
 using CommandLine.Text;
 
