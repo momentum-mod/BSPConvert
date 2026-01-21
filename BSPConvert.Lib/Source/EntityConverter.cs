@@ -1070,14 +1070,15 @@ namespace BSPConvert.Lib
 				switch (target.ClassName)
 				{
 					case "item_haste":
-						SetHasteOnOutput(entity, ConvertPowerupCount(target["count"]), output, delay + 0.008f); //hack to make giving haste happen after target_init strip
+						SetHasteOnOutput(entity, ConvertPowerupCount(target["count"]), output, delay + 0.008f); // Hack to make giving haste happen after target_init strip
 						break;
 					case "item_enviro": // TODO: Not supported yet
 						break;
-					case "item_flight": // TODO: Not supported yet
+					case "item_flight":
+						SetFlightOnOutput(entity, ConvertPowerupCount(target["count"]), output, delay + 0.008f); // Hack to make giving flight happen after target_init strip
 						break;
 					case "item_quad":
-						SetQuadOnOutput(entity, ConvertPowerupCount(target["count"]), output, delay + 0.008f); //hack to make giving quad happen after target_init strip
+						SetQuadOnOutput(entity, ConvertPowerupCount(target["count"]), output, delay + 0.008f); // Hack to make giving quad happen after target_init strip
 						break;
 					default:
 						if (target.ClassName.StartsWith("weapon_", StringComparison.OrdinalIgnoreCase))
@@ -1093,29 +1094,31 @@ namespace BSPConvert.Lib
 
 		private void SetHasteOnOutput(Entity entity, string duration, string output, float delay)
 		{
-			var connection = new Entity.EntityConnection()
-			{
-				name = output,
-				target = "!player",
-				action = "SetHaste",
-				param = duration,
-				delay = delay,
-				fireOnce = -1
-			};
-			entity.connections.Add(connection);
+			SetPowerupOnOutput(entity, duration, output, delay, "SetHaste");
 		}
 
-		private static void SetQuadOnOutput(Entity entity, string duration, string output, float delay)
+		private void SetFlightOnOutput(Entity entity, string duration, string output, float delay)
+		{
+			SetPowerupOnOutput(entity, duration, output, delay, "SetFlight");
+		}
+
+		private void SetQuadOnOutput(Entity entity, string duration, string output, float delay)
+		{
+			SetPowerupOnOutput(entity, duration, output, delay, "SetDamageBoost");
+		}
+
+		private void SetPowerupOnOutput(Entity entity, string duration, string output, float delay, string action)
 		{
 			var connection = new Entity.EntityConnection()
 			{
 				name = output,
 				target = "!player",
-				action = "SetDamageBoost",
+				action = action,
 				param = duration,
 				delay = delay,
 				fireOnce = -1
 			};
+
 			entity.connections.Add(connection);
 		}
 
@@ -1431,6 +1434,8 @@ namespace BSPConvert.Lib
 					return "weapon_momentum_df_shotgun";
 				case "item_haste":
 					return "momentum_powerup_haste";
+				case "item_flight":
+					return "momentum_powerup_flight";
 				case "item_quad":
 					return "momentum_powerup_damage_boost";
 				default:
@@ -1501,10 +1506,18 @@ namespace BSPConvert.Lib
 			itemEnt.ClassName = GetMomentumItemName(itemEnt.ClassName);
 			itemEnt["resettime"] = GetItemRespawnTime(itemEnt);
 
-			if (itemEnt.ClassName == "momentum_powerup_haste")
-				itemEnt["hastetime"] = ConvertPowerupCount(itemEnt["count"]);
-			else if (itemEnt.ClassName == "momentum_powerup_damage_boost")
-				itemEnt["damageboosttime"] = ConvertPowerupCount(itemEnt["count"]);
+			switch (itemEnt.ClassName)
+			{
+				case "momentum_powerup_haste":
+					itemEnt["hastetime"] = ConvertPowerupCount(itemEnt["count"]);
+					break;
+				case "momentum_powerup_flight":
+					itemEnt["flighttime"] = ConvertPowerupCount(itemEnt["count"]);
+					break;
+				case "momentum_powerup_damage_boost":
+					itemEnt["damageboosttime"] = ConvertPowerupCount(itemEnt["count"]);
+					break;
+			}
 		}
 
 		private void CreatePlaceHolderItem(Entity itemEnt)
@@ -1529,6 +1542,8 @@ namespace BSPConvert.Lib
 			{
 				case "item_haste":
 					return "momentum_powerup_haste";
+				case "item_flight":
+					return "momentum_powerup_flight";
 				case "item_quad":
 					return "momentum_powerup_damage_boost";
 				default:
