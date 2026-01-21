@@ -830,12 +830,12 @@ namespace BSPConvert.Lib
 				{
 					case FaceType.Polygon:
 					case FaceType.Mesh: // Used for Q3 models
-					case FaceType.Billboard:
 						ConvertPolygon(faceIndex);
 						break;
 					case FaceType.Patch:
 						ConvertPatch(faceIndex);
 						break;
+					case FaceType.Billboard:
 					default:
 						logger.Log("Unsupported face type: " + qFace.Type);
 						break;
