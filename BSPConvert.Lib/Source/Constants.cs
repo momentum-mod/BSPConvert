@@ -12,7 +12,8 @@ namespace BSPConvert.Lib
 		SURF_BUMPED = 1,
 		SURF_NOPHYSICS_COLL = 2,
 		SURF_NOHULL_COLL = 4,
-		SURF_NORAY_COLL = 8
+		SURF_NORAY_COLL = 8,
+		SURF_NOBACKFACE_COLL = 16
 	}
 
 	[Flags]
