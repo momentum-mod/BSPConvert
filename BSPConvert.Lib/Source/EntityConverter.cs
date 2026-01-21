@@ -1547,7 +1547,7 @@ namespace BSPConvert.Lib
 				case "item_quad":
 					return "momentum_powerup_damage_boost";
 				default:
-					return string.Empty;
+					return q3ItemName; // Unsupported item, return original classname to avoid crash
 			}
 		}
 
