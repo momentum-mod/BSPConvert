@@ -589,6 +589,7 @@ namespace BSPConvert.Lib
 						break;
 					case "target_remove_powerups":
 						SetHasteOnOutput(entity, "0", output, delay);
+						SetFlightOnOutput(entity, "0", output, delay);
 						SetQuadOnOutput(entity, "0", output, delay);
 						break;
 					case "func_door":
@@ -987,6 +988,7 @@ namespace BSPConvert.Lib
 			if (!spawnflags.HasFlag(TargetInitFlags.KeepPowerUps))
 			{
 				SetHasteOnOutput(entity, "0", output, delay);
+				SetFlightOnOutput(entity, "0", output, delay);
 				SetQuadOnOutput(entity, "0", output, delay);
 			}
 			if (!spawnflags.HasFlag(TargetInitFlags.KeepWeapons))
