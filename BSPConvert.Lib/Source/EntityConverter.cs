@@ -549,6 +549,9 @@ namespace BSPConvert.Lib
 
 				switch (target.ClassName)
 				{
+					case "target_startTimer":
+						ConvertStartZoneTrigger(entity);
+						break;
 					case "target_stopTimer":
 						ConvertEndZoneTrigger(entity);
 						break;
@@ -1029,6 +1032,25 @@ namespace BSPConvert.Lib
 			trigger.ClassName = "trigger_teleport";
 			trigger["target"] = MOMENTUM_START_ENTITY;
 			trigger["velocitymode"] = "1";
+		}
+
+		private void ConvertStartZoneTrigger(Entity trigger)
+		{
+			if (ignoreZones || !trigger.ClassName.StartsWith("trigger", StringComparison.OrdinalIgnoreCase))
+				return;
+
+			var newTrigger = new Entity();
+
+			newTrigger.ClassName = "zone_timer_start";
+			newTrigger.Model = trigger.Model;
+			newTrigger["restart_destination"] = "_momentum_player_start_";
+			newTrigger["checkpoints_required"] = "0";
+			newTrigger["checkpoints_ordered"] = "0";
+			newTrigger["safe_height"] = "-1"; // Full height
+
+			sourceEntities.Add(newTrigger);
+
+			removeEntities.Add(trigger);
 		}
 
 		private void ConvertEndZoneTrigger(Entity trigger)
