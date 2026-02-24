@@ -2,7 +2,7 @@ using BSPConvert.Lib;
 
 namespace BSPConvert.Test
 {
-	public class Tests
+	public class BSPConverterTests
 	{
 		[SetUp]
 		public void Setup()
