@@ -1,4 +1,4 @@
-﻿#if UNITY_3_4 || UNITY_3_5 || UNITY_4_0 || UNITY_4_0_1 || UNITY_4_2 || UNITY_4_3 || UNITY_4_5 || UNITY_4_6 || UNITY_5 || UNITY_5_3_OR_NEWER
+#if UNITY_3_4 || UNITY_3_5 || UNITY_4_0 || UNITY_4_0_1 || UNITY_4_2 || UNITY_4_3 || UNITY_4_5 || UNITY_4_6 || UNITY_5 || UNITY_5_3_OR_NEWER
 #define UNITY
 #if !UNITY_5_6_OR_NEWER
 #define OLDUNITY
@@ -16,6 +16,7 @@ using System.Xml.Linq;
 using SharpCompress.Archives.Zip;
 using SharpCompress.Archives;
 using BSPConvert.Lib.Source;
+using BSPConvert.Lib.Zones;
 
 namespace BSPConvert.Lib
 {
@@ -151,6 +152,8 @@ namespace BSPConvert.Lib
 				ConvertWorldLights();
 
 				WriteBSP();
+
+				GenerateZones();
 			}
 
 			contentManager.Dispose();
@@ -1720,7 +1723,30 @@ namespace BSPConvert.Lib
 			var bspPath = Path.Combine(mapsDir, $"{options.prefix}{quakeBsp.MapName}.bsp");
 			writer.WriteBSP(bspPath);
 
-			logger.Log($"Converted BSP: {bspPath}");
+			logger.Log($"Wrote BSP File: {bspPath}");
+		}
+
+		private void GenerateZones()
+		{
+			if (options.ignoreZones)
+				return;
+
+			var zonesDir = Path.Combine(options.outputDir, "maps", "zones", "local");
+			if (!Directory.Exists(zonesDir))
+				Directory.CreateDirectory(zonesDir);
+
+			var zoneGenerator = new ZoneGenerator(sourceBsp, quakeBsp, logger);
+			var zoneDefs = zoneGenerator.Generate();
+			if (zoneDefs == null)
+			{
+				logger.Log("Error: Failed to generate zones. Skipping zone file generation.");
+				return;
+			}
+
+			var zonePath = Path.Combine(zonesDir, $"{options.prefix}{quakeBsp.MapName}.json");
+			ZoneWriter.WriteToFile(zoneDefs, zonePath);
+
+			logger.Log($"Wrote Zone File: {zonePath}");
 		}
 	}
 }
