@@ -33,7 +33,7 @@ namespace BSPConvert.Test
 			{
 				noPak = false,
 				DisplacementPower = 4,
-				minDamageToConvertTrigger = 50,
+				minDamageToRespawnPlayer = 50,
 				ignoreZones = false,
 				oldBSP = false,
 				prefix = "df_",
