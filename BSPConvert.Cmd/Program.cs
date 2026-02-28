@@ -17,8 +17,8 @@ namespace BSPConvert.Cmd
 			[Option("subdiv", Required = false, Default = 4, HelpText = "Displacement subdivisions [2-4].")]
 			public int DisplacementPower { get; set; }
 
-			[Option("mindmg", Required = false, Default = 50, HelpText = "Minimum damage to convert trigger_hurt into trigger_teleport.")]
-			public int MinDamageToConvertTrigger { get; set; }
+			[Option("mindmg", Required = false, Default = 50, HelpText = "Minimum damage for trigger_hurt to respawn player.")]
+			public int MinDamageToRespawnPlayer { get; set; }
 
 			[Option("nozones", Required = false, HelpText = "Ignore timer zone triggers.")]
 			public bool IgnoreZones { get; set; }
@@ -68,7 +68,7 @@ namespace BSPConvert.Cmd
 					noPak = options.NoPak,
 					noToolDisplacements = options.NoToolDisplacements,
 					DisplacementPower = options.DisplacementPower,
-					minDamageToConvertTrigger = options.MinDamageToConvertTrigger,
+					minDamageToRespawnPlayer = options.MinDamageToRespawnPlayer,
 					ignoreZones = options.IgnoreZones,
 					//oldBSP = options.OldBSP,
 					prefix = options.Prefix,

@@ -87,7 +87,7 @@ namespace BSPConvert.Lib
 		private Entities q3Entities;
 		private Entities sourceEntities;
 		private Dictionary<string, Shader> shaderDict;
-		private int minDamageToConvertTrigger;
+		private int minDamageToRespawnPlayer;
 		private bool ignoreZones;
 		private Dictionary<string, List<Entity>> entityDict = new Dictionary<string, List<Entity>>();
 		private List<Entity> removeEntities = new List<Entity>(); // Entities to remove after conversion (ex: remove weapons after converting a trigger_multiple that references target_give). TODO: It might be better to convert entities by priority, such as trigger_multiples first so that target_give weapons can be ignored after
@@ -98,12 +98,12 @@ namespace BSPConvert.Lib
 		private const string MOMENTUM_MATH_COUNTER = "_momentum_math_counter_";
 		private const int q3LipMod = 2; // Quake adds 2 units to button/door lip for some reason
 
-		public EntityConverter(Lump<Model> q3Models, Entities q3Entities, Entities sourceEntities, Dictionary<string, Shader> shaderDict, int minDamageToConvertTrigger, bool ignoreZones)
+		public EntityConverter(Lump<Model> q3Models, Entities q3Entities, Entities sourceEntities, Dictionary<string, Shader> shaderDict, int minDamageToRespawnPlayer, bool ignoreZones)
 		{
 			this.q3Entities = q3Entities;
 			this.sourceEntities = sourceEntities;
 			this.shaderDict = shaderDict;
-			this.minDamageToConvertTrigger = minDamageToConvertTrigger;
+			this.minDamageToRespawnPlayer = minDamageToRespawnPlayer;
 			this.ignoreZones = ignoreZones;
 			this.q3Models = q3Models;
 
@@ -520,13 +520,12 @@ namespace BSPConvert.Lib
 		{
 			if (int.TryParse(trigger["dmg"], out var damage))
 			{
-				if (damage >= minDamageToConvertTrigger)
-				{
-					trigger.ClassName = "trigger_teleport";
-					trigger["target"] = MOMENTUM_START_ENTITY;
-					trigger["spawnflags"] = "1";
-					trigger["velocitymode"] = "1";
-				}
+				// TODO: Remove this if we ever add health to mmdf
+				if (damage >= minDamageToRespawnPlayer)
+					trigger["damage"] = "200";
+
+				trigger["spawnflags"] = "1";
+				trigger.Remove("dmg");
 			}
 		}
 
