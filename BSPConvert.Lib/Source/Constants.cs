@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -159,6 +159,15 @@ namespace BSPConvert.Lib
 		SURF_SKYNOEMIT = 0x10000,	// surface will show the skybox but does not emit light
 		SURF_SKYOCCLUSION = 0x20000,    // surface will draw the skybox before any solids
 		SURF_SLICK = 0x40000	// surface is zero friction
+	}
+
+	[Flags]
+	public enum LeafFlags
+	{
+		SKY =		0x01,	// This leaf has 3D sky in its PVS
+		RADIAL =	0x02,	// This leaf culled away some portals due to radial vis
+		SKY2D =		0x04,	// This leaf has 2D sky in its PVS
+		CONTAINS_DETAILOBJECTS = 0x08	// this leaf has at least one detail object in it (set by loader).
 	}
 
 	public struct InfoParm

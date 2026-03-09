@@ -573,7 +573,7 @@ namespace BSPConvert.Lib
 				else
 				{
 					leaf.Contents = qLeaf.Area >= 0 ? 0 : 1; // Set to 0 when inside map, 1 when outside map or overlapping brush
-					leaf.Flags = 2; // Not sure what the flags do, but 2 shows up on all leaves besides the first one
+					leaf.Flags = qLeaf.Area >= 0 ? (int)(LeafFlags.RADIAL | LeafFlags.SKY2D) : 0; // TODO: Detect if the leaf has a leaf face that has a texinfo with the SURF_SKY or SURF_SKY2D flag
 				}
 				leaf.Visibility = qLeaf.Visibility;
 				leaf.Area = 0; // TODO: Convert Q3 areas?
