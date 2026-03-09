@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
@@ -14,6 +14,9 @@
   <ItemGroup>
     <Reference Include="libBSP">
       <HintPath>Dependencies\libBSP.dll</HintPath>
+    </Reference>
+    <Reference Include="sourcepp">
+      <HintPath>Dependencies/sourcepp.dll</HintPath>
     </Reference>
   </ItemGroup>
 
@@ -33,10 +36,8 @@
     <None Update="Dependencies\libBSP.dll">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
-    <None Update="Dependencies\VTFLib.dll">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
-    <None Update="Dependencies\VTFCmd.exe">
+    <None Update="Dependencies/sourcepp.dll">
+      <Link>sourcepp.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
     <None Update="Q3Content\instructions.txt">
@@ -44,4 +45,25 @@
     </None>
   </ItemGroup>
 
+  <ItemGroup Condition="$(RuntimeIdentifier.StartsWith('win'))">
+    <None Include="Dependencies\sourcepp_win\sourcepp_sourceppc.dll">
+      <Link>sourcepp_sourceppc.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="Dependencies\sourcepp_win\sourcepp_vtfppc.dll">
+      <Link>sourcepp_vtfppc.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup Condition="$(RuntimeIdentifier.StartsWith('linux'))">
+    <None Include="../BSPConvert.Lib/Dependencies/sourcepp_linux/sourcepp_sourceppc.so">
+      <Link>sourcepp_sourceppc.so</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="Dependencies/sourcepp_linux/sourcepp_vtfppc.so">
+      <Link>sourcepp_vtfppc.so</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
 </Project>
