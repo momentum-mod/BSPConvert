@@ -1731,17 +1731,12 @@ namespace BSPConvert.Lib
 			if (options.ignoreZones)
 				return;
 
+			var zoneGenerator = new ZoneGenerator(sourceBsp, quakeBsp, logger);
+			var zoneDefs = zoneGenerator.Generate();
+
 			var zonesDir = Path.Combine(options.outputDir, "maps", "zones", "local");
 			if (!Directory.Exists(zonesDir))
 				Directory.CreateDirectory(zonesDir);
-
-			var zoneGenerator = new ZoneGenerator(sourceBsp, quakeBsp, logger);
-			var zoneDefs = zoneGenerator.Generate();
-			if (zoneDefs == null)
-			{
-				logger.Log("Error: Failed to generate zones. Skipping zone file generation.");
-				return;
-			}
 
 			var zonePath = Path.Combine(zonesDir, $"{options.prefix}{quakeBsp.MapName}.json");
 			ZoneWriter.WriteToFile(zoneDefs, zonePath);

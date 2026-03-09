@@ -32,23 +32,11 @@ namespace BSPConvert.Lib.Zones
 			this.planes = quakeBsp.Planes;
 		}
 
-		public ZoneDefsBase? Generate()
+		public ZoneDefsBase Generate()
 		{
 			var startEntities = GetEntitiesByClassName("zone_timer_start");
 			var endEntities = GetEntitiesByClassName("zone_timer_end");
 			var checkpointEntities = GetEntitiesByClassName("zone_timer_checkpoint");
-
-			if (startEntities.Count == 0)
-			{
-				logger.Log("Error: No zone_timer_start entities found. Cannot generate zone file.");
-				return null;
-			}
-
-			if (endEntities.Count == 0)
-			{
-				logger.Log("Error: No zone_timer_end entities found. Cannot generate zone file.");
-				return null;
-			}
 
 			var zoneDefs = new ZoneDefsBase
 			{
@@ -67,19 +55,21 @@ namespace BSPConvert.Lib.Zones
 			};
 
 			// Start zone -> first checkpoint
-			var startEntity = startEntities[0];
-			var startZone = CreateZone(startEntity);
-			if (startZone.Regions.Count == 0)
+			if (startEntities.Count > 0)
 			{
-				logger.Log("Error: Failed to create start zone region. Cannot generate zone file.");
-				return null;
+				var startEntity = startEntities[0];
+				var startZone = CreateZone(startEntity);
+				if (startZone.Regions.Count == 0)
+					logger.Log("Warning: Failed to create start zone region.");
+				else
+				{
+					var restartDest = startEntity["restart_destination"];
+					startZone.Regions[0].TeleDestTargetname = restartDest;
+					startZone.Regions[0].SafeHeight = -1; // Full height
+
+					segment.Checkpoints.Add(startZone);
+				}
 			}
-
-			var restartDest = startEntity["restart_destination"];
-			startZone.Regions[0].TeleDestTargetname = restartDest;
-			startZone.Regions[0].SafeHeight = -1; // Full height
-
-			segment.Checkpoints.Add(startZone);
 
 			// Checkpoints -> subsequent checkpoints in the same segment (sorted by checkpoint number)
 			var sortedCheckpoints = checkpointEntities
@@ -101,14 +91,15 @@ namespace BSPConvert.Lib.Zones
 			mainTrack.Zones.Segments.Add(segment);
 
 			// End zone
-			var endEntity = endEntities[0];
-			var endZone = CreateZone(endEntity);
-			if (endZone.Regions.Count == 0)
+			if (endEntities.Count > 0)
 			{
-				logger.Log("Error: Failed to create end zone region. Cannot generate zone file.");
-				return null;
+				var endEntity = endEntities[0];
+				var endZone = CreateZone(endEntity);
+				if (endZone.Regions.Count == 0)
+					logger.Log("Warning: Failed to create end zone region.");
+				else
+					mainTrack.Zones.End = endZone;
 			}
-			mainTrack.Zones.End = endZone;
 
 			zoneDefs.Tracks.Main = mainTrack;
 
@@ -126,7 +117,7 @@ namespace BSPConvert.Lib.Zones
 			return zone;
 		}
 
-		private Region CreateRegionFromModel(Entity entity)
+		private Region? CreateRegionFromModel(Entity entity)
 		{
 			var modelNumber = entity.ModelNumber;
 			if (modelNumber < 0 || modelNumber >= models.Count)
@@ -167,7 +158,7 @@ namespace BSPConvert.Lib.Zones
 		/// Computes the 2D polygon for a brush model by intersecting the vertical brush side half-spaces.
 		/// Starts with the model's AABB as an initial polygon, then clips it against each vertical plane.
 		/// </summary>
-		private List<float[]> ComputeBrushPolygon(Model model)
+		private List<float[]>? ComputeBrushPolygon(Model model)
 		{
 			var mins = model.Minimums;
 			var maxs = model.Maximums;
