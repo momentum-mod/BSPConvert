@@ -33,6 +33,8 @@ namespace BSPConvert.Lib
         {
             var options = new VTF.CreationOptions
             {
+                Version = 6,
+                CompressionLevel = 0,
                 OutputFormat = ImageFormat.STRATA_BC7,
                 WidthResizeMethod = ImageConversion.ResizeMethod.POWER_OF_TWO_SMALLER,
                 HeightResizeMethod = ImageConversion.ResizeMethod.POWER_OF_TWO_SMALLER,
