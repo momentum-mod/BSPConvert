@@ -202,11 +202,19 @@ namespace BSPConvert.Lib
 				// Copy invisible displacement assets to content dir
 				Directory.CreateDirectory(Path.Combine(contentManager.ContentDir, "tools"));
 
-				var invisDisplacementVmt = @"tools\toolsinvisibledisplacement.vmt";
-				File.Copy(Path.Combine(@"Assets\materials", invisDisplacementVmt), Path.Combine(contentManager.ContentDir, invisDisplacementVmt), true);
+				var invisDisplacementVmt = Path.Combine("tools", "toolsinvisibledisplacement.vmt");
+				File.Copy
+                (
+                    Path.Combine(AppContext.BaseDirectory, "Assets", "materials", invisDisplacementVmt), 
+                    Path.Combine(contentManager.ContentDir, invisDisplacementVmt), true
+                );
 
-				var invisDisplacementVtf = @"tools\toolsinvisibledisplacement.vtf";
-				File.Copy(Path.Combine(@"Assets\materials", invisDisplacementVtf), Path.Combine(contentManager.ContentDir, invisDisplacementVtf), true);
+				var invisDisplacementVtf = Path.Combine("tools", "toolsinvisibledisplacement.vtf");
+				File.Copy
+                (
+                    Path.Combine(AppContext.BaseDirectory, "Assets", "materials", invisDisplacementVtf), 
+                    Path.Combine(contentManager.ContentDir, invisDisplacementVtf), true
+                );
 			}
 		}
 

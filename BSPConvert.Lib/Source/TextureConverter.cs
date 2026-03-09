@@ -7,6 +7,7 @@ using System.IO;
 using LibBSP;
 using SharpCompress.Archives.Zip;
 using SharpCompress.Archives;
+using sourcepp.vtfpp;
 
 namespace BSPConvert.Lib
 {
@@ -29,17 +30,38 @@ namespace BSPConvert.Lib
 		}
 
 		public void Convert()
-		{
-			var startInfo = new ProcessStartInfo();
-			startInfo.FileName = "Dependencies\\VTFCmd.exe";
-			startInfo.Arguments = $"-folder {pk3Dir}\\*.* -resize -recurse -silent";
+        {
+            var options = new VTF.CreationOptions
+            {
+                OutputFormat = ImageFormat.STRATA_BC7,
+                WidthResizeMethod = ImageConversion.ResizeMethod.POWER_OF_TWO_SMALLER,
+                HeightResizeMethod = ImageConversion.ResizeMethod.POWER_OF_TWO_SMALLER,
+                ComputeMips = 1,
+                ComputeThumbnail = 1,
+                ComputeReflectivity = 1,
+                ComputeTransparencyFlags = 1,
+            };
 
-			var process = Process.Start(startInfo);
-			process.EnableRaisingEvents = true;
-			process.Exited += (x, y) => OnFinishedConvertingTextures();
+            string[] supportedExtensions = [".png", ".jpg", ".jpeg", ".tga", ".bmp", ".webp", ".exr", ".hdr"];
 
-			process.WaitForExit();
-		}
+            foreach (var inputPath in Directory.EnumerateFiles(pk3Dir, "*", SearchOption.AllDirectories))
+            {
+                if (!supportedExtensions.Contains(Path.GetExtension(inputPath), StringComparer.OrdinalIgnoreCase))
+                    continue;
+
+                var outputPath = Path.Combine
+                (
+                    Path.GetDirectoryName(inputPath)!,
+                    Path.GetFileNameWithoutExtension(inputPath) + ".vtf"
+                );
+
+                bool success = VTF.Create(inputPath, outputPath, options);
+                if (!success)
+                    Console.WriteLine($"Failed to convert: {inputPath}");
+            }
+
+            OnFinishedConvertingTextures();
+        }
 
 		private void OnFinishedConvertingTextures()
 		{
