@@ -45,7 +45,7 @@
     </None>
   </ItemGroup>
 
-  <ItemGroup Condition="$(RuntimeIdentifier.StartsWith('win'))">
+  <ItemGroup Condition="$(RuntimeIdentifier.StartsWith('win')) Or ($(RuntimeIdentifier) == '' And $([MSBuild]::IsOSPlatform('Windows')))">
     <None Include="Dependencies\sourcepp_win\sourcepp_sourceppc.dll">
       <Link>sourcepp_sourceppc.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
@@ -56,7 +56,7 @@
     </None>
   </ItemGroup>
 
-  <ItemGroup Condition="$(RuntimeIdentifier.StartsWith('linux'))">
+  <ItemGroup Condition="$(RuntimeIdentifier.StartsWith('linux')) Or ($(RuntimeIdentifier) == '' And $([MSBuild]::IsOSPlatform('Linux')))">
     <None Include="../BSPConvert.Lib/Dependencies/sourcepp_linux/sourcepp_sourceppc.so">
       <Link>sourcepp_sourceppc.so</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
