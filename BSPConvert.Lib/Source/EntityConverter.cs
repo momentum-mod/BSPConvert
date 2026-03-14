@@ -550,13 +550,13 @@ namespace BSPConvert.Lib
 				switch (target.ClassName)
 				{
 					case "target_startTimer":
-						ConvertStartZoneTrigger(entity);
+						ConvertStartZoneTrigger(entity, targets);
 						break;
 					case "target_stopTimer":
-						ConvertEndZoneTrigger(entity);
+						ConvertEndZoneTrigger(entity, targets);
 						break;
 					case "target_checkpoint":
-						ConvertCheckpointTrigger(entity, currentCheckpointIndex);
+						ConvertCheckpointTrigger(entity, currentCheckpointIndex, targets);
 						currentCheckpointIndex++;
 						break;
 					case "target_delay":
@@ -1034,7 +1034,7 @@ namespace BSPConvert.Lib
 			trigger["velocitymode"] = "1";
 		}
 
-		private void ConvertStartZoneTrigger(Entity trigger)
+		private void ConvertStartZoneTrigger(Entity trigger, List<Entity> targets)
 		{
 			if (ignoreZones || !trigger.ClassName.StartsWith("trigger", StringComparison.OrdinalIgnoreCase))
 				return;
@@ -1050,10 +1050,11 @@ namespace BSPConvert.Lib
 
 			sourceEntities.Add(newTrigger);
 
-			removeEntities.Add(trigger);
+			if (!targets.Any(x => !string.Equals(x.ClassName, "target_startTimer", StringComparison.OrdinalIgnoreCase)))
+				sourceEntities.Remove(trigger);
 		}
 
-		private void ConvertEndZoneTrigger(Entity trigger)
+		private void ConvertEndZoneTrigger(Entity trigger, List<Entity> targets)
 		{
 			if (ignoreZones || !trigger.ClassName.StartsWith("trigger", StringComparison.OrdinalIgnoreCase))
 				return;
@@ -1065,10 +1066,11 @@ namespace BSPConvert.Lib
 
 			sourceEntities.Add(newTrigger);
 
-			removeEntities.Add(trigger);
+			if (!targets.Any(x => !string.Equals(x.ClassName, "target_stopTimer", StringComparison.OrdinalIgnoreCase)))
+				sourceEntities.Remove(trigger);
 		}
 
-		private void ConvertCheckpointTrigger(Entity trigger, int checkpointNum)
+		private void ConvertCheckpointTrigger(Entity trigger, int checkpointNum, List<Entity> targets)
 		{
 			if (ignoreZones || !trigger.ClassName.StartsWith("trigger", StringComparison.OrdinalIgnoreCase))
 				return;
@@ -1081,7 +1083,8 @@ namespace BSPConvert.Lib
 
 			sourceEntities.Add(newTrigger);
 
-			removeEntities.Add(trigger);
+			if (!targets.Any(x => !string.Equals(x.ClassName, "target_checkpoint", StringComparison.OrdinalIgnoreCase)))
+				sourceEntities.Remove(trigger);
 		}
 
 		// TODO: Convert target_give for player spawn entities
