@@ -96,7 +96,6 @@ namespace BSPConvert.Lib
 
 		private const string MOMENTUM_START_ENTITY = "_momentum_player_start_";
 		private const string MOMENTUM_MATH_COUNTER = "_momentum_math_counter_";
-		private const string MOMENTUM_LOGIC_CASE = "_momentum_logic_case_";
 		private const int q3LipMod = 2; // Quake adds 2 units to button/door lip for some reason
 
 		public EntityConverter(Lump<Model> q3Models, Entities q3Entities, Entities sourceEntities, Dictionary<string, Shader> shaderDict, int minDamageToConvertTrigger, bool ignoreZones)
@@ -547,7 +546,7 @@ namespace BSPConvert.Lib
 				if (visited.Contains(target) || targetEntity == target)
 					continue;
 
-				switch (target.ClassName)
+                switch (target.ClassName)
 				{
 					case "target_startTimer":
 						ConvertStartZoneTrigger(entity, targets);
@@ -658,32 +657,55 @@ namespace BSPConvert.Lib
 			ModifyMathCounter(entity, output, "Add", count.ToString(CultureInfo.InvariantCulture), delay);
 		}
 
-		private Entity CreateLogicCase()
+		private void CreateLogicCase()
 		{
-			var logicCase = new Entity();
-			logicCase.ClassName = "logic_case";
-			logicCase.Name = MOMENTUM_LOGIC_CASE;
+			var maxFrags = GetHighestFrags(); // returns the highest frags value found on all target_fragsFilter entities
+			var logicCasesNeeded = (int)Math.Ceiling(maxFrags / 16f); // each logic_case only supports 16 outputs so create enough logic_cases to cover all frag counts
 
-			for (var i = 1; i <= 16; i++) // Logic_case supports 16 different outputs
+			for (var i = 1; i <= logicCasesNeeded; i++)
 			{
-				var caseNum = $"case{i:D2}";
-				logicCase[caseNum] = (i-1).ToString(CultureInfo.InvariantCulture); // case01 = 0, case02 = 1 etc
+				var logicCase = new Entity();
+				logicCase.ClassName = "logic_case";
+				logicCase.Name = $"momentum_logic_case_{i}";
+
+				var min = i * 16 - 15;
+				var max = min + 15;
+
+				for (var j = min; j <= max; j++)
+				{
+					var caseNum = $"case{j - min + 1:D2}";
+					logicCase[caseNum] = j.ToString(CultureInfo.InvariantCulture);
+				}
+
+				var connection = new Entity.EntityConnection()
+				{
+					name = "OnUsed",
+					target = "*_mom_relay*",
+					action = "Disable",
+					param = null,
+					delay = 0,
+					fireOnce = -1
+				};
+				logicCase.connections.Add(connection);
+
+				sourceEntities.Add(logicCase);
 			}
+		}
 
-			var connection = new Entity.EntityConnection()
+		private int GetHighestFrags()
+		{
+			var maxFrags = 0;
+
+			foreach (var fragsFilter in q3Entities.FindAll(x => x.ClassName == "target_fragsFilter"))
 			{
-				name = "OnUsed",
-				target = "*_mom_relay*", // Disable all logic_relays
-				action = "Disable",
-				param = null,
-				delay = 0,
-				fireOnce = -1
-			};
-			logicCase.connections.Add(connection);
-
-			sourceEntities.Add(logicCase);
-
-			return logicCase;
+				if (fragsFilter.TryGetValue("frags", out var s) && int.TryParse(s, out var frags))
+				{
+					if (frags <= maxFrags)
+						continue;
+					maxFrags = frags;
+				}
+			}
+			return maxFrags;
 		}
 
 		private void CreateMathCounter()
@@ -693,12 +715,12 @@ namespace BSPConvert.Lib
 			counter.Name = MOMENTUM_MATH_COUNTER;
 			counter["startvalue"] = "0";
 			counter["min"] = "0";
-			counter["max"] = "16";
+			counter["max"] = "0";
 
 			var connection = new Entity.EntityConnection()
 			{
 				name = "OutValue",
-				target = MOMENTUM_LOGIC_CASE,
+				target = "momentum_logic_case*",
 				action = "InValue",
 				param = null,
 				delay = 0,
@@ -758,25 +780,37 @@ namespace BSPConvert.Lib
 
 		private void AddLogicCaseOutput(string targetName, int frags, bool match)
 		{
-			var logicCase = sourceEntities.Find(x => x.ClassName == "logic_case") ?? CreateLogicCase();
+			if (!sourceEntities.Any(x => x.ClassName == "logic_case"))
+				CreateLogicCase();
 
-			var min = frags;
-			var max = match ? frags : 16; // Either force frags to match case number on true, else allow any cases over the frag count to trigger
+			var logicCaseList = sourceEntities.FindAll(x => x.ClassName == "logic_case");
+			var caseEntityNum = 1; // may be more than 1 logic_case if there are more than 16 collectables
 
-			for (var i = min; i <= max; i++)
+			foreach (var logicCase in logicCaseList)
 			{
-				var caseNum = $"case{i+1:D2}";
+				var min = (caseEntityNum * 16) - 15;
+				var max = match ? frags : 16 * caseEntityNum; // Either force frags to match case number on true, else allow any cases over the frag count to trigger
 
-				var connection = new Entity.EntityConnection()
+				for (var i = min; i <= max; i++)
 				{
-					name = $"On{caseNum}",
-					target = targetName,
-					action = "Enable",
-					param = null,
-					delay = 0.008f,
-					fireOnce = -1
-				};
-				logicCase.connections.Add(connection);
+					if (i < frags)
+						continue;
+
+					var caseNum = $"case{i - (16 * (caseEntityNum - 1)):D2}";
+
+					var connection = new Entity.EntityConnection()
+					{
+						name = $"On{caseNum}",
+						target = targetName,
+						action = "Enable",
+						param = null,
+						delay = 0.008f,
+						fireOnce = -1
+					};
+
+					logicCase.connections.Add(connection);
+				}
+				caseEntityNum++;
 			}
 		}
 
