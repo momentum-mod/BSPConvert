@@ -546,7 +546,7 @@ namespace BSPConvert.Lib
 				if (visited.Contains(target) || targetEntity == target)
 					continue;
 
-                switch (target.ClassName)
+				switch (target.ClassName)
 				{
 					case "target_startTimer":
 						ConvertStartZoneTrigger(entity);
