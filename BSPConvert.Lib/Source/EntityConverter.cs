@@ -524,9 +524,10 @@ namespace BSPConvert.Lib
 				if (damage >= minDamageToRespawnPlayer)
 					trigger["damage"] = "200";
 
-				trigger["spawnflags"] = "1";
 				trigger.Remove("dmg");
 			}
+
+			trigger["spawnflags"] = "1";
 		}
 
 		private void ConvertTriggerMultiple(Entity trigger)
