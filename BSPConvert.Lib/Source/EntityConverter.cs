@@ -1063,9 +1063,9 @@ namespace BSPConvert.Lib
 			if (!trigger.ClassName.StartsWith("trigger", StringComparison.OrdinalIgnoreCase))
 				return;
 
-			trigger.ClassName = "trigger_teleport";
-			trigger["target"] = MOMENTUM_START_ENTITY;
-			trigger["velocitymode"] = "1";
+			trigger.ClassName = "trigger_hurt";
+			trigger["damage"] = "200";
+			trigger["spawnflags"] = "1";
 		}
 
 		private void ConvertStartZoneTrigger(Entity trigger, List<Entity> targets)
