@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -66,9 +66,9 @@ namespace BSPConvert.Lib
 
 		private void CreateShaderVMT(string texture, Shader shader)
 		{
-			if (shader.fogParms != null)
+			/*if (shader.fogParms != null)
 				CreateFogVMT(texture, shader);
-			else if (shader.skyParms != null && !string.IsNullOrEmpty(shader.skyParms.outerBox))
+			else */if (shader.skyParms != null && !string.IsNullOrEmpty(shader.skyParms.outerBox))
 				CreateSkyboxVMT(shader);
 			else if (shader.GetImageStages().Any(x => !string.IsNullOrEmpty(x.bundles[0].images[0])))
 				CreateBaseShaderVMT(texture, shader);

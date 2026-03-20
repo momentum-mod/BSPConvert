@@ -866,6 +866,13 @@ namespace BSPConvert.Lib
 		{
 			var qFace = quakeBsp.Faces[faceIndex];
 
+			// HACK: Create empty face to avoid drawing fog brushes until we figure out how to get fog rendering to work
+			if (IsFogFace(qFace))
+			{
+				splitFaceDict[faceIndex] = Array.Empty<int>();
+				return;
+			}
+
 			var sFace = CreateFace();
 			// TODO: Re-use brush planes?
 			sFace.PlaneIndex = CreatePlane(qFace); // Quake faces don't have planes, so create one
@@ -882,6 +889,11 @@ namespace BSPConvert.Lib
 			sFace.NumPrimitives = 1;
 
 			splitFaceDict[faceIndex] = new int[] { sourceBsp.Faces.Count - 1 };
+		}
+
+		private bool IsFogFace(Face qFace)
+		{
+			return shaderDict.TryGetValue(qFace.Texture.Name, out var shader) && shader.fogParms != null;
 		}
 
 		private void ConvertFaces_SplitFaces()
