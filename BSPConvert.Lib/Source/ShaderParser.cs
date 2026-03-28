@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
@@ -123,7 +123,7 @@ namespace BSPConvert.Lib
 				if (line == "}") // End of shader pass definition
 					break;
 
-				var split = line.Split((char[])null, StringSplitOptions.RemoveEmptyEntries);
+				var split = TokenizeLine(line);
 				switch (split[0].ToLowerInvariant())
 				{
 					case "map":
@@ -168,6 +168,17 @@ namespace BSPConvert.Lib
 			}
 
 			return stage;
+		}
+
+		private string[] TokenizeLine(string line)
+		{
+			// Insert spaces around parentheses so they are always separate tokens,
+			// regardless of whether the shader file has spaces around them or not.
+			// e.g. "rgbgen const (.08 .08 .08)" -> "rgbgen const ( .08 .08 .08 )"
+			return line
+				.Replace("(", " ( ", StringComparison.Ordinal)
+				.Replace(")", " ) ", StringComparison.Ordinal)
+				.Split((char[])null, StringSplitOptions.RemoveEmptyEntries);
 		}
 
 		private TextureBundle ParseAnimMap(string[] split)
