@@ -132,6 +132,8 @@ namespace BSPConvert.Lib
 		// Try to find the sky image file and move it to skybox folder in order for Source engine to detect it properly
 		private bool PrepareSkyboxImage(string skyTexture)
 		{
+			skyTexture = skyTexture.ToLower(CultureInfo.InvariantCulture);
+
 			var skyboxDir = Path.Combine(pk3Dir, "skybox");
 			if (pk3ImageDict.TryGetValue(skyTexture, out var pk3Path))
 			{
