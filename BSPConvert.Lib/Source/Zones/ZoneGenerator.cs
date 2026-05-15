@@ -54,21 +54,29 @@ namespace BSPConvert.Lib.Zones
 				CheckpointsOrdered = false
 			};
 
-			// Start zone -> first checkpoint
+			// Start zone -> one region per zone_timer_start entity
 			if (startEntities.Count > 0)
 			{
-				var startEntity = startEntities[0];
-				var startZone = CreateZone(startEntity);
-				if (startZone.Regions.Count == 0)
-					logger.Log("Warning: Failed to create start zone region.");
-				else
-				{
-					var restartDest = startEntity["restart_destination"];
-					startZone.Regions[0].TeleDestTargetname = restartDest;
-					startZone.Regions[0].SafeHeight = -1; // Full height
+				var startZone = new Zone();
 
-					segment.Checkpoints.Add(startZone);
+				foreach (var startEntity in startEntities)
+				{
+					var region = CreateRegionFromModel(startEntity);
+					if (region == null)
+					{
+						logger.Log("Warning: Failed to create start zone region.");
+						continue;
+					}
+
+					var restartDest = startEntity["restart_destination"];
+					region.TeleDestTargetname = restartDest;
+					region.SafeHeight = -1; // Full height
+
+					startZone.Regions.Add(region);
 				}
+
+				if (startZone.Regions.Count > 0)
+					segment.Checkpoints.Add(startZone);
 			}
 
 			// Checkpoints -> subsequent checkpoints in the same segment (sorted by checkpoint number)
@@ -90,14 +98,24 @@ namespace BSPConvert.Lib.Zones
 
 			mainTrack.Zones.Segments.Add(segment);
 
-			// End zone
+			// End zone -> one region per zone_timer_end entity
 			if (endEntities.Count > 0)
 			{
-				var endEntity = endEntities[0];
-				var endZone = CreateZone(endEntity);
-				if (endZone.Regions.Count == 0)
-					logger.Log("Warning: Failed to create end zone region.");
-				else
+				var endZone = new Zone();
+
+				foreach (var endEntity in endEntities)
+				{
+					var region = CreateRegionFromModel(endEntity);
+					if (region == null)
+					{
+						logger.Log("Warning: Failed to create end zone region.");
+						continue;
+					}
+
+					endZone.Regions.Add(region);
+				}
+
+				if (endZone.Regions.Count > 0)
 					mainTrack.Zones.End = endZone;
 			}
 
