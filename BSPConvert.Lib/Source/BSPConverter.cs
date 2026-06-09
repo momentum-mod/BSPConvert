@@ -173,6 +173,7 @@ namespace BSPConvert.Lib
 				ConvertModels();
 				ConvertBrushes();
 				ConvertBrushSides();
+				ConvertFuncDoorTriggers();
 				ConvertLightmaps();
 				ConvertVisData();
 				ConvertAreas();
@@ -805,6 +806,152 @@ namespace BSPConvert.Lib
 
 			if (exceededMaxExtents)
 				throw new Exception("Failed to convert BSP, exceeded max extents");
+		}
+
+		private void ConvertFuncDoorTriggers()
+		{
+			var doorEntities = sourceBsp.Entities
+				.Where(e => e.ClassName == "func_door")
+				.ToList();
+
+			foreach (var door in doorEntities)
+			{
+				var modelNumber = door.ModelNumber;
+				if (modelNumber <= 0 || modelNumber >= sourceBsp.Models.Count)
+					continue;
+
+				var model = sourceBsp.Models[modelNumber];
+				var mins = model.Minimums;
+				var maxs = model.Maximums;
+
+				ExpandDoorTriggerBounds(ref mins, ref maxs);
+
+				if (string.IsNullOrEmpty(door["targetname"]))
+					door.Name = $"door{modelNumber}";
+
+				var triggerModelIndex = CreateBoxTrigger(mins, maxs);
+
+				var input = door["spawnpos"] == "1" ? "Close" : "Open";
+
+				var trigger = new Entity();
+				trigger.ClassName = "trigger_multiple";
+				trigger["model"] = $"*{triggerModelIndex}";
+				trigger["wait"] = "0";
+				trigger["spawnflags"] = "1";
+				trigger.connections.Add(new Entity.EntityConnection()
+				{
+					name = "OnStartTouch",
+					target = door["targetname"],
+					action = input,
+					param = null,
+					delay = 0,
+					fireOnce = -1
+				});
+				sourceBsp.Entities.Add(trigger);
+			}
+		}
+
+		// Replicates Q3's Think_SpawnNewDoorTrigger bounds expansion: find the thinnest axis and expand it by 120 units each direction
+		private static void ExpandDoorTriggerBounds(ref Vector3 mins, ref Vector3 maxs)
+		{
+			var extentX = maxs.X() - mins.X();
+			var extentY = maxs.Y() - mins.Y();
+			var extentZ = maxs.Z() - mins.Z();
+
+			int best = 0;
+			var minExtent = extentX;
+			if (extentY < minExtent) { minExtent = extentY; best = 1; }
+			if (extentZ < minExtent) { best = 2; }
+
+			if (best == 0)
+			{
+				mins = new Vector3(mins.X() - 120, mins.Y(), mins.Z());
+				maxs = new Vector3(maxs.X() + 120, maxs.Y(), maxs.Z());
+			}
+			else if (best == 1)
+			{
+				mins = new Vector3(mins.X(), mins.Y() - 120, mins.Z());
+				maxs = new Vector3(maxs.X(), maxs.Y() + 120, maxs.Z());
+			}
+			else
+			{
+				mins = new Vector3(mins.X(), mins.Y(), mins.Z() - 120);
+				maxs = new Vector3(maxs.X(), maxs.Y(), maxs.Z() + 120);
+			}
+		}
+
+		// Creates an AABB brush entity (6 planes) with its own orphan leaf + head node, returns the new model index
+		private int CreateBoxTrigger(Vector3 mins, Vector3 maxs)
+		{
+			var normals = new Vector3[]
+			{
+				new Vector3(1, 0, 0), new Vector3(-1, 0, 0),
+				new Vector3(0, 1, 0), new Vector3(0, -1, 0),
+				new Vector3(0, 0, 1), new Vector3(0, 0, -1)
+			};
+			var distances = new float[]
+			{
+				maxs.X(), -mins.X(),
+				maxs.Y(), -mins.Y(),
+				maxs.Z(), -mins.Z()
+			};
+
+			var brushSideStart = sourceBsp.BrushSides.Count;
+			for (var i = 0; i < 6; i++)
+			{
+				var planeIndex = CreatePlane(normals[i], distances[i]);
+
+				var sideData = new byte[BrushSide.GetStructLength(sourceBsp.MapType)];
+				var side = new BrushSide(sideData, sourceBsp.BrushSides);
+				side.PlaneIndex = planeIndex;
+				side.TextureIndex = 0;
+				side.DisplacementIndex = 0;
+				side.IsBevel = false;
+				sourceBsp.BrushSides.Add(side);
+			}
+
+			var brushIndex = sourceBsp.Brushes.Count;
+			var brushData = new byte[Brush.GetStructLength(sourceBsp.MapType)];
+			var brush = new Brush(brushData, sourceBsp.Brushes);
+			brush.FirstSideIndex = brushSideStart;
+			brush.NumSides = 6;
+			brush.Contents = (int)SourceContentsFlags.CONTENTS_SOLID;
+			sourceBsp.Brushes.Add(brush);
+
+			var leafBrushIndex = sourceBsp.LeafBrushes.Count;
+			sourceBsp.LeafBrushes.Add(brushIndex);
+
+			var leafData = new byte[Leaf.GetStructLength(sourceBsp.MapType)];
+			var leaf = new Leaf(leafData, sourceBsp.Leaves);
+			leaf.Minimums = mins;
+			leaf.Maximums = maxs;
+			leaf.FirstMarkBrushIndex = leafBrushIndex;
+			leaf.NumMarkBrushIndices = 1;
+			leaf.FirstMarkFaceIndex = 0;
+			leaf.NumMarkFaceIndices = 0;
+			leaf.LeafWaterDataID = -1;
+			leaf.Area = 0;
+			leaf.Contents = 0;
+			var leafIndex = sourceBsp.Leaves.Count;
+			sourceBsp.Leaves.Add(leaf);
+
+			var nodeData = new byte[Node.GetStructLength(sourceBsp.MapType)];
+			var node = new Node(nodeData, sourceBsp.Nodes);
+			node.Child1Index = -leafIndex - 1;
+			node.Child2Index = -leafIndex - 1;
+			sourceBsp.Nodes.Add(node);
+
+			var modelData = new byte[Model.GetStructLength(sourceBsp.MapType)];
+			var model = new Model(modelData, sourceBsp.Models);
+			model.HeadNodeIndex = sourceBsp.Nodes.Count - 1;
+			model.Minimums = mins;
+			model.Maximums = maxs;
+			model.Origin = new Vector3(0f, 0f, 0f);
+			model.FirstFaceIndex = 0;
+			model.NumFaces = 0;
+			sourceBsp.Models.Add(model);
+
+			return sourceBsp.Models.Count - 1;
 		}
 
 		// TODO: Add face references in order for showtriggers_toggle to work?
