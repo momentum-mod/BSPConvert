@@ -386,6 +386,17 @@ namespace BSPConvert.Lib
 				var data = new byte[PlaneBSP.GetStructLength(sourceBsp.MapType)];
 				var plane = new PlaneBSP(data, sourceBsp.Planes);
 
+				if (!qPlane.Normal.IsValid())
+				{
+					// Degenerate Q3 plane (common for patch/fog faces); substitute a safe dummy
+					plane.Normal = new Vector3(0f, 0f, 1f);
+					plane.Distance = 0f;
+					plane.Type = (int)PlaneBSP.AxisType.PlaneZ;
+
+					sourceBsp.Planes.Add(plane);
+					continue;
+				}
+
 				plane.Normal = qPlane.Normal;
 				plane.Distance = qPlane.Distance;
 				plane.Type = (int)GetVectorAxis(qPlane.Normal);
@@ -1202,6 +1213,18 @@ namespace BSPConvert.Lib
 		{
 			var data = new byte[PlaneBSP.GetStructLength(sourceBsp.MapType)];
 			var plane = new PlaneBSP(data, sourceBsp.Planes);
+
+			if (!normal.IsValid())
+			{
+				// Degenerate Q3 plane (common for patch/fog faces); substitute a safe dummy
+				plane.Normal = new Vector3(0f, 0f, 1f);
+				plane.Distance = 0f;
+				plane.Type = (int)PlaneBSP.AxisType.PlaneZ;
+
+				sourceBsp.Planes.Add(plane);
+
+				return sourceBsp.Planes.Count - 1;
+			}
 
 			plane.Normal = normal;
 			plane.Distance = distance;
