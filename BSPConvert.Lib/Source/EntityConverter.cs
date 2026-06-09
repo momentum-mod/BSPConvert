@@ -41,6 +41,29 @@ namespace BSPConvert.Lib
 		}
 
 		[Flags]
+		private enum FuncRotatingFlags
+		{
+			StartOn = 1,
+			ReverseDirection = 2,
+			// If enabled, the entity will spin at the X Axis.
+			XAxis = 4,
+			// If enabled, the entity will spin at the Y Axis.
+			YAxis = 8,
+			// If enabled, the entity will accelerate and decelerate from maximum speed based on the Friction property.
+			AccDcc = 16,
+			// With this enabled, the player will be hurt when coming into contact with the brush.
+			FanPain = 32,
+			NotSolid = 64,
+			// Use ATTN_IDLE (60dB).
+			SmallSoundRadius = 128,
+			// Use ATTN_STATIC (~67dB).
+			MediumSoundRadius = 256,
+			// Use ATTN_NORM (~75dB). If the other two options are unset, this is used.
+			LargeSoundRadius = 512,
+			ClientSideAnimation = 1024,
+		}
+
+		[Flags]
 		private enum Q3TriggerTeleportFlags
 		{
 			Spectator = 1,
@@ -219,7 +242,11 @@ namespace BSPConvert.Lib
 			if (!float.TryParse(funcRotating["speed"], out var speed))
 				speed = 100;
 
-			funcRotating["spawnflags"] = "1";
+			if (int.TryParse(funcRotating["spawnflags"], out var flags))
+				funcRotating["spawnflags"] = (flags | (int)FuncRotatingFlags.StartOn).ToString(CultureInfo.InvariantCulture);
+			else
+				funcRotating["spawnflags"] = ((int)FuncRotatingFlags.StartOn).ToString(CultureInfo.InvariantCulture);
+
 			funcRotating["maxspeed"] = speed.ToString(CultureInfo.InvariantCulture);
 		}
 
