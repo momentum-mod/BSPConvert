@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
@@ -9,18 +9,22 @@ namespace BSPConvert.Lib
 {
 #if UNITY
 	using Vector3 = UnityEngine.Vector3;
+	using Vector2 = UnityEngine.Vector2;
 #elif GODOT
 	using Vector3 = Godot.Vector3;
+	using Vector2 = Godot.Vector2;
 #elif NEOAXIS
 	using Vector3 = NeoAxis.Vector3F;
+	using Vector2 = NeoAxis.Vector2F;
 #else
 	using Vector3 = System.Numerics.Vector3;
+	using Vector2 = System.Numerics.Vector2;
 #endif
-	
+
 	public class BezierPatch
 	{
 		private Vector3[] controlPoints;
-		
+
 		public BezierPatch(Vector3[] controlPoints)
 		{
 			if (controlPoints.Length != 9)
@@ -28,7 +32,7 @@ namespace BSPConvert.Lib
 
 			this.controlPoints = controlPoints;
 		}
-		
+
 		/// <summary>
 		/// Returns a point along the quadratic bezier patch
 		/// </summary>
@@ -57,7 +61,31 @@ namespace BSPConvert.Lib
 			return new Vector3((float)rx, (float)ry, (float)rz);
 		}
 
-		private double[] QuadraticBezier(float t)
+		/// <summary>
+		/// Interpolates a Vector2 value (e.g. UV coordinates) over a 3x3 control point grid
+		/// using the same quadratic Bezier basis as GetPoint.
+		/// </summary>
+		public static Vector2 GetUV(float u, float v, Vector2[] controlPoints)
+		{
+			var bi = QuadraticBezier(u);
+			var bj = QuadraticBezier(v);
+
+			double rx = 0, ry = 0;
+			for (var i = 0; i < 3; i++)
+			{
+				for (var j = 0; j < 3; j++)
+				{
+					var w = (double)bi[i] * (double)bj[j];
+					var cp = controlPoints[i + j * 3];
+					rx += (double)cp.X * w;
+					ry += (double)cp.Y * w;
+				}
+			}
+
+			return new Vector2((float)rx, (float)ry);
+		}
+
+		private static double[] QuadraticBezier(float t)
 		{
 			var dt = (double)t;
 			return new double[3]
