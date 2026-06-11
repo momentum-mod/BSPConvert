@@ -24,7 +24,7 @@ namespace BSPConvert.Lib
 			// Treat face vertices as an arbitrary set of points on a plane and use the gift wrapping algorithm to generate a convex polygon
 			var hullVerts = new List<Vertex>();
 
-			var pointOnHull = GetFurthestPointFromCenter(faceVerts);
+			var pointOnHull = GetStartingVertex(faceVerts);
 			Vertex endPoint;
 			do
 			{
@@ -43,27 +43,22 @@ namespace BSPConvert.Lib
 			return hullVerts;
 		}
 
-		private static Vertex GetFurthestPointFromCenter(Vertex[] faceVerts)
+		// Returns the lexicographically smallest vertex, which is guaranteed to be on the convex hull
+		private static Vertex GetStartingVertex(Vertex[] faceVerts)
 		{
-			var center = new Vector3();
-			foreach (var vert in faceVerts)
-				center += vert.position;
-
-			center /= faceVerts.Length;
-
-			var furthestPoint = new Vertex();
-			var furthestDist = 0f;
-			foreach (var vert in faceVerts)
+			var start = faceVerts[0];
+			for (var i = 1; i < faceVerts.Length; i++)
 			{
-				var distance = Vector3.Distance(vert.position, center);
-				if (distance > furthestDist)
+				var p = faceVerts[i].position;
+				var s = start.position;
+				if (p.X < s.X ||
+					(p.X == s.X && p.Y < s.Y) ||
+					(p.X == s.X && p.Y == s.Y && p.Z < s.Z))
 				{
-					furthestPoint = vert;
-					furthestDist = distance;
+					start = faceVerts[i];
 				}
 			}
-
-			return furthestPoint;
+			return start;
 		}
 
 		private static bool IsLeftOfLine(Vertex pointOnHull, Vertex endPoint, Vertex vertex, Vector3 faceNormal)
@@ -71,10 +66,13 @@ namespace BSPConvert.Lib
 			var a = endPoint.position - pointOnHull.position;
 			var b = vertex.position - pointOnHull.position;
 			var cross = Vector3.Cross(a, b);
+			var dot = Vector3.Dot(cross, faceNormal);
 
-			// Use face normal to determine if the vertex is on the left side of the line
-			// TODO: Handle collinear vertices (dot product should be 0)
-			return Vector3.Dot(cross, faceNormal) > 0;
+			if (dot != 0f)
+				return dot > 0f;
+
+			// Collinear: prefer the farther vertex so the hull doesn't prematurely close
+			return Vector3.Dot(b, b) > Vector3.Dot(a, a);
 		}
 	}
 }
