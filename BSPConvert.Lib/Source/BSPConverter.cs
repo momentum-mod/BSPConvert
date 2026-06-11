@@ -407,12 +407,12 @@ namespace BSPConvert.Lib
 
 		private PlaneBSP.AxisType GetVectorAxis(Vector3 normal)
 		{
-			// Note: Should these have an epsilon around 1.0?
-			if (normal.X() == 1f || normal.X() == -1f)
+			// Note: This mirrors the logic in the engine, so the lack of an epsilon check is intentional
+			if (normal.X() == 1.0 || normal.X() == -1.0)
 				return PlaneBSP.AxisType.PlaneX;
-			if (normal.Y() == 1f || normal.Y() == -1f)
+			if (normal.Y() == 1.0 || normal.Y() == -1.0)
 				return PlaneBSP.AxisType.PlaneY;
-			if (normal.Z() == 1f || normal.Z() == -1f)
+			if (normal.Z() == 1.0 || normal.Z() == -1.0)
 				return PlaneBSP.AxisType.PlaneZ;
 
 			var aX = Math.Abs(normal.X());
