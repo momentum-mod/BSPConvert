@@ -405,20 +405,19 @@ namespace BSPConvert.Lib
 			}
 		}
 
-		private const float AxisAlignedEpsilon = 1e-6f;
-
 		private PlaneBSP.AxisType GetVectorAxis(Vector3 normal)
 		{
+			// Note: Should these have an epsilon around 1.0?
+			if (normal.X() == 1f || normal.X() == -1f)
+				return PlaneBSP.AxisType.PlaneX;
+			if (normal.Y() == 1f || normal.Y() == -1f)
+				return PlaneBSP.AxisType.PlaneY;
+			if (normal.Z() == 1f || normal.Z() == -1f)
+				return PlaneBSP.AxisType.PlaneZ;
+
 			var aX = Math.Abs(normal.X());
 			var aY = Math.Abs(normal.Y());
 			var aZ = Math.Abs(normal.Z());
-
-			if (Math.Abs(aX - 1f) < AxisAlignedEpsilon)
-				return PlaneBSP.AxisType.PlaneX;
-			if (Math.Abs(aY - 1f) < AxisAlignedEpsilon)
-				return PlaneBSP.AxisType.PlaneY;
-			if (Math.Abs(aZ - 1f) < AxisAlignedEpsilon)
-				return PlaneBSP.AxisType.PlaneZ;
 
 			if (aX >= aY && aX >= aZ)
 				return PlaneBSP.AxisType.PlaneAnyX;
