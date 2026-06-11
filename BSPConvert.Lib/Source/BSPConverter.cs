@@ -76,7 +76,7 @@ namespace BSPConvert.Lib
 
 		private Dictionary<string, Shader> shaderDict = new Dictionary<string, Shader>();
 		private Dictionary<string, LightmapData> externalLightmaps = new Dictionary<string, LightmapData>();
-		private Dictionary<int, int> textureInfoHashCodeDict = new Dictionary<int, int>(); // Maps TextureInfo hash codes to TextureInfo indices
+		private Dictionary<TextureInfoKey, int> textureInfoDict = new Dictionary<TextureInfoKey, int>();
 		private Dictionary<string, int> textureInfoLookup = new Dictionary<string, int>();
 		private Dictionary<string, int> textureDataLookup = new Dictionary<string, int>();
 		private Dictionary<int, int[]> splitFaceDict = new Dictionary<int, int[]>(); // Maps the original face index to the new face indices split by triangles
@@ -161,7 +161,7 @@ namespace BSPConvert.Lib
 
 		private void ClearDictionaries()
 		{
-			textureInfoHashCodeDict.Clear();
+			textureInfoDict.Clear();
 			textureInfoLookup.Clear();
 			textureDataLookup.Clear();
 			splitFaceDict.Clear();
@@ -1399,21 +1399,19 @@ namespace BSPConvert.Lib
 				textureInfo.Flags |= (int)SourceSurfaceFlags.SURF_NODRAW;
 
 			// Avoid adding duplicate texture info
-			var hashCode = BSPUtil.GetHashCode(textureInfo);
-			if (textureInfoHashCodeDict.TryGetValue(hashCode, out var textureInfoIndex))
+			var key = new TextureInfoKey(textureInfo);
+			if (textureInfoDict.TryGetValue(key, out var textureInfoIndex))
 				return textureInfoIndex;
-			else
-			{
-				sourceBsp.TextureInfo.Add(textureInfo);
 
-				textureInfoIndex = sourceBsp.TextureInfo.Count - 1;
-				textureInfoHashCodeDict.Add(hashCode, textureInfoIndex);
+			sourceBsp.TextureInfo.Add(textureInfo);
 
-				if (!textureInfoLookup.ContainsKey(texture.Name))
-					textureInfoLookup.Add(texture.Name, textureInfoIndex);
+			textureInfoIndex = sourceBsp.TextureInfo.Count - 1;
+			textureInfoDict.Add(key, textureInfoIndex);
 
-				return textureInfoIndex;
-			}
+			if (!textureInfoLookup.ContainsKey(texture.Name))
+				textureInfoLookup.Add(texture.Name, textureInfoIndex);
+
+			return textureInfoIndex;
 		}
 
 		private (Vector3 uAxis, Vector3 vAxis) GetTextureVectors(Face qFace, int firstIndex)
