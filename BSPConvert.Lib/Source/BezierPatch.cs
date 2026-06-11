@@ -39,25 +39,32 @@ namespace BSPConvert.Lib
 			var bi = QuadraticBezier(u);
 			var bj = QuadraticBezier(v);
 
-			var result = new Vector3(0f, 0f, 0f);
+			// Accumulate in double to prevent JIT FMA fusion in .NET 9+ from changing
+			// intermediate rounding and producing different float results per component.
+			double rx = 0, ry = 0, rz = 0;
 			for (var i = 0; i < 3; i++)
 			{
 				for (var j = 0; j < 3; j++)
 				{
-					result += controlPoints[i + j * 3] * bi[i] * bj[j];
+					var w = (double)bi[i] * (double)bj[j];
+					var cp = controlPoints[i + j * 3];
+					rx += (double)cp.X * w;
+					ry += (double)cp.Y * w;
+					rz += (double)cp.Z * w;
 				}
 			}
 
-			return result;
+			return new Vector3((float)rx, (float)ry, (float)rz);
 		}
 
-		private float[] QuadraticBezier(float t)
+		private double[] QuadraticBezier(float t)
 		{
-			return new float[3]
+			var dt = (double)t;
+			return new double[3]
 			{
-				(1f - t) * (1f - t),
-				2f * t * (1f - t),
-				t * t
+				(1.0 - dt) * (1.0 - dt),
+				2.0 * dt * (1.0 - dt),
+				dt * dt
 			};
 		}
 	}

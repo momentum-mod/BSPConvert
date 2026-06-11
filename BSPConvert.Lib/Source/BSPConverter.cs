@@ -1151,9 +1151,11 @@ namespace BSPConvert.Lib
 					var point = patch.GetPoint(widthT, heightT);
 
 					// Get interpolated position on face
-					var v1 = Vector3.Lerp(faceVerts[0].position, faceVerts[1].position, widthT);
-					var v2 = Vector3.Lerp(faceVerts[3].position, faceVerts[2].position, widthT);
-					var posOnFace = Vector3.Lerp(v1, v2, heightT);
+					// Use scalar double lerp instead of Vector3.Lerp to avoid FMA rounding
+					// differences in .NET 9+ that change the computed displacement offsets.
+					var v1 = VectorUtil.LerpDouble(faceVerts[0].position, faceVerts[1].position, widthT);
+					var v2 = VectorUtil.LerpDouble(faceVerts[3].position, faceVerts[2].position, widthT);
+					var posOnFace = VectorUtil.LerpDouble(v1, v2, heightT);
 
 					// Get point relative to face
 					point -= posOnFace;
@@ -1185,8 +1187,8 @@ namespace BSPConvert.Lib
 			var data = new byte[DisplacementVertex.GetStructLength(sourceBsp.MapType)];
 			var dispVert = new DisplacementVertex(data, sourceBsp.DisplacementVertices);
 
-			dispVert.Normal = point.GetNormalized();
-			dispVert.Magnitude = point.Magnitude();
+			dispVert.Normal = VectorUtil.NormalizeDouble(point, out var mag);
+			dispVert.Magnitude = mag;
 
 			sourceBsp.DisplacementVertices.Add(dispVert);
 		}
