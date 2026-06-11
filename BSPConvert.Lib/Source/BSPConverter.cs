@@ -50,6 +50,7 @@ namespace BSPConvert.Lib
 	{
 		public bool noPak;
 		public bool noToolDisplacements;
+		public bool patchesAsPrimitives;
 		private int displacementPower;
 		public int DisplacementPower
 		{
@@ -1052,6 +1053,12 @@ namespace BSPConvert.Lib
 
 		private void ConvertPatch(int faceIndex)
 		{
+			if (options.patchesAsPrimitives)
+			{
+				ConvertPatchAsPrimitive(faceIndex);
+				return;
+			}
+
 			var qFace = quakeBsp.Faces[faceIndex];
 			var numPatchesWidth = ((int)qFace.PatchSize.X - 1) / 2;
 			var numPatchesHeight = ((int)qFace.PatchSize.Y - 1) / 2;
@@ -1067,6 +1074,24 @@ namespace BSPConvert.Lib
 
 					splitFaceDict[faceIndex][currentPatch] = patchFaceIndex;
 					currentPatch++;
+				}
+			}
+		}
+
+		private void ConvertPatchAsPrimitive(int faceIndex)
+		{
+			var qFace = quakeBsp.Faces[faceIndex];
+			var numPatchesWidth = ((int)qFace.PatchSize.X - 1) / 2;
+			var numPatchesHeight = ((int)qFace.PatchSize.Y - 1) / 2;
+			splitFaceDict[faceIndex] = new int[numPatchesWidth * numPatchesHeight];
+
+			var currentPatch = 0;
+			for (var y = 0; y < qFace.PatchSize.Y - 1; y += 2)
+			{
+				for (var x = 0; x < qFace.PatchSize.X - 1; x += 2)
+				{
+					var patchStartVertex = qFace.FirstVertexIndex + x + y * (int)qFace.PatchSize.X;
+					splitFaceDict[faceIndex][currentPatch++] = CreatePatchFaceAsPrimitive(faceIndex, patchStartVertex);
 				}
 			}
 		}
@@ -1103,9 +1128,7 @@ namespace BSPConvert.Lib
 			var dist = Vector3.Dot(faceVerts[0].position, normal);
 			sFace.PlaneIndex = CreatePlane(normal, dist);
 
-			// TODO: Improve UV mapping
-			var uAxis = (faceVerts[1].position - faceVerts[0].position).GetNormalized() * 2f;
-			var vAxis = (faceVerts[3].position - faceVerts[0].position).GetNormalized() * 2f;
+			(var uAxis, var vAxis) = GetTextureVectorsFromVertices(faceVerts[0], faceVerts[1], faceVerts[3], normal);
 
 			var qFace = quakeBsp.Faces[faceIndex];
 			ReplaceToolTextureWithInvisibleDisplacement(qFace);
@@ -1248,6 +1271,158 @@ namespace BSPConvert.Lib
 				sourceBsp.DisplacementTriangles.Add(6); // TODO: Set displacement flags?
 
 			return firstTriangle;
+		}
+
+		private int CreatePatchFaceAsPrimitive(int qFaceIndex, int patchStartVertex)
+		{
+			var qFace = quakeBsp.Faces[qFaceIndex];
+			var patchWidth = (int)qFace.PatchSize.X;
+
+			var faceVerts = new Vertex[]
+			{
+				quakeBsp.Vertices[patchStartVertex],
+				quakeBsp.Vertices[patchStartVertex + 2],
+				quakeBsp.Vertices[patchStartVertex + 2 + 2 * patchWidth],
+				quakeBsp.Vertices[patchStartVertex + 2 * patchWidth]
+			};
+
+			var sFace = CreateFace();
+			sFace.DisplacementIndex = -1;
+
+			var e1 = faceVerts[0].position - faceVerts[1].position;
+			var e2 = faceVerts[0].position - faceVerts[2].position;
+			var normal = Vector3.Cross(e1, e2).GetNormalized();
+			var dist = Vector3.Dot(faceVerts[0].position, normal);
+			sFace.PlaneIndex = CreatePlane(normal, dist);
+
+			(var uAxis, var vAxis) = GetTextureVectorsFromVertices(faceVerts[0], faceVerts[1], faceVerts[3], normal);
+			ReplaceToolTextureWithInvisibleDisplacement(qFace);
+			sFace.TextureInfoIndex = CreateTextureInfo(qFace.Texture, uAxis, vAxis);
+
+			sFace.FirstEdgeIndexIndex = sourceBsp.FaceEdges.Count;
+			sFace.NumEdgeIndices = 4;
+			CreateEdge(faceVerts[0], faceVerts[3], qFaceIndex);
+			CreateEdge(faceVerts[3], faceVerts[2], qFaceIndex);
+			CreateEdge(faceVerts[2], faceVerts[1], qFaceIndex);
+			CreateEdge(faceVerts[1], faceVerts[0], qFaceIndex);
+
+			if (options.noToolDisplacements && qFace.Texture.Name.StartsWith("tools/", StringComparison.OrdinalIgnoreCase))
+				return sourceBsp.Faces.Count - 1;
+
+			var power = options.DisplacementPower;
+			var subdiv = (1 << power) + 1;
+
+			var posControlPoints = GetPatchControlPoints(patchStartVertex, patchWidth);
+			var uv0ControlPoints = GetPatchUVControlPoints(patchStartVertex, patchWidth, v => v.uv0);
+			var uv1ControlPoints = GetPatchUVControlPoints(patchStartVertex, patchWidth, v => v.uv1);
+
+			var patch = new BezierPatch(posControlPoints);
+			var vertexCount = subdiv * subdiv;
+			var positions = new Vector3[vertexCount];
+			var uvs = new Vector2[vertexCount];
+			var lightmapUVs = new Vector2[vertexCount];
+
+			for (var row = 0; row < subdiv; row++)
+			{
+				for (var col = 0; col < subdiv; col++)
+				{
+					var t = col / (subdiv - 1f);
+					var s = row / (subdiv - 1f);
+					var idx = col + row * subdiv;
+
+					positions[idx] = patch.GetPoint(t, s);
+					uvs[idx] = BezierPatch.GetUV(t, s, uv0ControlPoints);
+					lightmapUVs[idx] = BezierPatch.GetUV(t, s, uv1ControlPoints);
+				}
+			}
+
+			// Two CCW triangles per grid cell (i0=bottom-left, i1=bottom-right, i2=top-left, i3=top-right)
+			var indices = new int[(subdiv - 1) * (subdiv - 1) * 6];
+			var triIdx = 0;
+			for (var row = 0; row < subdiv - 1; row++)
+			{
+				for (var col = 0; col < subdiv - 1; col++)
+				{
+					var i0 = col + row * subdiv;
+					var i1 = (col + 1) + row * subdiv;
+					var i2 = col + (row + 1) * subdiv;
+					var i3 = (col + 1) + (row + 1) * subdiv;
+
+					indices[triIdx++] = i0;
+					indices[triIdx++] = i3;
+					indices[triIdx++] = i1;
+
+					indices[triIdx++] = i0;
+					indices[triIdx++] = i2;
+					indices[triIdx++] = i3;
+				}
+			}
+
+			sFace.FirstPrimitive = CreatePrimitive(positions, uvs, lightmapUVs, indices, qFace);
+			sFace.NumPrimitives = 1;
+
+			return sourceBsp.Faces.Count - 1;
+		}
+
+		private Vector2[] GetPatchUVControlPoints(int patchStartVertex, int patchWidth, Func<Vertex, Vector2> selector)
+		{
+			var controlPoints = new Vector2[9];
+			for (var i = 0; i < 3; i++)
+			{
+				for (var j = 0; j < 3; j++)
+					controlPoints[i + j * 3] = selector(quakeBsp.Vertices[patchStartVertex + i + j * patchWidth]);
+			}
+			return controlPoints;
+		}
+
+		private int CreatePrimitive(Vector3[] positions, Vector2[] uvs, Vector2[] lightmapUVs, int[] indices, Face qFace)
+		{
+			var primitiveIndex = sourceBsp.Primitives.Count;
+
+			var data = new byte[Primitive.GetStructLength(sourceBsp.MapType)];
+			var primitive = new Primitive(data, sourceBsp.Primitives);
+			primitive.Type = Primitive.PrimitiveType.PRIM_TRILIST;
+
+			primitive.FirstVertex = CreatePrimitiveVertices(positions, uvs, lightmapUVs, qFace);
+			primitive.VertexCount = positions.Length;
+
+			primitive.FirstIndex = CreatePrimitiveIndices(indices);
+			primitive.IndexCount = indices.Length;
+
+			sourceBsp.Primitives.Add(primitive);
+			return primitiveIndex;
+		}
+
+		private int CreatePrimitiveVertices(Vector3[] positions, Vector2[] uvs, Vector2[] lightmapUVs, Face qFace)
+		{
+			var firstPrimVertex = sourceBsp.PrimitiveVertices.Count;
+
+			var lightmapSize = Q3_LIGHTMAP_SIZE;
+			if (quakeBsp.Lightmaps.Data.Length == 0 && externalLightmaps.Any())
+				lightmapSize = (int)externalLightmaps.First().Value.size.X;
+
+			// Normalize lightmap coords against the SAME rect that ConvertInternalLightmaps copies for
+			// this face: the whole patch's control-point lightmap UV extents. The engine feeds a
+			// primitive vertex's lightCoord straight to the lightmap sampler (it doesn't use the face's
+			// LightmapStart/vecs for prims), so [0,1] must span exactly that copied rect. Using the
+			// local tessellated sub-patch extents here instead shifts each sub-patch's lightmap sideways.
+			(var lmStart, var lmEnd) = GetLightmapExtents(qFace.Vertices, lightmapSize);
+			var min = lmStart / lightmapSize;
+			var max = lmEnd / lightmapSize;
+
+			for (var i = 0; i < positions.Length; i++)
+			{
+				sourceBsp.PrimitiveVertices.Add(positions[i]);
+
+				var bytes = new byte[PrimitiveTextureInfo.GetStructLength(sourceBsp.MapType)];
+				var texInfo = new PrimitiveTextureInfo(bytes, sourceBsp.PrimitiveTextureInfo);
+				texInfo.TexCoord = uvs[i];
+				texInfo.LightmapCoord = (lightmapUVs[i] - min) / (max - min);
+
+				sourceBsp.PrimitiveTextureInfo.Add(texInfo);
+			}
+
+			return firstPrimVertex;
 		}
 
 		private int CreatePlane(Face face)
@@ -1463,8 +1638,6 @@ namespace BSPConvert.Lib
 
 		private (Vector3 uAxis, Vector3 vAxis) GetTextureVectors(Face qFace, int firstIndex)
 		{
-			// Tangent basis vector derivation: https://www.cs.upc.edu/~virtual/G/1.%20Teoria/06.%20Textures/Tangent%20Space%20Calculation.pdf
-			// Note: This only works for face-aligned textures. World-aligned textures will need to be handled differently
 			var vertices = quakeBsp.Vertices;
 			var indices = quakeBsp.Indices;
 
@@ -1476,6 +1649,13 @@ namespace BSPConvert.Lib
 			var v1 = vertices[qFace.FirstVertexIndex + i1];
 			var v2 = vertices[qFace.FirstVertexIndex + i2];
 
+			return GetTextureVectorsFromVertices(v0, v1, v2, qFace.Normal);
+		}
+
+		// Tangent basis vector derivation: https://www.cs.upc.edu/~virtual/G/1.%20Teoria/06.%20Textures/Tangent%20Space%20Calculation.pdf
+		// Note: This only works for face-aligned textures. World-aligned textures will need to be handled differently
+		private (Vector3 uAxis, Vector3 vAxis) GetTextureVectorsFromVertices(Vertex v0, Vertex v1, Vertex v2, Vector3 faceNormal)
+		{
 			var deltaPos1 = v1.position - v0.position;
 			var deltaPos2 = v2.position - v0.position;
 
@@ -1484,7 +1664,7 @@ namespace BSPConvert.Lib
 
 			var den = deltaUV1.X * deltaUV2.Y - deltaUV2.X * deltaUV1.Y;
 			if (Math.Abs(den) < 0.01f)
-				return GetTextureVectorsWithNormal(qFace.Normal);
+				return GetTextureVectorsWithNormal(faceNormal);
 
 			var r = 1f / den;
 			var tangent = (deltaPos1 * deltaUV2.Y - deltaPos2 * deltaUV1.Y) * r / 32f;
@@ -1685,6 +1865,24 @@ namespace BSPConvert.Lib
 					uvMax.X = vert.uv1.X;
 				if (vert.uv1.Y > uvMax.Y)
 					uvMax.Y = vert.uv1.Y;
+			}
+
+			var lmStart = new Vector2((int)Math.Floor(uvMin.X * lightmapSize), (int)Math.Floor(uvMin.Y * lightmapSize));
+			var lmEnd = new Vector2((int)Math.Ceiling(uvMax.X * lightmapSize), (int)Math.Ceiling(uvMax.Y * lightmapSize));
+
+			return (lmStart, lmEnd);
+		}
+
+		private (Vector2, Vector2) GetLightmapExtents(Vector2[] lightmapUVs, float lightmapSize)
+		{
+			var uvMin = new Vector2(float.MaxValue, float.MaxValue);
+			var uvMax = new Vector2(float.MinValue, float.MinValue);
+			foreach (var uv in lightmapUVs)
+			{
+				if (uv.X < uvMin.X) uvMin.X = uv.X;
+				if (uv.Y < uvMin.Y) uvMin.Y = uv.Y;
+				if (uv.X > uvMax.X) uvMax.X = uv.X;
+				if (uv.Y > uvMax.Y) uvMax.Y = uv.Y;
 			}
 
 			var lmStart = new Vector2((int)Math.Floor(uvMin.X * lightmapSize), (int)Math.Floor(uvMin.Y * lightmapSize));

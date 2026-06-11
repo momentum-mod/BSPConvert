@@ -14,6 +14,9 @@ namespace BSPConvert.Cmd
 			[Option("notooldisps", Required = false, HelpText = "Skip converting patches with tool textures to displacements.")]
 			public bool NoToolDisplacements { get; set; }
 
+			[Option("patchprims", Required = false, HelpText = "Convert patches to primitive meshes instead of displacements (exact per-vertex UV/lightmap, entity-attachable, no curved collision).")]
+			public bool PatchesAsPrimitives { get; set; }
+
 			[Option("subdiv", Required = false, Default = 4, HelpText = "Displacement subdivisions [2-4].")]
 			public int DisplacementPower { get; set; }
 
@@ -73,6 +76,7 @@ namespace BSPConvert.Cmd
 				{
 					noPak = options.NoPak,
 					noToolDisplacements = options.NoToolDisplacements,
+					patchesAsPrimitives = options.PatchesAsPrimitives,
 					DisplacementPower = options.DisplacementPower,
 					minDamageToRespawnPlayer = options.MinDamageToRespawnPlayer,
 					ignoreZones = options.IgnoreZones,
