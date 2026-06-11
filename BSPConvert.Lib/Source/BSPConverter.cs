@@ -80,6 +80,7 @@ namespace BSPConvert.Lib
 		private Dictionary<string, int> textureInfoLookup = new Dictionary<string, int>();
 		private Dictionary<string, int> textureDataLookup = new Dictionary<string, int>();
 		private Dictionary<int, int[]> splitFaceDict = new Dictionary<int, int[]>(); // Maps the original face index to the new face indices split by triangles
+		private Dictionary<(Vector3, float), int> planeDict = new Dictionary<(Vector3, float), int>();
 
 		// TODO: Replace weapon clip textures
 		private static readonly Dictionary<string, string> replacementTextures = new Dictionary<string, string>()
@@ -1206,27 +1207,24 @@ namespace BSPConvert.Lib
 
 		private int CreatePlane(Face face)
 		{
-			// TODO: Avoid adding duplicate planes
 			var distance = Vector3.Dot(face.Vertices.First().position, face.Normal);
 			return CreatePlane(face.Normal, distance);
 		}
 
 		private int CreatePlane(Vector3 normal, float distance)
 		{
-			var data = new byte[PlaneBSP.GetStructLength(sourceBsp.MapType)];
-			var plane = new PlaneBSP(data, sourceBsp.Planes);
-
 			if (!normal.IsValid())
 			{
-				// Degenerate Q3 plane (common for patch/fog faces); substitute a safe dummy
-				plane.Normal = new Vector3(0f, 0f, 1f);
-				plane.Distance = 0f;
-				plane.Type = (int)PlaneBSP.AxisType.PlaneZ;
-
-				sourceBsp.Planes.Add(plane);
-
-				return sourceBsp.Planes.Count - 1;
+				normal = new Vector3(0f, 0f, 1f);
+				distance = 0f;
 			}
+
+			var key = (normal, distance);
+			if (planeDict.TryGetValue(key, out var existingIndex))
+				return existingIndex;
+
+			var data = new byte[PlaneBSP.GetStructLength(sourceBsp.MapType)];
+			var plane = new PlaneBSP(data, sourceBsp.Planes);
 
 			plane.Normal = normal;
 			plane.Distance = distance;
@@ -1234,7 +1232,10 @@ namespace BSPConvert.Lib
 
 			sourceBsp.Planes.Add(plane);
 
-			return sourceBsp.Planes.Count - 1;
+			var index = sourceBsp.Planes.Count - 1;
+			planeDict[key] = index;
+
+			return index;
 		}
 
 		private int CreatePrimitive(Vertex[] vertices, int[] indices)
