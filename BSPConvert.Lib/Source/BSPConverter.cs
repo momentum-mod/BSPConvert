@@ -102,7 +102,10 @@ namespace BSPConvert.Lib
 		};
 
 		private const int Q3_LIGHTMAP_SIZE = 128;
-		private const int LIGHTMAP_PADDING = 1; // Pixel padding to prevent lightmap bleeding
+		// Border of duplicated edge luxels added around each face's lightmap block so bilinear filtering
+		// at a face's edge samples its own (duplicated) edge color instead of bleeding in the adjacent
+		// block packed next to it in the lightmap atlas page.
+		private const int LIGHTMAP_BORDER = 1;
 		private const string invisibleDisplacementTexture = "tools/toolsinvisibledisplacement";
 
 		public BSPConverter(BSPConverterOptions options, ILogger logger)
@@ -943,7 +946,7 @@ namespace BSPConvert.Lib
 			sFace.NumEdgeIndices = numEdges;
 
 			// Primitives
-			sFace.FirstPrimitive = CreatePrimitive(qFace.Vertices.ToArray(), qFace.Indices.ToArray());
+			sFace.FirstPrimitive = CreatePrimitive(qFace.Vertices.ToArray(), qFace.Indices.ToArray(), qFace);
 			sFace.NumPrimitives = 1;
 
 			splitFaceDict[faceIndex] = new int[] { sourceBsp.Faces.Count - 1 };
@@ -1439,9 +1442,7 @@ namespace BSPConvert.Lib
 		{
 			var firstPrimVertex = sourceBsp.PrimitiveVertices.Count;
 
-			var lightmapSize = Q3_LIGHTMAP_SIZE;
-			if (quakeBsp.Lightmaps.Data.Length == 0 && externalLightmaps.Any())
-				lightmapSize = (int)externalLightmaps.First().Value.size.X;
+			var lightmapSize = GetFaceLightmapSize(qFace);
 
 			// Normalize lightmap coords against the SAME rect that ConvertInternalLightmaps copies for
 			// this face: the whole patch's control-point lightmap UV extents. The engine feeds a
@@ -1449,8 +1450,7 @@ namespace BSPConvert.Lib
 			// LightmapStart/vecs for prims), so [0,1] must span exactly that copied rect. Using the
 			// local tessellated sub-patch extents here instead shifts each sub-patch's lightmap sideways.
 			(var lmStart, var lmEnd) = GetLightmapExtents(qFace.Vertices, lightmapSize);
-			var min = lmStart / lightmapSize;
-			var max = lmEnd / lightmapSize;
+			var extents = lmEnd - lmStart;
 
 			for (var i = 0; i < positions.Length; i++)
 			{
@@ -1459,7 +1459,7 @@ namespace BSPConvert.Lib
 				var bytes = new byte[PrimitiveTextureInfo.GetStructLength(sourceBsp.MapType)];
 				var texInfo = new PrimitiveTextureInfo(bytes, sourceBsp.PrimitiveTextureInfo);
 				texInfo.TexCoord = uvs[i];
-				texInfo.LightmapCoord = (lightmapUVs[i] - min) / (max - min);
+				texInfo.LightmapCoord = ComputePrimLightmapCoord(lightmapUVs[i], lmStart, extents, lightmapSize);
 
 				sourceBsp.PrimitiveTextureInfo.Add(texInfo);
 			}
@@ -1500,7 +1500,7 @@ namespace BSPConvert.Lib
 			return index;
 		}
 
-		private int CreatePrimitive(Vertex[] vertices, int[] indices)
+		private int CreatePrimitive(Vertex[] vertices, int[] indices, Face qFace)
 		{
 			var primitiveIndex = sourceBsp.Primitives.Count;
 
@@ -1509,7 +1509,7 @@ namespace BSPConvert.Lib
 
 			primitive.Type = Primitive.PrimitiveType.PRIM_TRILIST;
 
-			primitive.FirstVertex = CreatePrimitiveVertices(vertices);
+			primitive.FirstVertex = CreatePrimitiveVertices(vertices, qFace);
 			primitive.VertexCount = vertices.Length;
 
 			primitive.FirstIndex = CreatePrimitiveIndices(indices);
@@ -1520,19 +1520,14 @@ namespace BSPConvert.Lib
 			return primitiveIndex;
 		}
 
-		private int CreatePrimitiveVertices(Vertex[] vertices)
+		private int CreatePrimitiveVertices(Vertex[] vertices, Face qFace)
 		{
 			var firstPrimVertex = sourceBsp.PrimitiveVertices.Count;
 
-			var lightmapSize = Q3_LIGHTMAP_SIZE;
-			if (quakeBsp.Lightmaps.Data.Length == 0 && externalLightmaps.Any())
-				lightmapSize = (int)externalLightmaps.First().Value.size.X;
+			var lightmapSize = GetFaceLightmapSize(qFace);
 
-			(var min, var max) = GetLightmapExtents(vertices, lightmapSize);
-			(min, max) = AddLightmapPadding(min, max);
-
-			min /= lightmapSize;
-			max /= lightmapSize;
+			(var lmStart, var lmEnd) = GetLightmapExtents(vertices, lightmapSize);
+			var extents = lmEnd - lmStart;
 
 			foreach (var vertex in vertices)
 			{
@@ -1541,9 +1536,7 @@ namespace BSPConvert.Lib
 				var bytes = new byte[PrimitiveTextureInfo.GetStructLength(sourceBsp.MapType)];
 				var texInfo = new PrimitiveTextureInfo(bytes, sourceBsp.PrimitiveTextureInfo);
 				texInfo.TexCoord = vertex.uv0;
-
-				var lightCoord = vertex.uv1;
-				texInfo.LightmapCoord = (lightCoord - min) / (max - min);
+				texInfo.LightmapCoord = ComputePrimLightmapCoord(vertex.uv1, lmStart, extents, lightmapSize);
 
 				sourceBsp.PrimitiveTextureInfo.Add(texInfo);
 			}
@@ -1551,14 +1544,46 @@ namespace BSPConvert.Lib
 			return firstPrimVertex;
 		}
 
-		private (Vector2, Vector2) AddLightmapPadding(Vector2 min, Vector2 max)
+		// The luxel dimension (per axis) of the lightmap this face samples. Internal lightmaps use the
+		// fixed 128x128 Q3 page; external lightmaps are per-shader images of varying size. This MUST match
+		// the size ConvertExternalLightmaps uses for the same face's data copy and LightmapSize, or the
+		// prim lightCoords won't line up with the copied block. (Uses size.X for both axes, like the rest
+		// of the lightmap path - correct for square lightmaps, which is the norm.)
+		private int GetFaceLightmapSize(Face qFace)
 		{
-			min.X -= LIGHTMAP_PADDING;
-			min.Y -= LIGHTMAP_PADDING;
-			max.X += LIGHTMAP_PADDING;
-			max.Y += LIGHTMAP_PADDING;
+			if (quakeBsp.Lightmaps.Data.Length > 0)
+				return Q3_LIGHTMAP_SIZE;
 
-			return (min, max);
+			if (shaderDict.TryGetValue(qFace.Texture.Name, out var shader))
+			{
+				var stage = shader.stages.FirstOrDefault(x => x.bundles[0].tcGen == TexCoordGen.TCGEN_LIGHTMAP && x.bundles[0].images[0] != "$lightmap");
+				if (stage != null && externalLightmaps.TryGetValue(stage.bundles[0].images[0], out var lmData))
+					return (int)lmData.size.X;
+			}
+
+			return Q3_LIGHTMAP_SIZE;
+		}
+
+		// Maps a Quake 3 lightmap UV to the [0,1] lightCoord the engine expects for a prim-mesh vertex.
+		// The engine (GenerateTexCoordsForPrimVerts) computes the final atlas coord as
+		//   offset + lightCoord * (LightmapExtents / pageSize)
+		// and allocates/samples a block of (LightmapExtents + 1) luxels. ConvertInternalLightmaps copies
+		// that block with a LIGHTMAP_BORDER-luxel duplicated-edge border on every side, so the real luxels
+		// sit at block indices [border .. border + origExtents] and LightmapExtents was grown by 2*border.
+		//   lightCoord = (luxel - lmStart + border) / (origExtents + 2*border)
+		// NOTE: NO +0.5 half-luxel term. Quake 3 lightmap st coords already sample luxel CENTERS
+		// (uv1*lightmapSize == luxelIndex + 0.5), so 'uv1*lightmapSize - lmStart' is already the
+		// center-relative position. The engine adds +0.5 for displacements only because there it derives
+		// coords from world position (grid-relative); adding it here too double-counts and pushes every
+		// vertex a full luxel toward the high edge, so the surface edge samples the q3map2 gutter/neighbour
+		// luxel left by ceil(maxSt) -> lightmap bleed. 'extents' is the original (lmEnd - lmStart).
+		private Vector2 ComputePrimLightmapCoord(Vector2 uv1, Vector2 lmStart, Vector2 extents, int lightmapSize)
+		{
+			var paddedX = extents.X + 2 * LIGHTMAP_BORDER;
+			var paddedY = extents.Y + 2 * LIGHTMAP_BORDER;
+			var coordX = paddedX != 0 ? (uv1.X * lightmapSize - lmStart.X + LIGHTMAP_BORDER) / paddedX : 0f;
+			var coordY = paddedY != 0 ? (uv1.Y * lightmapSize - lmStart.Y + LIGHTMAP_BORDER) / paddedY : 0f;
+			return new Vector2(coordX, coordY);
 		}
 
 		private int CreatePrimitiveIndices(int[] indices)
@@ -1790,6 +1815,18 @@ namespace BSPConvert.Lib
 				ConvertExternalLightmaps();
 		}
 
+		// True if the Q3 face was emitted as primitive mesh face(s) (lightCoords baked by the converter)
+		// rather than displacement(s) (lightCoords computed at runtime by the engine). A Q3 face's split
+		// faces are homogeneous in the cases that matter here: non-patch polygons -> prims; patches ->
+		// displacements, or prims (+ invisible collision disps, prim listed first) under --patchprims.
+		private bool FaceOutputUsesPrimitives(int qFaceIndex)
+		{
+			if (!splitFaceDict.TryGetValue(qFaceIndex, out var splitFaces) || splitFaces.Length == 0)
+				return false;
+
+			return sourceBsp.Faces[splitFaces[0]].NumPrimitives > 0;
+		}
+
 		private void ConvertInternalLightmaps()
 		{
 			var qLightmapData = quakeBsp.Lightmaps.Data;
@@ -1814,12 +1851,28 @@ namespace BSPConvert.Lib
 
 				var sourceLightmapOffset = lmColors.Count * 4;
 
-				// Add lightmap colors
-				for (var y = (int)lmStart.Y; y < lmEnd.Y; y++)
+				// Only primitive faces get the guard-band border: their lightCoords are baked by the
+				// converter (ComputePrimLightmapCoord) and shifted inward to match it. Displacement faces
+				// have their lightCoords computed at runtime by the engine (SurfComputeLightmapCoordinate),
+				// which is border-unaware, so a border there would just shift their lightmap into the
+				// duplicated edge. See FaceOutputUsesPrimitives.
+				var border = FaceOutputUsesPrimitives(faceIndex) ? LIGHTMAP_BORDER : 0;
+
+				// Add lightmap colors. The engine allocates/samples a block of (extents + 1) luxels in
+				// BOTH dimensions (RegisterLightmappedSurface). Expand the copied rect by 'border' on every
+				// side, clamping the source luxel to [lmStart, lmEnd] so the border duplicates the nearest
+				// edge color (a clamp-to-edge guard band that stops bilinear bleed from the neighbouring
+				// block). Copying lmStart..lmEnd inclusive (<=) on both axes matches the (extents+1) block.
+				for (var y = (int)lmStart.Y - border; y <= (int)lmEnd.Y + border; y++)
 				{
-					for (var x = (int)lmStart.X; x <= lmEnd.X; x++)
+					// Clamp to the face's rect, then to the page bounds: lmEnd = ceil(uvMax*128) can be one
+					// past the last valid luxel when a face's lightmap UV reaches the page edge, which would
+					// otherwise read into the adjacent lightmap page (or past the lump on the last page).
+					var sy = Math.Clamp(Math.Clamp(y, (int)lmStart.Y, (int)lmEnd.Y), 0, Q3_LIGHTMAP_SIZE - 1);
+					for (var x = (int)lmStart.X - border; x <= (int)lmEnd.X + border; x++)
 					{
-						var index = x + (y * Q3_LIGHTMAP_SIZE);
+						var sx = Math.Clamp(Math.Clamp(x, (int)lmStart.X, (int)lmEnd.X), 0, Q3_LIGHTMAP_SIZE - 1);
+						var index = sx + (sy * Q3_LIGHTMAP_SIZE);
 
 						var color = ColorUtil.ConvertQ3LightmapToColorRGBExp32(
 							qLightmapData[q3LightmapOffset + index * 3 + 0],
@@ -1831,13 +1884,15 @@ namespace BSPConvert.Lib
 					}
 				}
 
-				// Update face lightmap info
+				// Update face lightmap info. LightmapSize grows by 2*border to account for the guard band;
+				// ComputePrimLightmapCoord shifts prim vertices inward by the same border so they sample the
+				// real (interior) luxels.
 				foreach (var splitFaceIndex in splitFaceDict[faceIndex])
 				{
 					var sFace = sourceBsp.Faces[splitFaceIndex];
 					sFace.Lightmap = sourceLightmapOffset;
 					sFace.LightmapStart = GetLightmapStart(sFace);
-					sFace.LightmapSize = new Vector2(lmSize.X, lmSize.Y);
+					sFace.LightmapSize = new Vector2(lmSize.X + 2 * border, lmSize.Y + 2 * border);
 				}
 			}
 
@@ -1880,12 +1935,20 @@ namespace BSPConvert.Lib
 
 				var lightmapOffset = lmColors.Count * 4;
 
-				// Add lightmap colors
-				for (var y = (int)lmStart.Y; y < lmEnd.Y; y++)
+				// Guard-band border only for primitive faces; see ConvertInternalLightmaps for the rationale.
+				var border = FaceOutputUsesPrimitives(faceIndex) ? LIGHTMAP_BORDER : 0;
+				var lmWidth = (int)lmData.size.X;
+				var lmHeight = (int)lmData.size.Y;
+				for (var y = (int)lmStart.Y - border; y <= (int)lmEnd.Y + border; y++)
 				{
-					for (var x = (int)lmStart.X; x <= lmEnd.X; x++)
+					// Clamp to the face's rect, then to the image bounds: lmEnd = ceil(uvMax*size) can be one
+					// past the last valid luxel when a face's lightmap UV reaches the image edge, which would
+					// index past the end of the (single) external lightmap image -> IndexOutOfRange.
+					var sy = Math.Clamp(Math.Clamp(y, (int)lmStart.Y, (int)lmEnd.Y), 0, lmHeight - 1);
+					for (var x = (int)lmStart.X - border; x <= (int)lmEnd.X + border; x++)
 					{
-						var index = x + y * (int)lmData.size.X;
+						var sx = Math.Clamp(Math.Clamp(x, (int)lmStart.X, (int)lmEnd.X), 0, lmWidth - 1);
+						var index = sx + sy * lmWidth;
 
 						var color = ColorUtil.ConvertQ3LightmapToColorRGBExp32(
 							lmData.data[index * 3 + 0],
@@ -1902,7 +1965,7 @@ namespace BSPConvert.Lib
 					var sFace = sourceBsp.Faces[splitFaceIndex];
 					sFace.Lightmap = lightmapOffset;
 					sFace.LightmapStart = GetLightmapStart(sFace);
-					sFace.LightmapSize = new Vector2(lmSize.X, lmSize.Y);
+					sFace.LightmapSize = new Vector2(lmSize.X + 2 * border, lmSize.Y + 2 * border);
 				}
 			}
 
@@ -1936,24 +1999,6 @@ namespace BSPConvert.Lib
 					uvMax.X = vert.uv1.X;
 				if (vert.uv1.Y > uvMax.Y)
 					uvMax.Y = vert.uv1.Y;
-			}
-
-			var lmStart = new Vector2((int)Math.Floor(uvMin.X * lightmapSize), (int)Math.Floor(uvMin.Y * lightmapSize));
-			var lmEnd = new Vector2((int)Math.Ceiling(uvMax.X * lightmapSize), (int)Math.Ceiling(uvMax.Y * lightmapSize));
-
-			return (lmStart, lmEnd);
-		}
-
-		private (Vector2, Vector2) GetLightmapExtents(Vector2[] lightmapUVs, float lightmapSize)
-		{
-			var uvMin = new Vector2(float.MaxValue, float.MaxValue);
-			var uvMax = new Vector2(float.MinValue, float.MinValue);
-			foreach (var uv in lightmapUVs)
-			{
-				if (uv.X < uvMin.X) uvMin.X = uv.X;
-				if (uv.Y < uvMin.Y) uvMin.Y = uv.Y;
-				if (uv.X > uvMax.X) uvMax.X = uv.X;
-				if (uv.Y > uvMax.Y) uvMax.Y = uv.Y;
 			}
 
 			var lmStart = new Vector2((int)Math.Floor(uvMin.X * lightmapSize), (int)Math.Floor(uvMin.Y * lightmapSize));
