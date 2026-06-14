@@ -232,7 +232,11 @@ namespace BSPConvert.Lib
 		private void AppendShaderParameters(StringBuilder sb, Shader shader)
 		{
 			var stages = shader.GetImageStages();
-			var textureStage = stages.FirstOrDefault(x => x.bundles[0].tcGen != TexCoordGen.TCGEN_ENVIRONMENT_MAPPED && x.bundles[0].tcGen != TexCoordGen.TCGEN_LIGHTMAP);
+			bool IsTextureStage(ShaderStage x) => x.bundles[0].tcGen != TexCoordGen.TCGEN_ENVIRONMENT_MAPPED && x.bundles[0].tcGen != TexCoordGen.TCGEN_LIGHTMAP;
+			// Prefer a stage that actually carries the visible texture, skipping depth-priming stages (see IsDepthPrimingStage).
+			// Fall back to the first texture stage if every candidate is degenerate.
+			var textureStage = stages.FirstOrDefault(x => IsTextureStage(x) && !IsDepthPrimingStage(x))
+				?? stages.FirstOrDefault(IsTextureStage);
 			if (textureStage != null)
 			{
 				var texture = Path.ChangeExtension(textureStage.bundles[0].images[0], null);
@@ -272,6 +276,10 @@ namespace BSPConvert.Lib
 			if (shader.cullType == CullType.TWO_SIDED)
 				sb.AppendLine("\t$nocull 1");
 
+			// Q3's polygonOffset -> Source's decal depth bias, to keep overlay surfaces from z-fighting
+			if (shader.polygonOffset)
+				sb.AppendLine("\t$decal 1");
+
 			var flags = (textureStage?.flags ?? 0) | (envMapStage?.flags ?? 0);
 			if (flags.HasFlag(ShaderStageFlags.GLS_ATEST_GE_80))
 			{
@@ -279,12 +287,13 @@ namespace BSPConvert.Lib
 				sb.AppendLine("\t$alphatestreference 0.5");
 			}
 
-			var firstImageStage = stages.FirstOrDefault();
-			if (firstImageStage != null)
+			// Drive blend mode from the chosen texture stage so it reflects the visible layer, not a depth-priming stage
+			var blendStage = textureStage ?? stages.FirstOrDefault();
+			if (blendStage != null)
 			{
 				// Blend factors are multi-bit values within a bitfield, so mask them out before comparing
-				var srcBlend = firstImageStage.flags & ShaderStageFlags.GLS_SRCBLEND_BITS;
-				var dstBlend = firstImageStage.flags & ShaderStageFlags.GLS_DSTBLEND_BITS;
+				var srcBlend = blendStage.flags & ShaderStageFlags.GLS_SRCBLEND_BITS;
+				var dstBlend = blendStage.flags & ShaderStageFlags.GLS_DSTBLEND_BITS;
 
 				// Additive blend (e.g. "GL_ONE GL_ONE" or "GL_SRC_ALPHA GL_ONE") - black pixels become transparent
 				if (dstBlend == ShaderStageFlags.GLS_DSTBLEND_ONE &&
@@ -299,6 +308,13 @@ namespace BSPConvert.Lib
 			if (textureStage != null && textureStage.bundles[0].texMods.Any(y => y.type == TexMod.TMOD_SCROLL || y.type == TexMod.TMOD_ROTATE ||
 				y.type == TexMod.TMOD_STRETCH || y.type == TexMod.TMOD_SCALE))
 				ConvertTexMods(sb, textureStage);
+		}
+
+		// Detects Q3 depth-priming stages: a "tcmod scale 0 0" collapses the stage's texcoords to a single
+		// texel, so it carries no visible texture and exists only to prime depth (common in decal shaders).
+		private static bool IsDepthPrimingStage(ShaderStage stage)
+		{
+			return stage.bundles[0].texMods.Any(t => t.type == TexMod.TMOD_SCALE && t.scale[0] == 0f && t.scale[1] == 0f);
 		}
 
 		private void ConvertTexMods(StringBuilder sb, ShaderStage texModStage)

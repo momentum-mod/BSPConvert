@@ -82,6 +82,7 @@ namespace BSPConvert.Lib
 					case "nopicmip":
 						break;
 					case "polygonoffset":
+						shader.polygonOffset = true;
 						break;
 					case "entitymergable":
 						break;

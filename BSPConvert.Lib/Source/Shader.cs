@@ -194,6 +194,7 @@ namespace BSPConvert.Lib
 		public Q3SurfaceFlags surfaceFlags;
 		public Q3ContentsFlags contents;
 		public CullType cullType;
+		public bool polygonOffset; // Surface is pushed slightly toward the viewer to avoid z-fighting (e.g. decals)
 		public ShaderStage[] stages;
 
 		/// <summary>
