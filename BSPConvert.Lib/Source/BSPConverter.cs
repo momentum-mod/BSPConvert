@@ -58,6 +58,7 @@ namespace BSPConvert.Lib
 		}
 		public int minDamageToRespawnPlayer;
 		public bool ignoreZones;
+		public bool noEnvMap;
 		public bool oldBSP;
 		public string prefix;
 		public string inputFile;
@@ -232,7 +233,7 @@ namespace BSPConvert.Lib
 
 		private void ConvertMaterials()
 		{
-			var materialConverter = new MaterialConverter(contentManager.ContentDir, shaderDict);
+			var materialConverter = new MaterialConverter(contentManager.ContentDir, shaderDict, options.noEnvMap);
 			foreach (var texture in quakeBsp.Textures)
 				materialConverter.Convert(texture.Name);
 		}

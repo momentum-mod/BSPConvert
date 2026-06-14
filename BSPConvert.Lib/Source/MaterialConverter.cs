@@ -13,6 +13,7 @@ namespace BSPConvert.Lib
 		private Dictionary<string, Shader> shaderDict;
 		private Dictionary<string, string> pk3ImageDict;
 		private Dictionary<string, string> q3ImageDict;
+		private bool noEnvMap;
 
 		private string[] skySuffixes =
 		{
@@ -24,10 +25,11 @@ namespace BSPConvert.Lib
 			"up"
 		};
 
-		public MaterialConverter(string pk3Dir, Dictionary<string, Shader> shaderDict)
+		public MaterialConverter(string pk3Dir, Dictionary<string, Shader> shaderDict, bool noEnvMap = false)
 		{
 			this.pk3Dir = pk3Dir;
 			this.shaderDict = shaderDict;
+			this.noEnvMap = noEnvMap;
 			pk3ImageDict = GetImageLookupDictionary(pk3Dir);
 			q3ImageDict = GetImageLookupDictionary(ContentManager.GetQ3ContentDir());
 		}
@@ -250,7 +252,7 @@ namespace BSPConvert.Lib
 				}
 			}
 
-			var envMapStage = stages.FirstOrDefault(x => x.bundles[0].tcGen == TexCoordGen.TCGEN_ENVIRONMENT_MAPPED);
+			var envMapStage = noEnvMap ? null : stages.FirstOrDefault(x => x.bundles[0].tcGen == TexCoordGen.TCGEN_ENVIRONMENT_MAPPED);
 			if (envMapStage != null)
 			{
 				sb.AppendLine($"\t$envmap \"engine/defaultcubemap\"");

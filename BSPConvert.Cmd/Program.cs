@@ -23,6 +23,9 @@ namespace BSPConvert.Cmd
 			[Option("nozones", Required = false, HelpText = "Ignore timer zone triggers.")]
 			public bool IgnoreZones { get; set; }
 
+			[Option("noenvmap", Required = false, HelpText = "Disable envmap (specular cubemap) shader conversion. Useful for maps where Source's cubemap poorly emulates Quake 3's spheremap effect.")]
+			public bool NoEnvMap { get; set; }
+
 			//[Option("oldbsp", Required = false, HelpText = "Use BSP version 20 (HL2 / CS:S).")]
 			//public bool OldBSP { get; set; }
 
@@ -70,6 +73,7 @@ namespace BSPConvert.Cmd
 					DisplacementPower = options.DisplacementPower,
 					minDamageToRespawnPlayer = options.MinDamageToRespawnPlayer,
 					ignoreZones = options.IgnoreZones,
+					noEnvMap = options.NoEnvMap,
 					//oldBSP = options.OldBSP,
 					prefix = options.Prefix,
 					inputFile = inputEntry,
