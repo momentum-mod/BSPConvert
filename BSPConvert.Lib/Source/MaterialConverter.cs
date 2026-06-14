@@ -280,10 +280,17 @@ namespace BSPConvert.Lib
 			var firstImageStage = stages.FirstOrDefault();
 			if (firstImageStage != null)
 			{
-				if (firstImageStage.flags.HasFlag(ShaderStageFlags.GLS_SRCBLEND_ONE | ShaderStageFlags.GLS_DSTBLEND_ONE)) // blendFunc add
+				// Blend factors are multi-bit values within a bitfield, so mask them out before comparing
+				var srcBlend = firstImageStage.flags & ShaderStageFlags.GLS_SRCBLEND_BITS;
+				var dstBlend = firstImageStage.flags & ShaderStageFlags.GLS_DSTBLEND_BITS;
+
+				// Additive blend (e.g. "GL_ONE GL_ONE" or "GL_SRC_ALPHA GL_ONE") - black pixels become transparent
+				if (dstBlend == ShaderStageFlags.GLS_DSTBLEND_ONE &&
+					(srcBlend == ShaderStageFlags.GLS_SRCBLEND_ONE || srcBlend == ShaderStageFlags.GLS_SRCBLEND_SRC_ALPHA))
 					sb.AppendLine("\t$additive 1");
 
-				if (firstImageStage.flags.HasFlag(ShaderStageFlags.GLS_SRCBLEND_SRC_ALPHA | ShaderStageFlags.GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA)) // blendFunc blend
+				// Alpha blend (e.g. "GL_SRC_ALPHA GL_ONE_MINUS_SRC_ALPHA")
+				else if (srcBlend == ShaderStageFlags.GLS_SRCBLEND_SRC_ALPHA && dstBlend == ShaderStageFlags.GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA)
 					sb.AppendLine("\t$translucent 1");
 			}
 
