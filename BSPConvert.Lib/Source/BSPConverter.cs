@@ -1081,19 +1081,53 @@ namespace BSPConvert.Lib
 		private void ConvertPatchAsPrimitive(int faceIndex)
 		{
 			var qFace = quakeBsp.Faces[faceIndex];
-			var numPatchesWidth = ((int)qFace.PatchSize.X - 1) / 2;
-			var numPatchesHeight = ((int)qFace.PatchSize.Y - 1) / 2;
-			splitFaceDict[faceIndex] = new int[numPatchesWidth * numPatchesHeight];
 
-			var currentPatch = 0;
+			// Each sub-patch produces a visible primitive face (which supports the per-vertex UV
+			// mapping that displacements can't) plus an invisible, collision-only displacement face.
+			var faceIndices = new List<int>();
 			for (var y = 0; y < qFace.PatchSize.Y - 1; y += 2)
 			{
 				for (var x = 0; x < qFace.PatchSize.X - 1; x += 2)
 				{
 					var patchStartVertex = qFace.FirstVertexIndex + x + y * (int)qFace.PatchSize.X;
-					splitFaceDict[faceIndex][currentPatch++] = CreatePatchFaceAsPrimitive(faceIndex, patchStartVertex);
+
+					faceIndices.Add(CreatePatchFaceAsPrimitive(faceIndex, patchStartVertex));
+
+					var collisionFaceIndex = CreatePatchCollisionFace(faceIndex, patchStartVertex);
+					if (collisionFaceIndex >= 0)
+						faceIndices.Add(collisionFaceIndex);
 				}
 			}
+
+			splitFaceDict[faceIndex] = faceIndices.ToArray();
+		}
+
+		// Creates an invisible displacement that matches the patch geometry purely for collision.
+		// Mirrors CreatePatch, but forces the invisible displacement material so it doesn't render
+		// on top of the primitive visual mesh.
+		private int CreatePatchCollisionFace(int qFaceIndex, int patchStartVertex)
+		{
+			var qFace = quakeBsp.Faces[qFaceIndex];
+
+			// Mirror CreatePatchDisplacement's skip rule so we never emit a face that references a
+			// displacement we don't end up creating. Note the primitive pass may already have
+			// rewritten tool textures to the (tools/) invisible displacement material.
+			if (options.noToolDisplacements && qFace.Texture.Name.StartsWith("tools/", StringComparison.OrdinalIgnoreCase))
+				return -1;
+
+			var patchWidth = (int)qFace.PatchSize.X;
+			var faceVerts = new Vertex[]
+			{
+				quakeBsp.Vertices[patchStartVertex],
+				quakeBsp.Vertices[patchStartVertex + 2],
+				quakeBsp.Vertices[patchStartVertex + 2 + 2 * patchWidth],
+				quakeBsp.Vertices[patchStartVertex + 2 * patchWidth]
+			};
+
+			var sFaceIndex = CreatePatchFace(faceVerts, qFaceIndex, forceInvisible: true);
+			CreatePatchDisplacement(sFaceIndex, faceVerts, patchWidth, patchStartVertex, qFace);
+
+			return sFaceIndex;
 		}
 
 		private int CreatePatch(int qFaceIndex, int patchStartVertex)
@@ -1114,7 +1148,7 @@ namespace BSPConvert.Lib
 			return sFaceIndex;
 		}
 
-		private int CreatePatchFace(Vertex[] faceVerts, int faceIndex)
+		private int CreatePatchFace(Vertex[] faceVerts, int faceIndex, bool forceInvisible = false)
 		{
 			var sFace = CreateFace();
 
@@ -1130,9 +1164,17 @@ namespace BSPConvert.Lib
 
 			(var uAxis, var vAxis) = GetTextureVectorsFromVertices(faceVerts[0], faceVerts[1], faceVerts[3], normal);
 
-			var qFace = quakeBsp.Faces[faceIndex];
-			ReplaceToolTextureWithInvisibleDisplacement(qFace);
-			sFace.TextureInfoIndex = CreateTextureInfo(qFace.Texture, uAxis, vAxis);
+			if (forceInvisible)
+			{
+				// Collision-only face: use the invisible displacement material so it doesn't render.
+				sFace.TextureInfoIndex = CreateInvisibleDisplacementTextureInfo(uAxis, vAxis);
+			}
+			else
+			{
+				var qFace = quakeBsp.Faces[faceIndex];
+				ReplaceToolTextureWithInvisibleDisplacement(qFace);
+				sFace.TextureInfoIndex = CreateTextureInfo(qFace.Texture, uAxis, vAxis);
+			}
 
 			// Create face edges
 			sFace.FirstEdgeIndexIndex = sourceBsp.FaceEdges.Count;
@@ -1632,6 +1674,35 @@ namespace BSPConvert.Lib
 
 			if (!textureInfoLookup.ContainsKey(texture.Name))
 				textureInfoLookup.Add(texture.Name, textureInfoIndex);
+
+			return textureInfoIndex;
+		}
+
+		// Texture info pointing at the invisible displacement material, used for collision-only
+		// displacement faces (see CreatePatchCollisionFace).
+		private int CreateInvisibleDisplacementTextureInfo(Vector3 uAxis, Vector3 vAxis)
+		{
+			if (LookupTextureDataIndex(invisibleDisplacementTexture) < 0)
+				CreateTextureData(invisibleDisplacementTexture);
+
+			var data = new byte[TextureInfo.GetStructLength(sourceBsp.MapType)];
+			var textureInfo = new TextureInfo(data, sourceBsp.TextureInfo);
+
+			textureInfo.UAxis = uAxis;
+			textureInfo.VAxis = vAxis;
+			textureInfo.LightmapUAxis = uAxis / 32f;
+			textureInfo.LightmapVAxis = vAxis / 32f;
+			textureInfo.TextureIndex = LookupTextureDataIndex(invisibleDisplacementTexture);
+
+			// Avoid adding duplicate texture info
+			var key = new TextureInfoKey(textureInfo);
+			if (textureInfoDict.TryGetValue(key, out var textureInfoIndex))
+				return textureInfoIndex;
+
+			sourceBsp.TextureInfo.Add(textureInfo);
+
+			textureInfoIndex = sourceBsp.TextureInfo.Count - 1;
+			textureInfoDict.Add(key, textureInfoIndex);
 
 			return textureInfoIndex;
 		}
