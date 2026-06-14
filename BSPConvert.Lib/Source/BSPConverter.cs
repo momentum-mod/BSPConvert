@@ -85,6 +85,7 @@ namespace BSPConvert.Lib
 		private Dictionary<TextureInfoKey, int> textureInfoDict = new Dictionary<TextureInfoKey, int>();
 		private Dictionary<string, int> textureInfoLookup = new Dictionary<string, int>();
 		private Dictionary<string, int> textureDataLookup = new Dictionary<string, int>();
+		private Dictionary<int, int> invisibleDispTexDataByFlags = new Dictionary<int, int>(); // Maps a physics surface-flag set to its invisible-displacement texdata variant
 		private Dictionary<int, int[]> splitFaceDict = new Dictionary<int, int[]>(); // Maps the original face index to the new face indices split by triangles
 		private Dictionary<(Vector3, float), int> planeDict = new Dictionary<(Vector3, float), int>();
 
@@ -350,14 +351,25 @@ namespace BSPConvert.Lib
 
 		private void CreateTextureData(string textureName)
 		{
+			var index = CreateTextureDataEntry(textureName);
+
+			if (!textureDataLookup.ContainsKey(textureName))
+				textureDataLookup.Add(textureName, index);
+		}
+
+		// Creates a texdata entry for the given material and returns its index without
+		// registering it in textureDataLookup. Use this when a distinct texdata is needed
+		// for an already-named material (e.g. a surface-flag variant), so the name->index
+		// lookup keeps pointing at the original/default entry.
+		private int CreateTextureDataEntry(string textureName)
+		{
 			var vtfPath = Path.Combine(contentManager.ContentDir, textureName + ".vtf");
 			var textureData = GetTextureData(vtfPath);
 			textureData.TextureStringOffsetIndex = CreateTextureDataStringTableEntry(textureName);
 
 			sourceBsp.TextureData.Add(textureData);
 
-			if (!textureDataLookup.ContainsKey(textureName))
-				textureDataLookup.Add(textureName, sourceBsp.TextureData.Count - 1);
+			return sourceBsp.TextureData.Count - 1;
 		}
 
 		private TextureData GetTextureData(string vtfPath)
@@ -1169,8 +1181,11 @@ namespace BSPConvert.Lib
 
 			if (forceInvisible)
 			{
-				// Collision-only face: use the invisible displacement material so it doesn't render.
-				sFace.TextureInfoIndex = CreateInvisibleDisplacementTextureInfo(uAxis, vAxis);
+				// Collision-only face: use the invisible displacement material so it doesn't render,
+				// but preserve physics-relevant surface flags (e.g. SURF_SLICK) from the original
+				// patch texture so slick ice physics still apply to the collision displacement.
+				var qFace = quakeBsp.Faces[faceIndex];
+				sFace.TextureInfoIndex = CreateInvisibleDisplacementTextureInfo(uAxis, vAxis, GetPhysicsSurfaceFlags(qFace.Texture));
 			}
 			else
 			{
@@ -1704,12 +1719,10 @@ namespace BSPConvert.Lib
 		}
 
 		// Texture info pointing at the invisible displacement material, used for collision-only
-		// displacement faces (see CreatePatchCollisionFace).
-		private int CreateInvisibleDisplacementTextureInfo(Vector3 uAxis, Vector3 vAxis)
+		// displacement faces (see CreatePatchCollisionFace). physicsFlags carries surface flags
+		// (e.g. SURF_SLICK) that must survive onto the collision surface even though it never renders.
+		private int CreateInvisibleDisplacementTextureInfo(Vector3 uAxis, Vector3 vAxis, int physicsFlags = 0)
 		{
-			if (LookupTextureDataIndex(invisibleDisplacementTexture) < 0)
-				CreateTextureData(invisibleDisplacementTexture);
-
 			var data = new byte[TextureInfo.GetStructLength(sourceBsp.MapType)];
 			var textureInfo = new TextureInfo(data, sourceBsp.TextureInfo);
 
@@ -1717,7 +1730,8 @@ namespace BSPConvert.Lib
 			textureInfo.VAxis = vAxis;
 			textureInfo.LightmapUAxis = uAxis / 32f;
 			textureInfo.LightmapVAxis = vAxis / 32f;
-			textureInfo.TextureIndex = LookupTextureDataIndex(invisibleDisplacementTexture);
+			textureInfo.TextureIndex = GetInvisibleDisplacementTextureDataIndex(physicsFlags);
+			textureInfo.Flags = physicsFlags;
 
 			// Avoid adding duplicate texture info
 			var key = new TextureInfoKey(textureInfo);
@@ -1730,6 +1744,46 @@ namespace BSPConvert.Lib
 			textureInfoDict.Add(key, textureInfoIndex);
 
 			return textureInfoIndex;
+		}
+
+		// The engine ORs surface flags per-texdata, not per-texinfo (see CMod_LoadTexinfo:
+		// "Copy this over for the whole material"). All invisible collision displacements share
+		// one material, so to stop SURF_SLICK from bleeding onto every patch we give each distinct
+		// physics-flag set its own texdata entry that still points at the invisible material.
+		private int GetInvisibleDisplacementTextureDataIndex(int physicsFlags)
+		{
+			if (invisibleDispTexDataByFlags.TryGetValue(physicsFlags, out var index))
+				return index;
+
+			if (physicsFlags == 0)
+			{
+				// Default variant: share the name-keyed texdata so other callers dedupe against it.
+				if (LookupTextureDataIndex(invisibleDisplacementTexture) < 0)
+					CreateTextureData(invisibleDisplacementTexture);
+
+				index = LookupTextureDataIndex(invisibleDisplacementTexture);
+			}
+			else
+			{
+				// Distinct texdata for this flag set, still resolving to the invisible material.
+				index = CreateTextureDataEntry(invisibleDisplacementTexture);
+			}
+
+			invisibleDispTexDataByFlags[physicsFlags] = index;
+			return index;
+		}
+
+		// Surface flags that affect movement/physics and must be carried onto collision-only
+		// displacements. Rendering/lighting flags are irrelevant for a non-rendering surface.
+		private static int GetPhysicsSurfaceFlags(Texture texture)
+		{
+			var q3Flags = (Q3SurfaceFlags)texture.Flags;
+			var flags = 0;
+
+			if (q3Flags.HasFlag(Q3SurfaceFlags.SURF_SLICK))
+				flags |= (int)SourceSurfaceFlags.SURF_SLICK;
+
+			return flags;
 		}
 
 		private (Vector3 uAxis, Vector3 vAxis) GetTextureVectors(Face qFace, int firstIndex)
