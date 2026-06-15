@@ -109,7 +109,7 @@ namespace BSPConvert.Lib
 
 		private Entities q3Entities;
 		private Entities sourceEntities;
-		private Dictionary<string, Shader> shaderDict;
+		private string skyName;
 		private int minDamageToRespawnPlayer;
 		private bool ignoreZones;
 		private Dictionary<string, List<Entity>> entityDict = new Dictionary<string, List<Entity>>();
@@ -121,11 +121,11 @@ namespace BSPConvert.Lib
 		private const string MOMENTUM_MATH_COUNTER = "_momentum_math_counter_";
 		private const int q3LipMod = 2; // Quake adds 2 units to button/door lip for some reason
 
-		public EntityConverter(Lump<Model> q3Models, Entities q3Entities, Entities sourceEntities, Dictionary<string, Shader> shaderDict, int minDamageToRespawnPlayer, bool ignoreZones)
+		public EntityConverter(Lump<Model> q3Models, Entities q3Entities, Entities sourceEntities, string skyName, int minDamageToRespawnPlayer, bool ignoreZones)
 		{
 			this.q3Entities = q3Entities;
 			this.sourceEntities = sourceEntities;
-			this.shaderDict = shaderDict;
+			this.skyName = skyName;
 			this.minDamageToRespawnPlayer = minDamageToRespawnPlayer;
 			this.ignoreZones = ignoreZones;
 			this.q3Models = q3Models;
@@ -515,15 +515,8 @@ namespace BSPConvert.Lib
 
 		private void ConvertWorldspawn(Entity worldspawn)
 		{
-			foreach (var shader in shaderDict.Values)
-			{
-				if (shader.skyParms != null)
-				{
-					var skyName = shader.skyParms.outerBox;
-					if (!string.IsNullOrEmpty(skyName))
-						worldspawn["skyname"] = skyName;
-				}
-			}
+			if (!string.IsNullOrEmpty(skyName))
+				worldspawn["skyname"] = skyName;
 		}
 
 		private void ConvertPlayerStart(Entity playerStart)

@@ -297,8 +297,31 @@ namespace BSPConvert.Lib
 
 		private void ConvertEntities()
 		{
-			var converter = new EntityConverter(quakeBsp.Models, quakeBsp.Entities, sourceBsp.Entities, shaderDict, options.minDamageToRespawnPlayer, options.ignoreZones);
+			var converter = new EntityConverter(quakeBsp.Models, quakeBsp.Entities, sourceBsp.Entities, GetSkyName(), options.minDamageToRespawnPlayer, options.ignoreZones);
 			converter.Convert();
+		}
+
+		// Source uses a single global skybox (skyname), but Q3 sky brushes directly reference a sky
+		// shader. q3map2 bakes that shader name into each BSP texture entry, so resolve skyname from
+		// the sky shader actually applied to brushes rather than from all parsed shaders.
+		private string GetSkyName()
+		{
+			foreach (var texture in quakeBsp.Textures)
+			{
+				if (!shaderDict.TryGetValue(texture.Name, out var shader))
+					continue;
+
+				// Sky defined by a 6-sided box: skyname is the box name (e.g. "skyParms env/foo ...").
+				if (shader.skyParms != null && !string.IsNullOrEmpty(shader.skyParms.outerBox))
+					return shader.skyParms.outerBox;
+
+				// Single-texture sky (surfaceparm sky without skyParms): skyname matches the shader name
+				// (see MaterialConverter.CreateSingleTextureSkyboxVMT).
+				if (shader.surfaceFlags.HasFlag(Q3SurfaceFlags.SURF_SKY) && shader.GetImageStages().Any())
+					return texture.Name;
+			}
+
+			return null;
 		}
 
 		private void ConvertSounds()
