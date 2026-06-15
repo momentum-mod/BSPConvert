@@ -2,8 +2,15 @@
 {
 	public static class ColorUtil
 	{
-		public static ColorRGBExp32 ConvertQ3LightmapToColorRGBExp32(byte r, byte g, byte b)
+		// The Momentum engine re-applies a 4x overbright to lightmapped surfaces at load
+		// (map_loadhelper.cpp ColorModulate), matching Quake 3's default r_mapOverBrightBits = 2 (<<2).
+		private const int OVERBRIGHT = 4;
+
+		public static ColorRGBExp32 ConvertQ3LightmapToColorRGBExp32(byte r, byte g, byte b, float lightmapMin = 0f)
 		{
+			(r, g, b) = ApplyOverbrightClamp(r, g, b);
+			(r, g, b) = ApplyMinBrightness(r, g, b, lightmapMin);
+
 			var color = new ColorRGBExp32();
 
 			var rf = GammaToLinear(r) * 4f; // Multiply by 4 since Source expects lightmap values in 0-4 range
@@ -22,6 +29,45 @@
 			color.exponent = (sbyte)exp;
 
 			return color;
+		}
+
+		// Replicates the saturation behaviour of Quake 3's R_ColorShiftLightingBytes (tr_bsp.c). Q3
+		// multiplies lightmap colors by the overbright factor and, when a channel exceeds 255, scales ALL
+		// channels down together (hue-preserving) so a bright luxel flattens toward white instead of
+		// clipping per channel. Because the engine applies that overbright (x4) itself, we don't amplify
+		// here - we only enforce the matching ceiling: the brightest pre-overbright luxel that survives is
+		// 255/OVERBRIGHT (= 63), above which the engine's x4 would blow past white. Bytes at or below the
+		// ceiling (most of the map, incl. midtones) pass through unchanged, so the look there is preserved;
+		// only the over-bright luxels Q3 discards get flattened, fixing the too-bright/blotchy highlights.
+		private static (byte r, byte g, byte b) ApplyOverbrightClamp(byte r, byte g, byte b)
+		{
+			const int ceiling = 255 / OVERBRIGHT; // 63
+
+			var max = Math.Max(r, Math.Max(g, b));
+			if (max <= ceiling)
+				return (r, g, b);
+
+			return (
+				(byte)(r * ceiling / max),
+				(byte)(g * ceiling / max),
+				(byte)(b * ceiling / max));
+		}
+
+		// Raises the lightmap black point: linearly remaps each channel's [0, ceiling] range to
+		// [min*ceiling, ceiling] (i.e. the rendered [0,1] tonal range to [min,1], white unchanged). Near-
+		// black 8-bit luxels have huge RELATIVE gaps (byte 1 vs 2 = 2x) that read as harsh banding once the
+		// overbright/display amplify them; lifting the darkest luxels to a dim floor shrinks those relative
+		// gaps for smoother shadow gradients, at the cost of shadow depth. min = 0 leaves darks untouched.
+		private static (byte r, byte g, byte b) ApplyMinBrightness(byte r, byte g, byte b, float min)
+		{
+			if (min <= 0f)
+				return (r, g, b);
+
+			const int ceiling = 255 / OVERBRIGHT; // 63: white point after the overbright clamp
+			var floor = min * ceiling;
+
+			byte Remap(byte c) => (byte)(floor + (1f - min) * c);
+			return (Remap(r), Remap(g), Remap(b));
 		}
 
 		private static float GammaToLinear(byte gamma)

@@ -63,6 +63,10 @@ namespace BSPConvert.Lib
 		public string prefix;
 		public string inputFile;
 		public string outputDir;
+		// Lightmap black-point lift in [0,1): remaps the rendered [0,1] tonal range to [min,1], raising the
+		// darkest luxels off pure black to smooth out harsh/banded shadow gradients (at the cost of shadow
+		// depth); 0 = no change. See ColorUtil.ConvertQ3LightmapToColorRGBExp32.
+		public float lightmapMinBrightness;
 	}
 
 	public class BSPConverter
@@ -1527,7 +1531,8 @@ namespace BSPConvert.Lib
 						var color = ColorUtil.ConvertQ3LightmapToColorRGBExp32(
 							qLightmapData[q3LightmapOffset + index * 3 + 0],
 							qLightmapData[q3LightmapOffset + index * 3 + 1],
-							qLightmapData[q3LightmapOffset + index * 3 + 2]);
+							qLightmapData[q3LightmapOffset + index * 3 + 2],
+							options.lightmapMinBrightness);
 
 						lmColors.Add(color);
 					}
@@ -1592,7 +1597,8 @@ namespace BSPConvert.Lib
 						var color = ColorUtil.ConvertQ3LightmapToColorRGBExp32(
 							lmData.data[index * 3 + 0],
 							lmData.data[index * 3 + 1],
-							lmData.data[index * 3 + 2]);
+							lmData.data[index * 3 + 2],
+							options.lightmapMinBrightness);
 
 						lmColors.Add(color);
 					}

@@ -25,6 +25,9 @@ namespace BSPConvert.Cmd
 
 			[Option("noenvmap", Required = false, HelpText = "Disable envmap (specular cubemap) shader conversion. Useful for maps where Source's cubemap poorly emulates Quake 3's spheremap effect.")]
 			public bool NoEnvMap { get; set; }
+			
+			[Option("lightmapmin", Required = false, Default = 0.0f, HelpText = "Lightmap black-point lift in [0,1): remaps the [0,1] tonal range to [min,1], raising the darkest luxels off pure black to smooth out harsh/banded shadows (at the cost of shadow depth); 0 = no change. Try ~0.1-0.3.")]
+			public float LightmapMinBrightness { get; set; }
 
 			//[Option("oldbsp", Required = false, HelpText = "Use BSP version 20 (HL2 / CS:S).")]
 			//public bool OldBSP { get; set; }
@@ -77,7 +80,8 @@ namespace BSPConvert.Cmd
 					//oldBSP = options.OldBSP,
 					prefix = options.Prefix,
 					inputFile = inputEntry,
-					outputDir = options.OutputDirectory
+					outputDir = options.OutputDirectory,
+					lightmapMinBrightness = options.LightmapMinBrightness
 				};
 				var converter = new BSPConverter(converterOptions, new ConsoleLogger());
 				converter.Convert();
