@@ -13,6 +13,7 @@ namespace BSPConvert.Lib
 		private Dictionary<string, Shader> shaderDict;
 		private Dictionary<string, string> pk3ImageDict;
 		private Dictionary<string, string> q3ImageDict;
+		private Dictionary<string, string> customImageDict;
 		private bool noEnvMap;
 
 		private string[] skySuffixes =
@@ -32,12 +33,16 @@ namespace BSPConvert.Lib
 			this.noEnvMap = noEnvMap;
 			pk3ImageDict = GetImageLookupDictionary(pk3Dir);
 			q3ImageDict = GetImageLookupDictionary(ContentManager.GetQ3ContentDir());
+			customImageDict = GetImageLookupDictionary(ContentManager.GetCustomContentDir());
 		}
 
 		// Create a dictionary that maps relative texture paths to the full file paths in the content folder
 		private Dictionary<string, string> GetImageLookupDictionary(string contentDir)
 		{
 			var imageDict = new Dictionary<string, string>();
+
+			if (!Directory.Exists(contentDir))
+				return imageDict;
 
 			foreach (var file in Directory.GetFiles(contentDir, "*.*", SearchOption.AllDirectories))
 			{
@@ -146,18 +151,23 @@ namespace BSPConvert.Lib
 
 				return true;
 			}
-			else if (q3ImageDict.TryGetValue(skyTexture, out var q3Path))
-			{
-				var q3ContentDir = ContentManager.GetQ3ContentDir();
-				var newPath = q3Path.Replace(q3ContentDir, skyboxDir, StringComparison.OrdinalIgnoreCase);
-				var destFile = newPath.Remove(newPath.LastIndexOf('_'), 1); // Remove underscore from skybox suffix
 
-				FileUtil.CopyFile(q3Path, destFile);
+			// Search external content (Q3 base first, then user-managed CustomContent) for the sky image.
+			return TryCopyExternalSky(q3ImageDict, ContentManager.GetQ3ContentDir(), skyTexture, skyboxDir)
+				|| TryCopyExternalSky(customImageDict, ContentManager.GetCustomContentDir(), skyTexture, skyboxDir);
+		}
 
-				return true;
-			}
+		private bool TryCopyExternalSky(Dictionary<string, string> imageDict, string contentDir, string skyTexture, string skyboxDir)
+		{
+			if (!imageDict.TryGetValue(skyTexture, out var sourcePath))
+				return false; // No sky image found
 
-			return false; // No sky image found
+			var newPath = sourcePath.Replace(contentDir, skyboxDir, StringComparison.OrdinalIgnoreCase);
+			var destFile = newPath.Remove(newPath.LastIndexOf('_'), 1); // Remove underscore from skybox suffix
+
+			FileUtil.CopyFile(sourcePath, destFile);
+
+			return true;
 		}
 
 		private void CreateBaseShaderVMT(string texture, Shader shader)
@@ -192,15 +202,27 @@ namespace BSPConvert.Lib
 			File.WriteAllText(vmtPath, vmt);
 		}
 
-		// Copies content from the Q3Content folder if it exists
+		// Copies content from the Q3Content folder, falling back to the user-managed CustomContent
+		// folder for assets the map depends on but doesn't bundle.
 		private void TryCopyQ3Content(string texturePath)
 		{
-			if (q3ImageDict.TryGetValue(texturePath, out var q3TexturePath))
-			{
-				var q3ContentDir = ContentManager.GetQ3ContentDir();
-				var newPath = q3TexturePath.Replace(q3ContentDir, pk3Dir, StringComparison.OrdinalIgnoreCase);
-				FileUtil.CopyFile(q3TexturePath, newPath);
-			}
+			// Q3 base content takes precedence (matches existing behavior).
+			if (TryCopyExternalImage(q3ImageDict, ContentManager.GetQ3ContentDir(), texturePath))
+				return;
+
+			// CustomContent only fills gaps - never overwrite the map's own bundled textures.
+			if (!pk3ImageDict.ContainsKey(texturePath))
+				TryCopyExternalImage(customImageDict, ContentManager.GetCustomContentDir(), texturePath);
+		}
+
+		private bool TryCopyExternalImage(Dictionary<string, string> imageDict, string contentDir, string texturePath)
+		{
+			if (!imageDict.TryGetValue(texturePath, out var sourcePath))
+				return false;
+
+			var newPath = sourcePath.Replace(contentDir, pk3Dir, StringComparison.OrdinalIgnoreCase);
+			FileUtil.CopyFile(sourcePath, newPath);
+			return true;
 		}
 
 		private string GenerateUnlitVMT(Shader shader)

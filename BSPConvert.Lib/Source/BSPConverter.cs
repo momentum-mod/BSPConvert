@@ -246,7 +246,9 @@ namespace BSPConvert.Lib
 		{
 			var q3Shaders = GetQ3Shaders();
 			var pk3Shaders = GetPK3Shaders();
-			var allShaders = q3Shaders.Concat(pk3Shaders);
+			var customShaders = GetCustomContentShaders();
+			// CustomContent shaders go last so they only fill gaps (ShaderLoader keeps the first entry per key).
+			var allShaders = q3Shaders.Concat(pk3Shaders).Concat(customShaders);
 
 			var loader = new ShaderLoader(allShaders);
 			return loader.LoadShaders();
@@ -272,6 +274,15 @@ namespace BSPConvert.Lib
 			var pk3ScriptsDir = Path.Combine(contentManager.ContentDir, "scripts");
 			if (Directory.Exists(pk3ScriptsDir))
 				return Directory.GetFiles(pk3ScriptsDir, "*.shader");
+
+			return new string[0];
+		}
+
+		private string[] GetCustomContentShaders()
+		{
+			var customScriptsDir = Path.Combine(ContentManager.GetCustomContentDir(), "scripts");
+			if (Directory.Exists(customScriptsDir))
+				return Directory.GetFiles(customScriptsDir, "*.shader");
 
 			return new string[0];
 		}

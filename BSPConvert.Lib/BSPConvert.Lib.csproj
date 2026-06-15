@@ -43,6 +43,9 @@
     <None Update="Q3Content\instructions.txt">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
+    <None Update="CustomContent\readme.txt">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
   <ItemGroup Condition="$(RuntimeIdentifier.StartsWith('win')) Or ($(RuntimeIdentifier) == '' And $([MSBuild]::IsOSPlatform('Windows')))">

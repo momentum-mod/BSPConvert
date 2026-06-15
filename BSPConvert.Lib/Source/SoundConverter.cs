@@ -66,8 +66,10 @@ namespace BSPConvert.Lib.Source
 
 		private void MoveToPk3SoundDir(string sound)
 		{
-			var q3ContentDir = ContentManager.GetQ3ContentDir();
-			var soundPath = Path.Combine(q3ContentDir, "sound", sound);
+			// Search Q3 base content first, then the user-managed CustomContent folder.
+			var soundPath = Path.Combine(ContentManager.GetQ3ContentDir(), "sound", sound);
+			if (!File.Exists(soundPath))
+				soundPath = Path.Combine(ContentManager.GetCustomContentDir(), "sound", sound);
 			if (!File.Exists(soundPath))
 				return;
 
