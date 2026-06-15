@@ -750,10 +750,27 @@ namespace BSPConvert.Lib
 				sModel.Maximums = maxs;
 				sModel.Origin = new Vector3(0f, 0f, 0f);
 				if (qModel.FirstFaceIndex < splitFaceDict.Count)
+				{
 					sModel.FirstFaceIndex = splitFaceDict[qModel.FirstFaceIndex][0];
+
+					// Conversion expands faces (patches split into sub-patches, each emitting a visible
+					// primitive face plus a collision face; meshes triangulated), so the Source face count
+					// differs from the Quake model's. Sum the expanded counts so the model's face range
+					// covers every face it owns; otherwise per-model surface passes in the engine (e.g.
+					// Mod_ComputeBrushModelFlags) skip the extra faces.
+					var numFaces = 0;
+					for (var f = 0; f < qModel.NumFaces; f++)
+					{
+						if (splitFaceDict.TryGetValue(qModel.FirstFaceIndex + f, out var splitFaces))
+							numFaces += splitFaces.Length;
+					}
+					sModel.NumFaces = numFaces;
+				}
 				else
+				{
 					sModel.FirstFaceIndex = qModel.FirstFaceIndex;
-				sModel.NumFaces = qModel.NumFaces;
+					sModel.NumFaces = qModel.NumFaces;
+				}
 
 				sourceBsp.Models.Add(sModel);
 			}
