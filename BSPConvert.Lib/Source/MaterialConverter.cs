@@ -77,8 +77,6 @@ namespace BSPConvert.Lib
 				CreateFogVMT(texture, shader);
 			else */if (shader.skyParms != null && !string.IsNullOrEmpty(shader.skyParms.outerBox))
 				CreateSkyboxVMT(shader);
-			else if (shader.surfaceFlags.HasFlag(Q3SurfaceFlags.SURF_SKY) && shader.GetImageStages().Any())
-				CreateSingleTextureSkyboxVMT(texture, shader);
 			else if (shader.GetImageStages().Any(x => !string.IsNullOrEmpty(x.bundles[0].images[0])))
 				CreateBaseShaderVMT(texture, shader);
 		}
@@ -136,20 +134,6 @@ namespace BSPConvert.Lib
 				var skyboxVmt = GenerateSkyboxVMT(baseTexture);
 				WriteVMT(baseTexture, skyboxVmt);
 			}
-		}
-
-		// Some Q3 sky shaders don't declare a 6-sided box with skyParms - they just flag the surface
-		// as sky and draw a single texture. Source has no equivalent, so reuse that one texture for all
-		// 6 skybox sides. The skybox name matches the shader name (see EntityConverter.ConvertWorldspawn).
-		private void CreateSingleTextureSkyboxVMT(string texture, Shader shader)
-		{
-			var image = shader.GetImageStages().First().bundles[0].images[0];
-			var baseTexture = Path.ChangeExtension(image, null);
-			TryCopyQ3Content(baseTexture);
-
-			var skyboxVmt = GenerateSkyboxVMT(baseTexture);
-			foreach (var suffix in skySuffixes)
-				WriteVMT($"skybox/{texture}{suffix}", skyboxVmt);
 		}
 
 		// Try to find the sky image file and move it to skybox folder in order for Source engine to detect it properly

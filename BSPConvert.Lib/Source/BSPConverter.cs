@@ -308,20 +308,26 @@ namespace BSPConvert.Lib
 		{
 			foreach (var texture in quakeBsp.Textures)
 			{
-				if (!shaderDict.TryGetValue(texture.Name, out var shader))
-					continue;
-
-				// Sky defined by a 6-sided box: skyname is the box name (e.g. "skyParms env/foo ...").
-				if (shader.skyParms != null && !string.IsNullOrEmpty(shader.skyParms.outerBox))
+				// Only a real skybox (skyParms <outerBox>) maps to Source's global skybox. Single-texture
+				// fake skies are converted as ordinary surfaces instead (see IsSingleTextureSky).
+				if (shaderDict.TryGetValue(texture.Name, out var shader) &&
+					shader.skyParms != null && !string.IsNullOrEmpty(shader.skyParms.outerBox))
 					return shader.skyParms.outerBox;
-
-				// Single-texture sky (surfaceparm sky without skyParms): skyname matches the shader name
-				// (see MaterialConverter.CreateSingleTextureSkyboxVMT).
-				if (shader.surfaceFlags.HasFlag(Q3SurfaceFlags.SURF_SKY) && shader.GetImageStages().Any())
-					return texture.Name;
 			}
 
 			return null;
+		}
+
+		// A "fake sky" is a shader flagged "surfaceparm sky" that has no skyParms box - it just draws a
+		// flat texture on the brushes. Source supports only one global skybox, so rather than forcing one
+		// of several such skies onto the whole map we convert them as ordinary textured surfaces (matching
+		// how Q3 actually renders them), which means they must NOT carry the Source sky flag.
+		private bool IsSingleTextureSky(string textureName)
+		{
+			return shaderDict.TryGetValue(textureName, out var shader) &&
+				shader.surfaceFlags.HasFlag(Q3SurfaceFlags.SURF_SKY) &&
+				(shader.skyParms == null || string.IsNullOrEmpty(shader.skyParms.outerBox)) &&
+				shader.GetImageStages().Any();
 		}
 
 		private void ConvertSounds()
@@ -1431,7 +1437,9 @@ namespace BSPConvert.Lib
 			if (q3Flags.HasFlag(Q3SurfaceFlags.SURF_NOLIGHTMAP))
 				textureInfo.Flags |= (int)SourceSurfaceFlags.SURF_NOLIGHT;
 
-			if (q3Flags.HasFlag(Q3SurfaceFlags.SURF_SKY))
+			// Skip the sky flag for single-texture fake skies so they render as ordinary surfaces instead
+			// of revealing the map's one global skybox (see IsSingleTextureSky).
+			if (q3Flags.HasFlag(Q3SurfaceFlags.SURF_SKY) && !IsSingleTextureSky(texture.Name))
 				textureInfo.Flags |= (int)(SourceSurfaceFlags.SURF_SKY | SourceSurfaceFlags.SURF_NOLIGHT | SourceSurfaceFlags.SURF_SKYNOEMIT);
 
 			if (q3Flags.HasFlag(Q3SurfaceFlags.SURF_NODRAW))
