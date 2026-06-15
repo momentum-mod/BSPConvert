@@ -49,6 +49,7 @@ namespace BSPConvert.Lib
 	public class BSPConverterOptions
 	{
 		public bool noPak;
+		public bool noDownload;
 		public bool noToolDisplacements;
 		private int displacementPower;
 		public int DisplacementPower
@@ -122,6 +123,10 @@ namespace BSPConvert.Lib
 
 			contentManager = new ContentManager(options.inputFile);
 			shaderDict = LoadShaderDictionary();
+
+			if (!options.noDownload)
+				DownloadExternalDependencies();
+
 			externalLightmaps = LoadExternalLightmaps();
 
 			foreach (var bsp in contentManager.BSPFiles)
@@ -250,6 +255,16 @@ namespace BSPConvert.Lib
 
 			var loader = new ShaderLoader(allShaders);
 			return loader.LoadShaders();
+		}
+
+		// Downloads any texture sets the map references but doesn't ship, then reloads shaders so the
+		// downloaded sets' shader definitions (animations, blends, etc.) are applied during conversion.
+		private void DownloadExternalDependencies()
+		{
+			var resolver = new DependencyResolver(contentManager.ContentDir, ContentManager.GetQ3ContentDir(), logger);
+			var downloaded = resolver.DownloadMissingDependencies(contentManager.BSPFiles, shaderDict);
+			if (downloaded > 0)
+				shaderDict = LoadShaderDictionary();
 		}
 
 		private Dictionary<string, LightmapData> LoadExternalLightmaps()

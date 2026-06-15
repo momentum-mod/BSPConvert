@@ -11,6 +11,9 @@ namespace BSPConvert.Cmd
 			[Option("nopak", Required = false, HelpText = "Export materials into folders instead of embedding them in the BSP.")]
 			public bool NoPak { get; set; }
 
+			[Option("nodownload", Required = false, HelpText = "Don't auto-download missing external texture dependencies from the q3df map mirror (defrag.racing).")]
+			public bool NoDownload { get; set; }
+
 			[Option("notooldisps", Required = false, HelpText = "Skip converting patches with tool textures to displacements.")]
 			public bool NoToolDisplacements { get; set; }
 
@@ -72,6 +75,7 @@ namespace BSPConvert.Cmd
 				var converterOptions = new BSPConverterOptions()
 				{
 					noPak = options.NoPak,
+					noDownload = options.NoDownload,
 					noToolDisplacements = options.NoToolDisplacements,
 					DisplacementPower = options.DisplacementPower,
 					minDamageToRespawnPlayer = options.MinDamageToRespawnPlayer,
