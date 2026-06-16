@@ -17,7 +17,7 @@ namespace BSPConvert.Cmd
 			[Option("patchprims", Required = false, HelpText = "Convert patches to primitive meshes instead of displacements (exact per-vertex UV/lightmap, entity-attachable, no curved collision).")]
 			public bool PatchesAsPrimitives { get; set; }
 
-			[Option("subdiv", Required = false, Default = 4, HelpText = "Displacement subdivisions [2-4].")]
+			[Option("subdiv", Required = false, Default = 3, HelpText = "Displacement subdivisions [2-4].")]
 			public int DisplacementPower { get; set; }
 
 			[Option("mindmg", Required = false, Default = 50, HelpText = "Minimum damage for trigger_hurt to respawn player.")]
@@ -29,7 +29,7 @@ namespace BSPConvert.Cmd
 			[Option("noenvmap", Required = false, HelpText = "Disable envmap (specular cubemap) shader conversion. Useful for maps where Source's cubemap poorly emulates Quake 3's spheremap effect.")]
 			public bool NoEnvMap { get; set; }
 			
-			[Option("lightmapmin", Required = false, Default = 0.0f, HelpText = "Lightmap black-point lift in [0,1): remaps the [0,1] tonal range to [min,1], raising the darkest luxels off pure black to smooth out harsh/banded shadows (at the cost of shadow depth); 0 = no change. Try ~0.1-0.3.")]
+			[Option("lightmapmin", Required = false, Default = 0.0f, HelpText = "Lightmap black-point lift in [0,1): remaps the [0,1] tonal range to [min,1], raising the darkest luxels off pure black to smooth out harsh/banded shadows (at the cost of shadow depth); 0 = no change. Try ~0.05-0.1.")]
 			public float LightmapMinBrightness { get; set; }
 
 			//[Option("oldbsp", Required = false, HelpText = "Use BSP version 20 (HL2 / CS:S).")]
