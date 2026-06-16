@@ -35,6 +35,9 @@ namespace BSPConvert.Cmd
 			[Option("prefix", Required = false, Default = "df_", HelpText = "Prefix for the converted BSP's file name.")]
 			public string Prefix { get; set; }
 
+			[Option("verifylightmaps", Required = false, HelpText = "Don't convert. Instead, inspect the input (already-converted Source) BSP(s) and report whether their lightmap blocks carry the clamp-to-edge guard-band border.")]
+			public bool VerifyLightmaps { get; set; }
+
 			[Option("output", Required = false, HelpText = "Output game directory for converted BSP/materials.")]
 			public string OutputDirectory { get; set; }
 
@@ -61,6 +64,14 @@ namespace BSPConvert.Cmd
 
 		static void RunCommand(Options options)
 		{
+			if (options.VerifyLightmaps)
+			{
+				var logger = new ConsoleLogger();
+				foreach (var inputEntry in options.InputFiles)
+					LightmapVerifier.Verify(inputEntry, logger);
+				return;
+			}
+
 			if (options.DisplacementPower < 2 || options.DisplacementPower > 4)
 				throw new ArgumentOutOfRangeException("Displacement power must be between 2 and 4.");
 
