@@ -298,19 +298,10 @@ namespace BSPConvert.Lib
 			if (shader.cullType == CullType.TWO_SIDED)
 				sb.AppendLine("\t$nocull 1");
 
-			// Q3's polygonOffset -> Source's decal depth bias, to keep overlay surfaces from z-fighting
-			if (shader.polygonOffset)
-				sb.AppendLine("\t$decal 1");
-
-			var flags = (textureStage?.flags ?? 0) | (envMapStage?.flags ?? 0);
-			if (flags.HasFlag(ShaderStageFlags.GLS_ATEST_GE_80))
-			{
-				sb.AppendLine("\t$alphatest 1");
-				sb.AppendLine("\t$alphatestreference 0.5");
-			}
-
-			// Drive blend mode from the chosen texture stage so it reflects the visible layer, not a depth-priming stage
+			// Classify the visible stage's blend mode (textureStage already skips depth-priming stages).
 			var blendStage = textureStage ?? stages.FirstOrDefault();
+			var isAdditive = false;
+			var isAlphaBlend = false;
 			if (blendStage != null)
 			{
 				// Blend factors are multi-bit values within a bitfield, so mask them out before comparing
@@ -318,14 +309,41 @@ namespace BSPConvert.Lib
 				var dstBlend = blendStage.flags & ShaderStageFlags.GLS_DSTBLEND_BITS;
 
 				// Additive blend (e.g. "GL_ONE GL_ONE" or "GL_SRC_ALPHA GL_ONE") - black pixels become transparent
-				if (dstBlend == ShaderStageFlags.GLS_DSTBLEND_ONE &&
-					(srcBlend == ShaderStageFlags.GLS_SRCBLEND_ONE || srcBlend == ShaderStageFlags.GLS_SRCBLEND_SRC_ALPHA))
-					sb.AppendLine("\t$additive 1");
+				isAdditive = dstBlend == ShaderStageFlags.GLS_DSTBLEND_ONE &&
+					(srcBlend == ShaderStageFlags.GLS_SRCBLEND_ONE || srcBlend == ShaderStageFlags.GLS_SRCBLEND_SRC_ALPHA);
 
 				// Alpha blend (e.g. "GL_SRC_ALPHA GL_ONE_MINUS_SRC_ALPHA")
-				else if (srcBlend == ShaderStageFlags.GLS_SRCBLEND_SRC_ALPHA && dstBlend == ShaderStageFlags.GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA)
-					sb.AppendLine("\t$translucent 1");
+				isAlphaBlend = srcBlend == ShaderStageFlags.GLS_SRCBLEND_SRC_ALPHA && dstBlend == ShaderStageFlags.GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA;
 			}
+
+			var flags = (textureStage?.flags ?? 0) | (envMapStage?.flags ?? 0);
+			var isAlphaTest = flags.HasFlag(ShaderStageFlags.GLS_ATEST_GE_80);
+
+			// Q3 polygonOffset surfaces are coplanar overlays (decals, grates, signs) sitting on a wall.
+			// They need TWO things to render correctly in Source:
+			//   $decal       - the slope-scaled depth bias (Source's equivalent of polygonOffset) that
+			//                  stops the overlay from z-fighting with the coplanar wall.
+			//   $translucent - $decal also disables depth writes, so while it's opaque-sorted a wall
+			//                  drawn afterward overpaints it, and that draw order flips across visleaf
+			//                  boundaries (the overlay blinks). Marking it translucent moves it to the
+			//                  post-opaque pass, drawn after every wall, so it stays stable. (Additive/
+			//                  alpha-blend overlays already sort post-opaque, so they just need $decal
+			//                  plus their own blend, added below.)
+			if (shader.polygonOffset)
+				sb.AppendLine("\t$decal 1");
+
+			if (shader.polygonOffset && !isAdditive && !isAlphaBlend)
+				sb.AppendLine("\t$translucent 1");
+			else if (!shader.polygonOffset && isAlphaTest)
+			{
+				sb.AppendLine("\t$alphatest 1");
+				sb.AppendLine("\t$alphatestreference 0.5");
+			}
+
+			if (isAdditive)
+				sb.AppendLine("\t$additive 1");
+			else if (isAlphaBlend)
+				sb.AppendLine("\t$translucent 1");
 
 			if (textureStage != null && textureStage.bundles[0].texMods.Any(y => y.type == TexMod.TMOD_SCROLL || y.type == TexMod.TMOD_ROTATE ||
 				y.type == TexMod.TMOD_STRETCH || y.type == TexMod.TMOD_SCALE))
