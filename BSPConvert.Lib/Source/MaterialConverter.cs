@@ -188,10 +188,54 @@ namespace BSPConvert.Lib
 
 		private string GenerateVMT(Shader shader)
 		{
+			var sb = new StringBuilder();
+			sb.AppendLine(GetShaderType(shader));
+			sb.AppendLine("{");
+
+			AppendShaderParameters(sb, shader);
+
+			sb.AppendLine("}");
+
+			return sb.ToString();
+		}
+
+		private string GetShaderType(Shader shader)
+		{
+			// "blendfunc filter" (GL_DST_COLOR GL_ZERO) is a multiply/modulate blend that no generic Source
+			// shader can express. The dedicated Modulate shader multiplies the texture into the framebuffer
+			// (white texels vanish, black texels darken), exactly matching Q3's filter blend.
+			if (IsModulateBlend(shader))
+				return "Modulate";
+
 			if (shader.surfaceFlags.HasFlag(Q3SurfaceFlags.SURF_NOLIGHTMAP))
-				return GenerateUnlitVMT(shader);
-			else
-				return GenerateLitVMT(shader);
+				return "UnlitGeneric";
+
+			return "LightmappedGeneric";
+		}
+
+		// "blendfunc filter", written either as "GL_DST_COLOR GL_ZERO" or the equivalent "GL_ZERO GL_SRC_COLOR".
+		private bool IsModulateBlend(Shader shader)
+		{
+			var blendStage = GetTextureStage(shader.GetImageStages());
+			if (blendStage == null)
+				return false;
+
+			var srcBlend = blendStage.flags & ShaderStageFlags.GLS_SRCBLEND_BITS;
+			var dstBlend = blendStage.flags & ShaderStageFlags.GLS_DSTBLEND_BITS;
+			var isFilterBlend = (srcBlend == ShaderStageFlags.GLS_SRCBLEND_DST_COLOR && dstBlend == ShaderStageFlags.GLS_DSTBLEND_ZERO) ||
+				(srcBlend == ShaderStageFlags.GLS_SRCBLEND_ZERO && dstBlend == ShaderStageFlags.GLS_DSTBLEND_SRC_COLOR);
+			if (!isFilterBlend)
+				return false;
+
+			// A filter blend alongside a lightmap stage is the classic Q3 lit-surface idiom (the diffuse is
+			// multiplied against the lightmap), not a screen-multiply overlay. Since GetImageStages() drops
+			// the $lightmap stage, that diffuse stage would otherwise be misread as a standalone modulate.
+			// Source's Modulate shader multiplies onto the world behind the surface, so only treat a filter
+			// blend as Modulate when no lightmap stage is feeding it.
+			var hasLightmapStage = shader.stages.Any(s =>
+				s.bundles[0].tcGen == TexCoordGen.TCGEN_LIGHTMAP || s.bundles[0].images[0] == "$lightmap");
+
+			return !hasLightmapStage;
 		}
 
 		private void WriteVMT(string texture, string vmt)
@@ -225,44 +269,24 @@ namespace BSPConvert.Lib
 			return true;
 		}
 
-		private string GenerateUnlitVMT(Shader shader)
+		// Selects the stage that carries the visible texture. Prefers a plain texture stage (not env-mapped
+		// or lightmap) that isn't a depth-priming stage, then relaxes each condition so a stage is still
+		// found when every candidate is degenerate - env-map-only shaders (e.g. glass using "tcGen
+		// environment") have no plain texture stage, and an UnlitGeneric/LightmappedGeneric without a
+		// $basetexture renders as solid white.
+		private static ShaderStage? GetTextureStage(IEnumerable<ShaderStage> stages)
 		{
-			var sb = new StringBuilder();
-			sb.AppendLine("UnlitGeneric");
-			sb.AppendLine("{");
-
-			AppendShaderParameters(sb, shader);
-
-			sb.AppendLine("}");
-
-			return sb.ToString();
-		}
-
-		private string GenerateLitVMT(Shader shader)
-		{
-			var sb = new StringBuilder();
-			sb.AppendLine("LightmappedGeneric");
-			sb.AppendLine("{");
-
-			AppendShaderParameters(sb, shader);
-
-			sb.AppendLine("}");
-
-			return sb.ToString();
+			bool IsTextureStage(ShaderStage x) => x.bundles[0].tcGen != TexCoordGen.TCGEN_ENVIRONMENT_MAPPED && x.bundles[0].tcGen != TexCoordGen.TCGEN_LIGHTMAP;
+			return stages.FirstOrDefault(x => IsTextureStage(x) && !IsDepthPrimingStage(x))
+				?? stages.FirstOrDefault(IsTextureStage)
+				?? stages.FirstOrDefault(x => !IsDepthPrimingStage(x))
+				?? stages.FirstOrDefault();
 		}
 
 		private void AppendShaderParameters(StringBuilder sb, Shader shader)
 		{
 			var stages = shader.GetImageStages();
-			bool IsTextureStage(ShaderStage x) => x.bundles[0].tcGen != TexCoordGen.TCGEN_ENVIRONMENT_MAPPED && x.bundles[0].tcGen != TexCoordGen.TCGEN_LIGHTMAP;
-			// Prefer a stage that actually carries the visible texture, skipping depth-priming stages (see IsDepthPrimingStage).
-			// Fall back to the first texture stage if every candidate is degenerate, and finally to any image stage so
-			// $basetexture is always emitted - env-map-only shaders (e.g. glass using "tcGen environment") have no plain
-			// texture stage, and an UnlitGeneric/LightmappedGeneric without $basetexture renders as solid white.
-			var textureStage = stages.FirstOrDefault(x => IsTextureStage(x) && !IsDepthPrimingStage(x))
-				?? stages.FirstOrDefault(IsTextureStage)
-				?? stages.FirstOrDefault(x => !IsDepthPrimingStage(x))
-				?? stages.FirstOrDefault();
+			var textureStage = GetTextureStage(stages);
 			if (textureStage != null)
 			{
 				var texture = Path.ChangeExtension(textureStage.bundles[0].images[0], null);
