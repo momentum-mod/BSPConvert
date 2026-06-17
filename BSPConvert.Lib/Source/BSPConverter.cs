@@ -296,8 +296,8 @@ namespace BSPConvert.Lib
 		private void ConvertTextureFiles()
 		{
 			var converter = options.noPak ?
-				new TextureConverter(contentManager.ContentDir, options.outputDir) :
-				new TextureConverter(contentManager.ContentDir, sourceBsp);
+				new TextureConverter(contentManager.ContentDir, options.outputDir, shaderDict) :
+				new TextureConverter(contentManager.ContentDir, sourceBsp, shaderDict);
 			converter.Convert();
 		}
 

@@ -172,6 +172,7 @@ namespace BSPConvert.Lib
 		public TexCoordGen tcGen;
 		public Vector3[] tcGenVectors = new Vector3[2];
 		public List<TexModInfo> texMods = new List<TexModInfo>();
+		public bool clamp; // Set by "clampmap" - texture coordinates are clamped (non-repeating) rather than wrapped
 	}
 
 	public class Shader

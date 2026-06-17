@@ -131,6 +131,10 @@ namespace BSPConvert.Lib
 						stage.bundles[0].images[0] = split[1];
 						break;
 					case "clampmap":
+						// Same as "map" but with clamped (non-repeating) texture coordinates. The clamp wrap
+						// mode is baked into the VTF via TEXTUREFLAGS_CLAMPS/T during texture conversion.
+						stage.bundles[0].images[0] = split[1];
+						stage.bundles[0].clamp = true;
 						break;
 					case "animmap":
 						stage.bundles[0] = ParseAnimMap(split);

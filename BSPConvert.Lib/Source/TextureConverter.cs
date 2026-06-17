@@ -16,17 +16,20 @@ namespace BSPConvert.Lib
 		private string pk3Dir;
 		private BSP bsp;
 		private string outputDir;
+		private Dictionary<string, Shader> shaderDict;
 
-		public TextureConverter(string pk3Dir, BSP bsp)
+		public TextureConverter(string pk3Dir, BSP bsp, Dictionary<string, Shader> shaderDict)
 		{
 			this.pk3Dir = pk3Dir;
 			this.bsp = bsp;
+			this.shaderDict = shaderDict;
 		}
 
-		public TextureConverter(string pk3Dir, string outputDir)
+		public TextureConverter(string pk3Dir, string outputDir, Dictionary<string, Shader> shaderDict)
 		{
 			this.pk3Dir = pk3Dir;
 			this.outputDir = outputDir;
+			this.shaderDict = shaderDict;
 		}
 
 		public void Convert()
@@ -46,6 +49,8 @@ namespace BSPConvert.Lib
 
             string[] supportedExtensions = [".png", ".jpg", ".jpeg", ".tga", ".bmp", ".webp", ".exr", ".hdr"];
 
+            var clampedTextures = GetClampedTextures();
+
             foreach (var inputPath in Directory.EnumerateFiles(pk3Dir, "*", SearchOption.AllDirectories))
             {
                 if (!supportedExtensions.Contains(Path.GetExtension(inputPath), StringComparer.OrdinalIgnoreCase))
@@ -57,12 +62,60 @@ namespace BSPConvert.Lib
                     Path.GetFileNameWithoutExtension(inputPath) + ".vtf"
                 );
 
-                bool success = VTF.Create(inputPath, outputPath, options);
+                // CreationOptions is a struct, so this copy lets us bake per-texture flags without
+                // mutating the shared base options. "clampmap" shader stages need clamped (non-repeating)
+                // texture coordinates, which in Source is a VTF flag (TEXTUREFLAGS_CLAMPS/T) rather than a VMT parameter.
+                var textureOptions = options;
+                if (clampedTextures.Contains(GetRelativeTexturePath(inputPath)))
+                    textureOptions.VTFFlags |= VTF.Flags.V0_CLAMP_S | VTF.Flags.V0_CLAMP_T;
+
+                bool success = VTF.Create(inputPath, outputPath, textureOptions);
                 if (!success)
                     Console.WriteLine($"Failed to convert: {inputPath}");
             }
 
             OnFinishedConvertingTextures();
+        }
+
+        // Collects the texture paths used by "clampmap" shader stages, so their VTFs can be baked with
+        // clamped (non-repeating) wrap flags. Paths are normalized (no extension, forward slashes) to
+        // match the relative paths derived from files on disk in GetRelativeTexturePath.
+        private HashSet<string> GetClampedTextures()
+        {
+            var clampedTextures = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var shader in shaderDict.Values)
+            {
+                if (shader.stages == null)
+                    continue;
+
+                foreach (var stage in shader.stages)
+                {
+                    foreach (var bundle in stage.bundles)
+                    {
+                        if (!bundle.clamp)
+                            continue;
+
+                        foreach (var image in bundle.images)
+                        {
+                            if (!string.IsNullOrEmpty(image))
+                                clampedTextures.Add(Path.ChangeExtension(image, null).Replace('\\', '/'));
+                        }
+                    }
+                }
+            }
+
+            return clampedTextures;
+        }
+
+        // Converts a file path under pk3Dir into the shader-relative texture path (no extension,
+        // forward slashes) so it can be matched against shader-referenced texture names.
+        private string GetRelativeTexturePath(string filePath)
+        {
+            var relative = filePath
+                .Replace(pk3Dir + Path.DirectorySeparatorChar, "", StringComparison.OrdinalIgnoreCase)
+                .Replace(Path.DirectorySeparatorChar, '/');
+
+            return Path.ChangeExtension(relative, null);
         }
 
 		private void OnFinishedConvertingTextures()
