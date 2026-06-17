@@ -99,7 +99,8 @@ namespace BSPConvert.Lib
 			{ "textures/common/trigger", "tools/toolstrigger" },
 			{ "textures/common/hint", "tools/toolshint" },
 			{ "textures/common/skip", "tools/toolsskip" },
-			{ "textures/common/areaportal", "tools/toolsareaportal" }
+			{ "textures/common/areaportal", "tools/toolsareaportal" },
+			{ "textures/common/weapclip", "tools/toolsblockbullets" }
 		};
 
 		private const int Q3_LIGHTMAP_SIZE = 128;
