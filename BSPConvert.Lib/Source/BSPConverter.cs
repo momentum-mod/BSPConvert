@@ -1720,6 +1720,9 @@ namespace BSPConvert.Lib
 			if (q3Flags.HasFlag(Q3SurfaceFlags.SURF_NODRAW))
 				textureInfo.Flags |= (int)SourceSurfaceFlags.SURF_NODRAW;
 
+			if (q3Flags.HasFlag(Q3SurfaceFlags.SURF_NOIMPACT))
+				textureInfo.Flags |= (int)SourceSurfaceFlags.SURF_NOIMPACT;
+
 			// Avoid adding duplicate texture info
 			var key = new TextureInfoKey(textureInfo);
 			if (textureInfoDict.TryGetValue(key, out var textureInfoIndex))
@@ -1800,6 +1803,9 @@ namespace BSPConvert.Lib
 
 			if (q3Flags.HasFlag(Q3SurfaceFlags.SURF_SLICK))
 				flags |= (int)SourceSurfaceFlags.SURF_SLICK;
+
+			if (q3Flags.HasFlag(Q3SurfaceFlags.SURF_NOIMPACT))
+				flags |= (int)SourceSurfaceFlags.SURF_NOIMPACT;
 
 			return flags;
 		}
