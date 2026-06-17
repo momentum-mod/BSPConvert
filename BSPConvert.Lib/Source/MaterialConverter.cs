@@ -256,9 +256,13 @@ namespace BSPConvert.Lib
 			var stages = shader.GetImageStages();
 			bool IsTextureStage(ShaderStage x) => x.bundles[0].tcGen != TexCoordGen.TCGEN_ENVIRONMENT_MAPPED && x.bundles[0].tcGen != TexCoordGen.TCGEN_LIGHTMAP;
 			// Prefer a stage that actually carries the visible texture, skipping depth-priming stages (see IsDepthPrimingStage).
-			// Fall back to the first texture stage if every candidate is degenerate.
+			// Fall back to the first texture stage if every candidate is degenerate, and finally to any image stage so
+			// $basetexture is always emitted - env-map-only shaders (e.g. glass using "tcGen environment") have no plain
+			// texture stage, and an UnlitGeneric/LightmappedGeneric without $basetexture renders as solid white.
 			var textureStage = stages.FirstOrDefault(x => IsTextureStage(x) && !IsDepthPrimingStage(x))
-				?? stages.FirstOrDefault(IsTextureStage);
+				?? stages.FirstOrDefault(IsTextureStage)
+				?? stages.FirstOrDefault(x => !IsDepthPrimingStage(x))
+				?? stages.FirstOrDefault();
 			if (textureStage != null)
 			{
 				var texture = Path.ChangeExtension(textureStage.bundles[0].images[0], null);
