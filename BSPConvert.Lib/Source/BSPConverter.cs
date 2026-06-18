@@ -190,6 +190,8 @@ namespace BSPConvert.Lib
 			textureInfoLookup.Clear();
 			textureDataLookup.Clear();
 			splitFaceDict.Clear();
+			planeDict.Clear();
+			invisibleDispTexDataByFlags.Clear();
 		}
 
 		private void LoadBSP(BSP bsp)
