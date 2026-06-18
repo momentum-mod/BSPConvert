@@ -373,11 +373,14 @@ namespace BSPConvert.Lib
 					ConvertTexModScroll(sb, texModInfo);
 				else if (texModInfo.type == TexMod.TMOD_STRETCH)
 					ConvertTexModStretch(sb, texModInfo);
-
-				if (texModInfo.type == TexMod.TMOD_ROTATE || texModInfo.type == TexMod.TMOD_SCROLL ||
-					texModInfo.type == TexMod.TMOD_STRETCH || texModInfo.type == TexMod.TMOD_SCALE)
-					AppendTextureTransform(sb, texModStage);
 			}
+
+			// A stage's tcmods collapse into one $basetexturetransform, so emit a single TextureTransform after
+			// the value proxies (LinearRamp/Sine) that feed it.
+			if (texModStage.bundles[0].texMods.Any(t => t.type == TexMod.TMOD_ROTATE || t.type == TexMod.TMOD_SCROLL ||
+				t.type == TexMod.TMOD_STRETCH || t.type == TexMod.TMOD_SCALE))
+				AppendTextureTransform(sb, texModStage);
+
 			sb.AppendLine("\t}");
 		}
 
