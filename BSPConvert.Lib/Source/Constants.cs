@@ -158,7 +158,8 @@ namespace BSPConvert.Lib
 		SURF_HITBOX = 0x8000,	// surface is part of a hitbox
 		SURF_SKYNOEMIT = 0x10000,	// surface will show the skybox but does not emit light
 		SURF_SKYOCCLUSION = 0x20000,    // surface will draw the skybox before any solids
-		SURF_SLICK = 0x40000	// surface is zero friction
+		SURF_SLICK = 0x40000,	// surface is zero friction
+		SURF_NOIMPACT = 0x80000	// don't make bullet/projectile impact effects or missile explosions
 	}
 
 	[Flags]
