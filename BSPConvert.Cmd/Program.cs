@@ -44,6 +44,9 @@ namespace BSPConvert.Cmd
 			[Option("output", Required = false, HelpText = "Output game directory for converted BSP/materials.")]
 			public string OutputDirectory { get; set; }
 
+			[Option("maps", Required = false, Separator = ',', HelpText = "Convert only the named BSP(s) from a pk3 instead of every BSP it contains. Comma-separated map names without extension (e.g. --maps pgrocket,pgplasma). Case-insensitive.")]
+			public IEnumerable<string> Maps { get; set; }
+
 			[Value(0, MetaName = "input files", Required = true, HelpText = "Input Quake 3 BSP/PK3 file(s) to be converted.")]
 			public IEnumerable<string> InputFiles { get; set; }
 		}
@@ -88,6 +91,7 @@ namespace BSPConvert.Cmd
 					prefix = options.Prefix,
 					inputFile = inputEntry,
 					outputDir = options.OutputDirectory,
+					mapFilter = options.Maps?.ToArray(),
 					lightmapMinBrightness = options.LightmapMinBrightness,
 					clampOverbright = options.ClampOverbright
 				};
