@@ -4,6 +4,12 @@ using CommandLine.Text;
 
 namespace BSPConvert.Cmd
 {
+	// Flipbook water texture resolution.
+	enum WaterResolution { Medium, High }
+
+	// Flipbook water playback accuracy - trades file size for smoothness and fidelity to Q3's scroll speed.
+	enum WaterPlaybackAccuracy { Low, Medium, High, Ultra }
+
 	internal class Program
 	{
 		class Options
@@ -38,6 +44,18 @@ namespace BSPConvert.Cmd
 			//[Option("oldbsp", Required = false, HelpText = "Use BSP version 20 (HL2 / CS:S).")]
 			//public bool OldBSP { get; set; }
 
+			[Option("nowater", Required = false, HelpText = "Disable baking Q3 multi-pass scrolling water shaders into animated flipbook textures.")]
+			public bool NoWater { get; set; }
+
+			[Option("waterres", Required = false, Default = WaterResolution.Medium, HelpText = "Flipbook water texture resolution [Medium (128px), High (256px)]. Higher is sharper but ~4x the file size.")]
+			public WaterResolution WaterResolution { get; set; }
+
+			[Option("wateraccuracy", Required = false, Default = WaterPlaybackAccuracy.Medium, HelpText = "Flipbook water playback accuracy [Low, Medium, High, Ultra]. Higher settings are smoother and scroll closer to Quake 3's slow speed but produce larger files; lower settings scroll noticeably faster to stay smooth with fewer frames.")]
+			public WaterPlaybackAccuracy WaterPlaybackAccuracy { get; set; }
+
+			[Option("wateralpha", Required = false, Default = 1.0f, HelpText = "Flipbook water translucency [0-1]. 1 (default) derives per-texel translucency from each texture's alpha/luminance; any value below 1 uses a flat constant alpha (DXT1-friendly, lower = more see-through).")]
+			public float WaterAlpha { get; set; }
+
 			[Option("prefix", Required = false, Default = "df_", HelpText = "Prefix for the converted BSP's file name.")]
 			public string Prefix { get; set; }
 
@@ -61,7 +79,11 @@ namespace BSPConvert.Cmd
 			//};
 #endif
 
-			var parser = new Parser(with => with.HelpWriter = null);
+			var parser = new Parser(with =>
+			{
+				with.HelpWriter = null;
+				with.CaseInsensitiveEnumValues = true;
+			});
 			var parserResult = parser.ParseArguments<Options>(args);
 			parserResult
 				.WithParsed(options => RunCommand(options))
@@ -75,6 +97,18 @@ namespace BSPConvert.Cmd
 
 			if (options.OutputDirectory == null)
 				options.OutputDirectory = Path.GetDirectoryName(options.InputFiles.First());
+
+			// Map the friendly water presets onto the converter's numeric knobs. Accuracy controls the frame
+			// budget and the fps smoothness floor: more frames let the scroll play closer to Q3's true (slow)
+			// speed, so lower accuracy = fewer frames = faster-than-original scroll (see help text).
+			(int frames, int minFps) = options.WaterPlaybackAccuracy switch
+			{
+				WaterPlaybackAccuracy.Low => (120, 10),
+				WaterPlaybackAccuracy.High => (360, 15),
+				WaterPlaybackAccuracy.Ultra => (600, 18),
+				_ => (240, 12) // Medium
+			};
+			var waterResolution = options.WaterResolution == WaterResolution.High ? 256 : 128;
 
 			foreach (var inputEntry in options.InputFiles)
 			{
@@ -93,7 +127,16 @@ namespace BSPConvert.Cmd
 					outputDir = options.OutputDirectory,
 					mapFilter = options.Maps?.ToArray(),
 					lightmapMinBrightness = options.LightmapMinBrightness,
-					clampOverbright = options.ClampOverbright
+					clampOverbright = options.ClampOverbright,
+					flipbook = new FlipbookOptions()
+					{
+						enabled = !options.NoWater,
+						resolution = waterResolution,
+						frames = frames,
+						minFps = minFps,
+						alpha = options.WaterAlpha,
+						autoAlpha = options.WaterAlpha >= 1f
+					}
 				};
 				var converter = new BSPConverter(converterOptions, new ConsoleLogger());
 				converter.Convert();

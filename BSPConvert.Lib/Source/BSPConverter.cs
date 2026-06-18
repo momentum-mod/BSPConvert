@@ -74,6 +74,9 @@ namespace BSPConvert.Lib
 		// When set, applies Quake 3's hue-preserving overbright clamp to lightmap luxels (flattens
 		// over-bright highlights toward white). Off by default. See ColorUtil.ConvertQ3LightmapToColorRGBExp32.
 		public bool clampOverbright;
+		// Settings for baking Q3 multi-pass scrolling shaders (e.g. liquids water) into looping animated
+		// flipbook VTFs. See FlipbookConverter.
+		public FlipbookOptions flipbook = new FlipbookOptions();
 	}
 
 	public class BSPConverter
@@ -258,7 +261,7 @@ namespace BSPConvert.Lib
 
 		private void ConvertMaterials()
 		{
-			var materialConverter = new MaterialConverter(contentManager.ContentDir, shaderDict, options.noEnvMap);
+			var materialConverter = new MaterialConverter(contentManager.ContentDir, shaderDict, options.noEnvMap, options.flipbook);
 			foreach (var texture in quakeBsp.Textures)
 				materialConverter.Convert(texture.Name);
 		}

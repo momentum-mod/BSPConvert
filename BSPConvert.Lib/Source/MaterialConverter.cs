@@ -15,6 +15,7 @@ namespace BSPConvert.Lib
 		private Dictionary<string, string> q3ImageDict;
 		private Dictionary<string, string> customImageDict;
 		private bool noEnvMap;
+		private FlipbookConverter flipbookConverter;
 
 		private string[] skySuffixes =
 		{
@@ -26,7 +27,7 @@ namespace BSPConvert.Lib
 			"up"
 		};
 
-		public MaterialConverter(string pk3Dir, Dictionary<string, Shader> shaderDict, bool noEnvMap = false)
+		public MaterialConverter(string pk3Dir, Dictionary<string, Shader> shaderDict, bool noEnvMap = false, FlipbookOptions? flipbookOptions = null)
 		{
 			this.pk3Dir = pk3Dir;
 			this.shaderDict = shaderDict;
@@ -34,6 +35,20 @@ namespace BSPConvert.Lib
 			pk3ImageDict = GetImageLookupDictionary(pk3Dir);
 			q3ImageDict = GetImageLookupDictionary(ContentManager.GetQ3ContentDir());
 			customImageDict = GetImageLookupDictionary(ContentManager.GetCustomContentDir());
+			flipbookConverter = new FlipbookConverter(pk3Dir, flipbookOptions ?? new FlipbookOptions(), ResolveImagePath);
+		}
+
+		// Resolves a shader-relative texture path (no extension) to a source image file on disk, searching
+		// the map's own content first, then the Q3 base content, then the user CustomContent folder.
+		private string? ResolveImagePath(string texturePath)
+		{
+			var key = texturePath.ToLower(CultureInfo.InvariantCulture);
+			if (pk3ImageDict.TryGetValue(key, out var path) ||
+				q3ImageDict.TryGetValue(key, out path) ||
+				customImageDict.TryGetValue(key, out path))
+				return path;
+
+			return null;
 		}
 
 		// Create a dictionary that maps relative texture paths to the full file paths in the content folder
@@ -75,7 +90,9 @@ namespace BSPConvert.Lib
 		{
 			/*if (shader.fogParms != null)
 				CreateFogVMT(texture, shader);
-			else */if (shader.skyParms != null && !string.IsNullOrEmpty(shader.skyParms.outerBox))
+			else */if (flipbookConverter.TryConvert(texture, shader))
+				return; // multi-pass scrolling shader baked into an animated flipbook VTF + VMT
+			else if (shader.skyParms != null && !string.IsNullOrEmpty(shader.skyParms.outerBox))
 				CreateSkyboxVMT(shader);
 			else if (shader.GetImageStages().Any(x => !string.IsNullOrEmpty(x.bundles[0].images[0])))
 				CreateBaseShaderVMT(texture, shader);
