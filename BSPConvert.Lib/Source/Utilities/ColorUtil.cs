@@ -6,10 +6,15 @@
 		// (map_loadhelper.cpp ColorModulate), matching Quake 3's default r_mapOverBrightBits = 2 (<<2).
 		private const int OVERBRIGHT = 4;
 
-		public static ColorRGBExp32 ConvertQ3LightmapToColorRGBExp32(byte r, byte g, byte b, float lightmapMin = 0f)
+		public static ColorRGBExp32 ConvertQ3LightmapToColorRGBExp32(byte r, byte g, byte b, float lightmapMin = 0f, bool clampOverbright = false)
 		{
-			(r, g, b) = ApplyOverbrightClamp(r, g, b);
-			(r, g, b) = ApplyMinBrightness(r, g, b, lightmapMin);
+			// The white point (brightest surviving luxel) is 255/OVERBRIGHT when the overbright clamp is
+			// active, otherwise the full 8-bit range survives; the black-point lift remaps against it.
+			var ceiling = clampOverbright ? 255 / OVERBRIGHT : 255;
+
+			if (clampOverbright)
+				(r, g, b) = ApplyOverbrightClamp(r, g, b);
+			(r, g, b) = ApplyMinBrightness(r, g, b, lightmapMin, ceiling);
 
 			var color = new ColorRGBExp32();
 
@@ -58,12 +63,12 @@
 		// black 8-bit luxels have huge RELATIVE gaps (byte 1 vs 2 = 2x) that read as harsh banding once the
 		// overbright/display amplify them; lifting the darkest luxels to a dim floor shrinks those relative
 		// gaps for smoother shadow gradients, at the cost of shadow depth. min = 0 leaves darks untouched.
-		private static (byte r, byte g, byte b) ApplyMinBrightness(byte r, byte g, byte b, float min)
+		// ceiling is the white point (255/OVERBRIGHT with the overbright clamp, else the full 255).
+		private static (byte r, byte g, byte b) ApplyMinBrightness(byte r, byte g, byte b, float min, int ceiling)
 		{
 			if (min <= 0f)
 				return (r, g, b);
 
-			const int ceiling = 255 / OVERBRIGHT; // 63: white point after the overbright clamp
 			var floor = min * ceiling;
 
 			byte Remap(byte c) => (byte)(floor + (1f - min) * c);
