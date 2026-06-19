@@ -1,4 +1,4 @@
-#if UNITY_3_4 || UNITY_3_5 || UNITY_4_0 || UNITY_4_0_1 || UNITY_4_2 || UNITY_4_3 || UNITY_4_5 || UNITY_4_6 || UNITY_5 || UNITY_5_3_OR_NEWER
+﻿#if UNITY_3_4 || UNITY_3_5 || UNITY_4_0 || UNITY_4_0_1 || UNITY_4_2 || UNITY_4_3 || UNITY_4_5 || UNITY_4_6 || UNITY_5 || UNITY_5_3_OR_NEWER
 #define UNITY
 #if !UNITY_5_6_OR_NEWER
 #define OLDUNITY
@@ -71,6 +71,10 @@ namespace BSPConvert.Lib
 		// darkest luxels off pure black to smooth out harsh/banded shadow gradients (at the cost of shadow
 		// depth); 0 = no change. See ColorUtil.ConvertQ3LightmapToColorRGBExp32.
 		public float lightmapMinBrightness;
+		// When true, omit the duplicated-edge guard band around each primitive face's lightmap block.
+		// Shrinks the lighting lump (~9% on a typical map) at the cost of reintroducing bilinear bleed
+		// between neighbouring faces' lightmaps. See LIGHTMAP_BORDER / ComputePrimLightmapCoord.
+		public bool noLightmapBorder;
 		// When set, applies Quake 3's hue-preserving overbright clamp to lightmap luxels (flattens
 		// over-bright highlights toward white). Off by default. See ColorUtil.ConvertQ3LightmapToColorRGBExp32.
 		public bool clampOverbright;
@@ -117,6 +121,10 @@ namespace BSPConvert.Lib
 		// at a face's edge samples its own (duplicated) edge color instead of bleeding in the adjacent
 		// block packed next to it in the lightmap atlas page.
 		private const int LIGHTMAP_BORDER = 1;
+		// Effective guard-band width: 0 when disabled via --nolightmapborder. Used as the single source of
+		// truth so the data copy (ConvertInternal/ExternalLightmaps) and the baked prim lightCoords
+		// (ComputePrimLightmapCoord) always agree on the border, otherwise the lightmap shifts.
+		private int LightmapBorder => options.noLightmapBorder ? 0 : LIGHTMAP_BORDER;
 		private const string invisibleDisplacementTexture = "tools/toolsinvisibledisplacement";
 
 		public BSPConverter(BSPConverterOptions options, ILogger logger)
@@ -1630,10 +1638,11 @@ namespace BSPConvert.Lib
 		// luxel left by ceil(maxSt) -> lightmap bleed. 'extents' is the original (lmEnd - lmStart).
 		private Vector2 ComputePrimLightmapCoord(Vector2 uv1, Vector2 lmStart, Vector2 extents, int lightmapSize)
 		{
-			var paddedX = extents.X + 2 * LIGHTMAP_BORDER;
-			var paddedY = extents.Y + 2 * LIGHTMAP_BORDER;
-			var coordX = paddedX != 0 ? (uv1.X * lightmapSize - lmStart.X + LIGHTMAP_BORDER) / paddedX : 0f;
-			var coordY = paddedY != 0 ? (uv1.Y * lightmapSize - lmStart.Y + LIGHTMAP_BORDER) / paddedY : 0f;
+			var border = LightmapBorder;
+			var paddedX = extents.X + 2 * border;
+			var paddedY = extents.Y + 2 * border;
+			var coordX = paddedX != 0 ? (uv1.X * lightmapSize - lmStart.X + border) / paddedX : 0f;
+			var coordY = paddedY != 0 ? (uv1.Y * lightmapSize - lmStart.Y + border) / paddedY : 0f;
 			return new Vector2(coordX, coordY);
 		}
 
@@ -1952,7 +1961,7 @@ namespace BSPConvert.Lib
 				// have their lightCoords computed at runtime by the engine (SurfComputeLightmapCoordinate),
 				// which is border-unaware, so a border there would just shift their lightmap into the
 				// duplicated edge. See FaceOutputUsesPrimitives.
-				var border = FaceOutputUsesPrimitives(faceIndex) ? LIGHTMAP_BORDER : 0;
+				var border = FaceOutputUsesPrimitives(faceIndex) ? LightmapBorder : 0;
 
 				// Add lightmap colors. The engine allocates/samples a block of (extents + 1) luxels in
 				// BOTH dimensions (RegisterLightmappedSurface). Expand the copied rect by 'border' on every
@@ -2033,7 +2042,7 @@ namespace BSPConvert.Lib
 				var lightmapOffset = lmColors.Count * 4;
 
 				// Guard-band border only for primitive faces; see ConvertInternalLightmaps for the rationale.
-				var border = FaceOutputUsesPrimitives(faceIndex) ? LIGHTMAP_BORDER : 0;
+				var border = FaceOutputUsesPrimitives(faceIndex) ? LightmapBorder : 0;
 				var lmWidth = (int)lmData.size.X;
 				var lmHeight = (int)lmData.size.Y;
 				for (var y = (int)lmStart.Y - border; y <= (int)lmEnd.Y + border; y++)

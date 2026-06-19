@@ -38,6 +38,9 @@ namespace BSPConvert.Cmd
 			[Option("lightmapmin", Required = false, Default = 0.05f, HelpText = "Lightmap black-point lift in [0,1): remaps the [0,1] tonal range to [min,1], raising the darkest luxels off pure black to smooth out harsh/banded shadows (at the cost of shadow depth).")]
 			public float LightmapMinBrightness { get; set; }
 
+			[Option("nolightmapborder", Required = false, HelpText = "Omit the guard-band border around each lightmap block. Shrinks the lighting lump (~9%) at the cost of possible bilinear bleed between adjacent faces' lightmaps.")]
+			public bool NoLightmapBorder { get; set; }
+			
 			[Option("clampoverbright", Required = false, HelpText = "Apply Quake 3's hue-preserving overbright clamp to lightmaps, flattening over-bright highlights toward white instead of letting the engine's 4x overbright blow past white.")]
 			public bool ClampOverbright { get; set; }
 
@@ -127,6 +130,7 @@ namespace BSPConvert.Cmd
 					outputDir = options.OutputDirectory,
 					mapFilter = options.Maps?.ToArray(),
 					lightmapMinBrightness = options.LightmapMinBrightness,
+					noLightmapBorder = options.NoLightmapBorder,
 					clampOverbright = options.ClampOverbright,
 					flipbook = new FlipbookOptions()
 					{
