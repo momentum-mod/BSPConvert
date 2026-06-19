@@ -4,6 +4,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Numerics;
+using System.Runtime.InteropServices;
 using System.Text;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
@@ -208,29 +209,44 @@ namespace BSPConvert.Lib
 				stageFrames.Add(buffers);
 			}
 
-			// Composite each output frame: sum the (additive) stages, or just take the single opaque base.
 			var pixelCount = width * height;
 			var frames = new List<byte[]>(frameCount);
-			for (var f = 0; f < frameCount; f++)
+			if (stageFrames.Count == 1)
 			{
-				var frame = new byte[pixelCount * 4];
-				for (var p = 0; p < pixelCount; p++)
+				// Single animation stage: convert its frame images directly (no compositing needed). Rgba32 is
+				// laid out R,G,B,A, so the buffer is already a valid RGBA8888 frame - just copy it.
+				var buffers = stageFrames[0];
+				for (var f = 0; f < frameCount; f++)
 				{
-					var color = Vector3.Zero;
-					foreach (var buffers in stageFrames)
-					{
-						var pixel = buffers[buffers.Length > 1 ? f % buffers.Length : 0][p];
-						color += new Vector3(pixel.R, pixel.G, pixel.B) / 255f;
-					}
-					color = Vector3.Clamp(color, Vector3.Zero, Vector3.One);
-
-					var index = p * 4;
-					frame[index + 0] = (byte)(color.X * 255f + 0.5f);
-					frame[index + 1] = (byte)(color.Y * 255f + 0.5f);
-					frame[index + 2] = (byte)(color.Z * 255f + 0.5f);
-					frame[index + 3] = 255;
+					var frame = new byte[pixelCount * 4];
+					MemoryMarshal.AsBytes(buffers[f % buffers.Length].AsSpan()).CopyTo(frame);
+					frames.Add(frame);
 				}
-				frames.Add(frame);
+			}
+			else
+			{
+				// Multiple stages: additively sum each stage's current frame per pixel.
+				for (var f = 0; f < frameCount; f++)
+				{
+					var frame = new byte[pixelCount * 4];
+					for (var p = 0; p < pixelCount; p++)
+					{
+						var color = Vector3.Zero;
+						foreach (var buffers in stageFrames)
+						{
+							var pixel = buffers[buffers.Length > 1 ? f % buffers.Length : 0][p];
+							color += new Vector3(pixel.R, pixel.G, pixel.B) / 255f;
+						}
+						color = Vector3.Clamp(color, Vector3.Zero, Vector3.One);
+
+						var index = p * 4;
+						frame[index + 0] = (byte)(color.X * 255f + 0.5f);
+						frame[index + 1] = (byte)(color.Y * 255f + 0.5f);
+						frame[index + 2] = (byte)(color.Z * 255f + 0.5f);
+						frame[index + 3] = 255;
+					}
+					frames.Add(frame);
+				}
 			}
 
 			var vtfPath = Path.Combine(pk3Dir, textureName + ".vtf");
