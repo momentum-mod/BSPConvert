@@ -7,6 +7,7 @@ using System.Numerics;
 using System.Text;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
+using SixLabors.ImageSharp.Processing;
 using sourcepp.vtfpp;
 
 namespace BSPConvert.Lib
@@ -85,7 +86,14 @@ namespace BSPConvert.Lib
 		// source image is missing.
 		public bool TryConvert(string textureName, Shader shader)
 		{
-			if (!options.enabled || !IsMultiPassScrollingShader(shader))
+			if (!options.enabled)
+				return false;
+
+			// animMap shaders are explicit frame sequences (e.g. fire), which map directly to a flipbook.
+			if (IsAnimMapShader(shader))
+				return ConvertAnimMap(textureName, shader);
+
+			if (!IsMultiPassScrollingShader(shader))
 				return false;
 
 			var layers = LoadLayers(shader, out var maxScrollRate);
@@ -96,7 +104,7 @@ namespace BSPConvert.Lib
 
 			var vtfPath = Path.Combine(pk3Dir, textureName + ".vtf");
 			Directory.CreateDirectory(Path.GetDirectoryName(vtfPath)!);
-			if (!BakeVtf(vtfPath, frames))
+			if (!BakeVtf(vtfPath, frames, options.resolution, options.resolution, GetOutputFormat()))
 				return false;
 
 			// The flipbook bakes one seamless source tile per layer; the shared tcmod scale is reproduced on
@@ -142,6 +150,134 @@ namespace BSPConvert.Lib
 				.Where(s => s.bundles[0].tcGen != TexCoordGen.TCGEN_ENVIRONMENT_MAPPED &&
 					s.bundles[0].tcGen != TexCoordGen.TCGEN_LIGHTMAP)
 				.ToList();
+		}
+
+		// Matches shaders with an animMap stage - an explicit frame sequence (Q3 "animMap <fps> f1 f2 ...").
+		private bool IsAnimMapShader(Shader shader)
+		{
+			return GetTextureStages(shader).Any(s => s.bundles[0].numImageAnimations > 1);
+		}
+
+		// Bakes a Q3 animMap (explicit frame sequence, e.g. a fire effect) into a flipbook VTF - one VTF frame
+		// per animMap frame, played by an AnimatedTexture proxy at the animMap's own frequency. Each animMap
+		// stage advances through its own frame list; plain "map" stages stay constant. Additive shaders (the
+		// common sfx case, "GL_one GL_one") sum every stage per frame; otherwise the first animMap stage is
+		// used as an opaque animated base.
+		private bool ConvertAnimMap(string textureName, Shader shader)
+		{
+			var stages = GetTextureStages(shader);
+			var animStages = stages.Where(s => s.bundles[0].numImageAnimations > 1).ToList();
+			if (animStages.Count == 0)
+				return false;
+
+			var isAdditive = stages.Any(IsAdditiveBlend);
+			var compositeStages = isAdditive ? stages : new List<ShaderStage> { animStages[0] };
+
+			var frameCount = animStages.Max(s => s.bundles[0].numImageAnimations);
+			var fps = Math.Clamp((int)MathF.Round(animStages[0].bundles[0].imageAnimationSpeed), 1, 30);
+
+			// animMap frames are authored at a specific size, so bake at the original resolution (taken from the
+			// first frame) rather than --waterres. Any mismatched frame is resized to match (frames in one VTF
+			// must share dimensions).
+			int width = 0, height = 0;
+			var stageFrames = new List<Rgba32[][]>();
+			foreach (var stage in compositeStages)
+			{
+				var bundle = stage.bundles[0];
+				var count = bundle.numImageAnimations > 1 ? bundle.numImageAnimations : 1;
+				var buffers = new Rgba32[count][];
+				for (var i = 0; i < count; i++)
+				{
+					var imagePath = resolveImagePath(Path.ChangeExtension(bundle.images[i], null));
+					if (imagePath == null || !File.Exists(imagePath))
+						return false; // missing a frame - leave it for the normal path
+
+					using var image = Image.Load<Rgba32>(imagePath);
+					if (width == 0)
+					{
+						width = image.Width;
+						height = image.Height;
+					}
+					if (image.Width != width || image.Height != height)
+						image.Mutate(x => x.Resize(width, height));
+
+					var pixels = new Rgba32[width * height];
+					image.CopyPixelDataTo(pixels);
+					buffers[i] = pixels;
+				}
+				stageFrames.Add(buffers);
+			}
+
+			// Composite each output frame: sum the (additive) stages, or just take the single opaque base.
+			var pixelCount = width * height;
+			var frames = new List<byte[]>(frameCount);
+			for (var f = 0; f < frameCount; f++)
+			{
+				var frame = new byte[pixelCount * 4];
+				for (var p = 0; p < pixelCount; p++)
+				{
+					var color = Vector3.Zero;
+					foreach (var buffers in stageFrames)
+					{
+						var pixel = buffers[buffers.Length > 1 ? f % buffers.Length : 0][p];
+						color += new Vector3(pixel.R, pixel.G, pixel.B) / 255f;
+					}
+					color = Vector3.Clamp(color, Vector3.Zero, Vector3.One);
+
+					var index = p * 4;
+					frame[index + 0] = (byte)(color.X * 255f + 0.5f);
+					frame[index + 1] = (byte)(color.Y * 255f + 0.5f);
+					frame[index + 2] = (byte)(color.Z * 255f + 0.5f);
+					frame[index + 3] = 255;
+				}
+				frames.Add(frame);
+			}
+
+			var vtfPath = Path.Combine(pk3Dir, textureName + ".vtf");
+			Directory.CreateDirectory(Path.GetDirectoryName(vtfPath)!);
+			// RGB only (additive uses black=transparent; opaque base needs no alpha), so a no-alpha format is compact.
+			var format = Math.Max(width, height) >= 256 ? ImageFormat.STRATA_BC7 : ImageFormat.DXT1;
+			if (!BakeVtf(vtfPath, frames, width, height, format))
+				return false;
+
+			WriteAnimMapVmt(textureName, shader, fps, isAdditive);
+			return true;
+		}
+
+		private static bool IsAdditiveBlend(ShaderStage stage)
+		{
+			var srcBlend = stage.flags & ShaderStageFlags.GLS_SRCBLEND_BITS;
+			var dstBlend = stage.flags & ShaderStageFlags.GLS_DSTBLEND_BITS;
+			return dstBlend == ShaderStageFlags.GLS_DSTBLEND_ONE &&
+				(srcBlend == ShaderStageFlags.GLS_SRCBLEND_ONE || srcBlend == ShaderStageFlags.GLS_SRCBLEND_SRC_ALPHA);
+		}
+
+		private void WriteAnimMapVmt(string textureName, Shader shader, int fps, bool isAdditive)
+		{
+			var shaderType = shader.surfaceFlags.HasFlag(Q3SurfaceFlags.SURF_NOLIGHTMAP) ? "UnlitGeneric" : "LightmappedGeneric";
+
+			var sb = new StringBuilder();
+			sb.AppendLine(shaderType);
+			sb.AppendLine("{");
+			sb.AppendLine(CultureInfo.InvariantCulture, $"\t$basetexture \"{textureName}\"");
+			if (isAdditive)
+				sb.AppendLine("\t$additive 1");
+			if (shader.cullType == CullType.TWO_SIDED)
+				sb.AppendLine("\t$nocull 1");
+			sb.AppendLine("\tProxies");
+			sb.AppendLine("\t{");
+			sb.AppendLine("\t\tAnimatedTexture");
+			sb.AppendLine("\t\t{");
+			sb.AppendLine("\t\t\tanimatedTextureVar $basetexture");
+			sb.AppendLine("\t\t\tanimatedTextureFrameNumVar $frame");
+			sb.AppendLine(CultureInfo.InvariantCulture, $"\t\t\tanimatedTextureFrameRate {fps}");
+			sb.AppendLine("\t\t}");
+			sb.AppendLine("\t}");
+			sb.AppendLine("}");
+
+			var vmtPath = Path.Combine(pk3Dir, textureName + ".vmt");
+			Directory.CreateDirectory(Path.GetDirectoryName(vmtPath)!);
+			File.WriteAllText(vmtPath, sb.ToString());
 		}
 
 		private List<Layer>? LoadLayers(Shader shader, out float maxRate)
@@ -310,21 +446,22 @@ namespace BSPConvert.Lib
 
 		private static Vector4 ToVector(Rgba32 pixel) => new(pixel.R / 255f, pixel.G / 255f, pixel.B / 255f, pixel.A / 255f);
 
-		private bool BakeVtf(string vtfPath, List<byte[]> frames)
+		private bool BakeVtf(string vtfPath, List<byte[]> frames, int width, int height, ImageFormat format)
 		{
-			var size = (ushort)options.resolution;
+			var w = (ushort)width;
+			var h = (ushort)height;
 
 			using var vtf = new VTF();
 			vtf.Version = 6;
 
 			// Establish format/size from frame 0, grow to the full frame count, then fill the rest.
-			if (!vtf.SetImage(frames[0], ImageFormat.RGBA8888, size, size))
+			if (!vtf.SetImage(frames[0], ImageFormat.RGBA8888, w, h))
 				return false;
 			if (!vtf.SetFrameCount((ushort)frames.Count))
 				return false;
 			for (var i = 1; i < frames.Count; i++)
 			{
-				if (!vtf.SetImage(frames[i], ImageFormat.RGBA8888, size, size, frame: (ushort)i))
+				if (!vtf.SetImage(frames[i], ImageFormat.RGBA8888, w, h, frame: (ushort)i))
 					return false;
 			}
 
@@ -332,7 +469,7 @@ namespace BSPConvert.Lib
 			vtf.ComputeReflectivity();
 			vtf.SetRecommendedMipCount();
 			vtf.ComputeMips();
-			vtf.SetFormat(GetOutputFormat());
+			vtf.SetFormat(format);
 			vtf.ComputeTransparencyFlags();
 
 			return vtf.Bake(vtfPath);
