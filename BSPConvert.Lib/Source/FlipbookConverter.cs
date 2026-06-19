@@ -171,8 +171,13 @@ namespace BSPConvert.Lib
 			if (animStages.Count == 0)
 				return false;
 
-			var isAdditive = stages.Any(IsAdditiveBlend);
-			var compositeStages = isAdditive ? stages : new List<ShaderStage> { animStages[0] };
+			// The surface is additive (black = transparent) only when every stage is an additive/overlay glow.
+			// If there's an opaque base stage (e.g. a lit launchpad texture under additive arrow/dot overlays),
+			// the surface is opaque - the overlays just brighten it - so $additive must NOT be emitted.
+			var anyAdditive = stages.Any(IsAdditiveBlend);
+			var hasOpaqueBase = stages.Any(s => !IsOverlayBlend(s));
+			var isAdditive = anyAdditive && !hasOpaqueBase;
+			var compositeStages = anyAdditive ? stages : new List<ShaderStage> { animStages[0] };
 
 			var frameCount = animStages.Max(s => s.bundles[0].numImageAnimations);
 			var fps = Math.Clamp((int)MathF.Round(animStages[0].bundles[0].imageAnimationSpeed), 1, 30);
@@ -266,6 +271,17 @@ namespace BSPConvert.Lib
 			var dstBlend = stage.flags & ShaderStageFlags.GLS_DSTBLEND_BITS;
 			return dstBlend == ShaderStageFlags.GLS_DSTBLEND_ONE &&
 				(srcBlend == ShaderStageFlags.GLS_SRCBLEND_ONE || srcBlend == ShaderStageFlags.GLS_SRCBLEND_SRC_ALPHA);
+		}
+
+		// A transparent overlay blend - additive ("GL_one GL_one") or alpha ("GL_src_alpha GL_one_minus_src_alpha").
+		// A stage that's neither is an opaque base (e.g. a plain map, or a "GL_dst_color" lightmap multiply).
+		private static bool IsOverlayBlend(ShaderStage stage)
+		{
+			var srcBlend = stage.flags & ShaderStageFlags.GLS_SRCBLEND_BITS;
+			var dstBlend = stage.flags & ShaderStageFlags.GLS_DSTBLEND_BITS;
+			var isAlphaBlend = srcBlend == ShaderStageFlags.GLS_SRCBLEND_SRC_ALPHA &&
+				dstBlend == ShaderStageFlags.GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA;
+			return IsAdditiveBlend(stage) || isAlphaBlend;
 		}
 
 		private void WriteAnimMapVmt(string textureName, Shader shader, int fps, bool isAdditive)
