@@ -294,10 +294,14 @@ namespace BSPConvert.Lib
 		private static ShaderStage? GetTextureStage(IEnumerable<ShaderStage> stages)
 		{
 			bool IsTextureStage(ShaderStage x) => x.bundles[0].tcGen != TexCoordGen.TCGEN_ENVIRONMENT_MAPPED && x.bundles[0].tcGen != TexCoordGen.TCGEN_LIGHTMAP;
-			// Prefer the static base texture (e.g. a pool floor) over animated scrolling overlays (e.g.
-			// caustics), so "base + animated overlay" shaders keep their real surface as the $basetexture
-			// instead of a scrolling effect layer. Each fallback relaxes one condition in priority order.
-			return stages.FirstOrDefault(x => IsTextureStage(x) && !IsDepthPrimingStage(x) && !IsAnimatedStage(x))
+			// The base surface is the opaque stage; transparent overlays (additive caustics, alpha-blended
+			// detail) sit on top of it. So prefer an opaque (non-overlay) stage, and only fall back to an
+			// overlay if there's no opaque candidate. Among opaque candidates prefer a static one - this
+			// keeps a pool floor (static base, scrolling caustic overlays) while still picking opaque
+			// scrolling lava (animated base, static alpha overlay), which a static/animated rule alone can't.
+			bool IsBaseCandidate(ShaderStage x) => IsTextureStage(x) && !IsDepthPrimingStage(x) && !IsOverlayBlend(x);
+			return stages.FirstOrDefault(x => IsBaseCandidate(x) && !IsAnimatedStage(x))
+				?? stages.FirstOrDefault(IsBaseCandidate)
 				?? stages.FirstOrDefault(x => IsTextureStage(x) && !IsDepthPrimingStage(x))
 				?? stages.FirstOrDefault(IsTextureStage)
 				?? stages.FirstOrDefault(x => !IsDepthPrimingStage(x))
@@ -311,6 +315,21 @@ namespace BSPConvert.Lib
 			return stage.bundles[0].texMods.Any(t =>
 				t.type == TexMod.TMOD_SCROLL || t.type == TexMod.TMOD_ROTATE ||
 				t.type == TexMod.TMOD_STRETCH || t.type == TexMod.TMOD_TURBULENT);
+		}
+
+		// A transparent overlay blend - additive ("GL_one GL_one"/"GL_src_alpha GL_one") or alpha
+		// ("GL_src_alpha GL_one_minus_src_alpha") - as opposed to an opaque base ("GL_one GL_zero" or no blend).
+		private static bool IsOverlayBlend(ShaderStage stage)
+		{
+			var srcBlend = stage.flags & ShaderStageFlags.GLS_SRCBLEND_BITS;
+			var dstBlend = stage.flags & ShaderStageFlags.GLS_DSTBLEND_BITS;
+
+			var isAdditive = dstBlend == ShaderStageFlags.GLS_DSTBLEND_ONE &&
+				(srcBlend == ShaderStageFlags.GLS_SRCBLEND_ONE || srcBlend == ShaderStageFlags.GLS_SRCBLEND_SRC_ALPHA);
+			var isAlphaBlend = srcBlend == ShaderStageFlags.GLS_SRCBLEND_SRC_ALPHA &&
+				dstBlend == ShaderStageFlags.GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA;
+
+			return isAdditive || isAlphaBlend;
 		}
 
 		private void AppendShaderParameters(StringBuilder sb, Shader shader)
