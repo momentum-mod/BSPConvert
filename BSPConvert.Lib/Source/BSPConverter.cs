@@ -1,4 +1,4 @@
-#if UNITY_3_4 || UNITY_3_5 || UNITY_4_0 || UNITY_4_0_1 || UNITY_4_2 || UNITY_4_3 || UNITY_4_5 || UNITY_4_6 || UNITY_5 || UNITY_5_3_OR_NEWER
+﻿#if UNITY_3_4 || UNITY_3_5 || UNITY_4_0 || UNITY_4_0_1 || UNITY_4_2 || UNITY_4_3 || UNITY_4_5 || UNITY_4_6 || UNITY_5 || UNITY_5_3_OR_NEWER
 #define UNITY
 #if !UNITY_5_6_OR_NEWER
 #define OLDUNITY
@@ -342,14 +342,12 @@ namespace BSPConvert.Lib
 			return null;
 		}
 
-		// A "fake sky" is a shader flagged "surfaceparm sky" that has no skyParms box - it just draws a
-		// flat texture on the brushes. Source supports only one global skybox, so rather than forcing one
-		// of several such skies onto the whole map we convert them as ordinary textured surfaces (matching
-		// how Q3 actually renders them), which means they must NOT carry the Source sky flag.
+		// A "fake sky" is a sky surface whose shader has no skyParms box - it just draws a flat texture on
+		// the brushes. Source supports only one global skybox, so we convert these as ordinary textured
+		// surfaces (matching how Q3 renders them), which means they must NOT carry the Source sky flag.
 		private bool IsSingleTextureSky(string textureName)
 		{
 			return shaderDict.TryGetValue(textureName, out var shader) &&
-				shader.surfaceFlags.HasFlag(Q3SurfaceFlags.SURF_SKY) &&
 				(shader.skyParms == null || string.IsNullOrEmpty(shader.skyParms.outerBox)) &&
 				shader.GetImageStages().Any();
 		}
