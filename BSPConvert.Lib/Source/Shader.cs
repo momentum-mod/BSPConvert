@@ -182,6 +182,16 @@ namespace BSPConvert.Lib
 			public string outerBox;
 			public string cloudHeight;
 			public string innerBox;
+
+			// Whether the outer box names a real far-skybox image set (e.g. "env/space1"), as opposed to a
+			// Q3 keyword meaning "no image box - draw the cloud stages instead". The parser stores the raw
+			// token, so the keywords are "-" (none) and the cloud-coverage hints "full"/"half" (which have no
+			// backing <name>_rt.tga images - see Q3's skies.shader textures/skies/mkc_sky, pj_arena2sky).
+			public bool HasImageBox =>
+				!string.IsNullOrEmpty(outerBox) &&
+				outerBox != "-" &&
+				!outerBox.Equals("full", StringComparison.OrdinalIgnoreCase) &&
+				!outerBox.Equals("half", StringComparison.OrdinalIgnoreCase);
 		}
 
 		public class FogParms

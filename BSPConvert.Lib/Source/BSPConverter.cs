@@ -330,25 +330,36 @@ namespace BSPConvert.Lib
 		// the sky shader actually applied to brushes rather than from all parsed shaders.
 		private string GetSkyName()
 		{
+			string cloudSkyName = null;
 			foreach (var texture in quakeBsp.Textures)
 			{
-				// Only a real skybox (skyParms <outerBox>) maps to Source's global skybox. Single-texture
-				// fake skies are converted as ordinary surfaces instead (see IsSingleTextureSky).
-				if (shaderDict.TryGetValue(texture.Name, out var shader) &&
-					shader.skyParms != null && !string.IsNullOrEmpty(shader.skyParms.outerBox))
+				if (!shaderDict.TryGetValue(texture.Name, out var shader))
+					continue;
+
+				// A real image skybox (skyParms <outerBox>) maps directly to Source's global skybox and takes
+				// priority over a baked cloud sky.
+				if (shader.skyParms != null && shader.skyParms.HasImageBox)
 					return shader.skyParms.outerBox;
+
+				// A dynamic cloud sky (skyParms, no box) is baked into a static skybox by CloudSkyboxBaker;
+				// point skyname at those baked faces. Single-texture fake skies are converted as ordinary
+				// surfaces instead (see IsSingleTextureSky).
+				if (cloudSkyName == null && CloudSkyboxBaker.IsCloudSkyShader(shader))
+					cloudSkyName = CloudSkyboxBaker.GetSkyName(texture.Name);
 			}
 
-			return null;
+			return cloudSkyName;
 		}
 
-		// A "fake sky" is a sky surface whose shader has no skyParms box - it just draws a flat texture on
+		// A "fake sky" is a sky surface whose shader has no skyParms at all - it just draws a flat texture on
 		// the brushes. Source supports only one global skybox, so we convert these as ordinary textured
 		// surfaces (matching how Q3 renders them), which means they must NOT carry the Source sky flag.
+		// Skies with skyParms are real skyboxes: an image box maps to skyname directly, and a dynamic cloud
+		// sky (skyParms, no box) is baked into one by CloudSkyboxBaker - both keep the Source sky flag.
 		private bool IsSingleTextureSky(string textureName)
 		{
 			return shaderDict.TryGetValue(textureName, out var shader) &&
-				(shader.skyParms == null || string.IsNullOrEmpty(shader.skyParms.outerBox)) &&
+				shader.skyParms == null &&
 				shader.GetImageStages().Any();
 		}
 

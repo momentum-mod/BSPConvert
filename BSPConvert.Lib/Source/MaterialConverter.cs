@@ -16,6 +16,7 @@ namespace BSPConvert.Lib
 		private Dictionary<string, string> customImageDict;
 		private bool noEnvMap;
 		private FlipbookConverter flipbookConverter;
+		private CloudSkyboxBaker cloudSkyboxBaker;
 
 		private string[] skySuffixes =
 		{
@@ -36,6 +37,7 @@ namespace BSPConvert.Lib
 			q3ImageDict = GetImageLookupDictionary(ContentManager.GetQ3ContentDir());
 			customImageDict = GetImageLookupDictionary(ContentManager.GetCustomContentDir());
 			flipbookConverter = new FlipbookConverter(pk3Dir, flipbookOptions ?? new FlipbookOptions(), ResolveImagePath);
+			cloudSkyboxBaker = new CloudSkyboxBaker(pk3Dir, ResolveImagePath);
 		}
 
 		// Resolves a shader-relative texture path (no extension) to a source image file on disk, searching
@@ -92,8 +94,10 @@ namespace BSPConvert.Lib
 				CreateFogVMT(texture, shader);
 			else */if (flipbookConverter.TryConvert(texture, shader))
 				return; // multi-pass scrolling shader baked into an animated flipbook VTF + VMT
-			else if (shader.skyParms != null && !string.IsNullOrEmpty(shader.skyParms.outerBox))
+			else if (shader.skyParms != null && shader.skyParms.HasImageBox)
 				CreateSkyboxVMT(shader);
+			else if (CloudSkyboxBaker.IsCloudSkyShader(shader) && cloudSkyboxBaker.TryConvert(texture, shader))
+				return; // dynamic Q3 cloud sky baked into a static 6-sided Source skybox
 			else if (shader.GetImageStages().Any(x => !string.IsNullOrEmpty(x.bundles[0].images[0])))
 				CreateBaseShaderVMT(texture, shader);
 		}
