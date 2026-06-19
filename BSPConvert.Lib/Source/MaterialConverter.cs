@@ -294,10 +294,23 @@ namespace BSPConvert.Lib
 		private static ShaderStage? GetTextureStage(IEnumerable<ShaderStage> stages)
 		{
 			bool IsTextureStage(ShaderStage x) => x.bundles[0].tcGen != TexCoordGen.TCGEN_ENVIRONMENT_MAPPED && x.bundles[0].tcGen != TexCoordGen.TCGEN_LIGHTMAP;
-			return stages.FirstOrDefault(x => IsTextureStage(x) && !IsDepthPrimingStage(x))
+			// Prefer the static base texture (e.g. a pool floor) over animated scrolling overlays (e.g.
+			// caustics), so "base + animated overlay" shaders keep their real surface as the $basetexture
+			// instead of a scrolling effect layer. Each fallback relaxes one condition in priority order.
+			return stages.FirstOrDefault(x => IsTextureStage(x) && !IsDepthPrimingStage(x) && !IsAnimatedStage(x))
+				?? stages.FirstOrDefault(x => IsTextureStage(x) && !IsDepthPrimingStage(x))
 				?? stages.FirstOrDefault(IsTextureStage)
 				?? stages.FirstOrDefault(x => !IsDepthPrimingStage(x))
 				?? stages.FirstOrDefault();
+		}
+
+		// A stage whose texcoords animate over time (scroll/rotate/stretch/turbulence) - i.e. a moving
+		// overlay rather than a static base surface. (tcmod scale is a constant, so it doesn't count.)
+		private static bool IsAnimatedStage(ShaderStage stage)
+		{
+			return stage.bundles[0].texMods.Any(t =>
+				t.type == TexMod.TMOD_SCROLL || t.type == TexMod.TMOD_ROTATE ||
+				t.type == TexMod.TMOD_STRETCH || t.type == TexMod.TMOD_TURBULENT);
 		}
 
 		private void AppendShaderParameters(StringBuilder sb, Shader shader)
