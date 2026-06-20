@@ -58,6 +58,9 @@ namespace BSPConvert.Lib
 			set { displacementPower = Math.Clamp(value, 2, 4); }
 		}
 		public int minDamageToRespawnPlayer;
+		// Duplicate Quake 3 lava brushes (CONTENTS_LAVA) into trigger_hurt volumes so players are
+		// killed/respawned on contact. See BSPConverter.ConvertLavaTriggers.
+		public bool lavaTriggers;
 		public bool ignoreZones;
 		public bool noEnvMap;
 		public bool oldBSP;
@@ -174,6 +177,8 @@ namespace BSPConvert.Lib
 				ConvertBrushes();
 				ConvertBrushSides();
 				ConvertFuncDoorTriggers();
+				if (options.lavaTriggers)
+					ConvertLavaTriggers();
 				ConvertLightmaps();
 				ConvertVisData();
 				ConvertAreas();
@@ -918,6 +923,13 @@ namespace BSPConvert.Lib
 			brush.Contents = (int)SourceContentsFlags.CONTENTS_SOLID;
 			sourceBsp.Brushes.Add(brush);
 
+			return CreateBrushModel(brushIndex, mins, maxs);
+		}
+
+		// Wraps a single brush in its own orphan leaf + degenerate head node + model, returning the new
+		// model index (referenced by entities as "*index"). Shared by CreateBoxTrigger and the lava triggers.
+		private int CreateBrushModel(int brushIndex, Vector3 mins, Vector3 maxs)
+		{
 			var leafBrushIndex = sourceBsp.LeafBrushes.Count;
 			sourceBsp.LeafBrushes.Add(brushIndex);
 
@@ -952,6 +964,144 @@ namespace BSPConvert.Lib
 			sourceBsp.Models.Add(model);
 
 			return sourceBsp.Models.Count - 1;
+		}
+
+		// Duplicates each Quake 3 lava brush (CONTENTS_LAVA) into a trigger_hurt brush entity that kills the
+		// player on contact. The original lava brush is left intact; this adds a parallel trigger volume.
+		private void ConvertLavaTriggers()
+		{
+			// Quake brushes map 1:1 onto the leading source brushes (same index, shared brush side range);
+			// any brushes appended later (e.g. func_door box triggers) sit past quakeBsp.Brushes.Count.
+			var brushCount = Math.Min(quakeBsp.Brushes.Count, sourceBsp.Brushes.Count);
+			for (var i = 0; i < brushCount; i++)
+			{
+				var q3Contents = (Q3ContentsFlags)quakeBsp.Brushes[i].Texture.Contents;
+				if (!q3Contents.HasFlag(Q3ContentsFlags.CONTENTS_LAVA))
+					continue;
+
+				var lavaBrush = sourceBsp.Brushes[i];
+				if (!TryComputeBrushBounds(lavaBrush.FirstSideIndex, lavaBrush.NumSides, out var mins, out var maxs))
+					continue;
+
+				var triggerModelIndex = CreateLavaTriggerModel(lavaBrush, mins, maxs);
+
+				var trigger = new Entity();
+				trigger.ClassName = "trigger_hurt";
+				trigger["model"] = $"*{triggerModelIndex}";
+				trigger["damage"] = "200"; // Enough to kill/respawn the player on contact
+				trigger["spawnflags"] = "1"; // SF_TRIGGER_ALLOW_CLIENTS
+				sourceBsp.Entities.Add(trigger);
+			}
+		}
+
+		// Duplicates a lava brush's geometry into a new brush (with its own side range) flagged CONTENTS_SOLID
+		// so the engine's trigger touch trace registers, then wraps it in a brush model.
+		private int CreateLavaTriggerModel(Brush lavaBrush, Vector3 mins, Vector3 maxs)
+		{
+			var brushSideStart = sourceBsp.BrushSides.Count;
+			for (var i = 0; i < lavaBrush.NumSides; i++)
+			{
+				var src = sourceBsp.BrushSides[lavaBrush.FirstSideIndex + i];
+
+				var sideData = new byte[BrushSide.GetStructLength(sourceBsp.MapType)];
+				var side = new BrushSide(sideData, sourceBsp.BrushSides);
+				side.PlaneIndex = src.PlaneIndex;
+				side.TextureIndex = src.TextureIndex;
+				side.DisplacementIndex = 0;
+				side.IsBevel = false;
+				sourceBsp.BrushSides.Add(side);
+			}
+
+			var brushIndex = sourceBsp.Brushes.Count;
+			var brushData = new byte[Brush.GetStructLength(sourceBsp.MapType)];
+			var brush = new Brush(brushData, sourceBsp.Brushes);
+			brush.FirstSideIndex = brushSideStart;
+			brush.NumSides = lavaBrush.NumSides;
+			// CONTENTS_SOLID (a MASK_SOLID bit) is required for the trigger touch trace to hit the brush
+			brush.Contents = (int)SourceContentsFlags.CONTENTS_SOLID;
+			sourceBsp.Brushes.Add(brush);
+
+			return CreateBrushModel(brushIndex, mins, maxs);
+		}
+
+		// Computes an AABB enclosing the convex brush defined by its outward-facing side planes, by intersecting
+		// every triple of planes and keeping the corner points that lie inside (or on) all of them. Returns
+		// false for degenerate brushes that produce no valid corner points.
+		private bool TryComputeBrushBounds(int firstSide, int numSides, out Vector3 mins, out Vector3 maxs)
+		{
+			mins = new Vector3(0f, 0f, 0f);
+			maxs = new Vector3(0f, 0f, 0f);
+
+			if (numSides < 4)
+				return false;
+
+			var normals = new Vector3[numSides];
+			var distances = new float[numSides];
+			for (var i = 0; i < numSides; i++)
+			{
+				var plane = sourceBsp.Planes[sourceBsp.BrushSides[firstSide + i].PlaneIndex];
+				normals[i] = plane.Normal;
+				distances[i] = plane.Distance;
+			}
+
+			const float EPSILON = 0.1f;
+			var found = false;
+			float minX = float.MaxValue, minY = float.MaxValue, minZ = float.MaxValue;
+			float maxX = float.MinValue, maxY = float.MinValue, maxZ = float.MinValue;
+
+			for (var i = 0; i < numSides; i++)
+			{
+				for (var j = i + 1; j < numSides; j++)
+				{
+					for (var k = j + 1; k < numSides; k++)
+					{
+						if (!TryIntersectPlanes(normals[i], distances[i], normals[j], distances[j], normals[k], distances[k], out var point))
+							continue;
+
+						// Keep only corners that lie within the brush (inside every outward-facing half-space).
+						var inside = true;
+						for (var m = 0; m < numSides; m++)
+						{
+							if (Vector3.Dot(normals[m], point) - distances[m] > EPSILON)
+							{
+								inside = false;
+								break;
+							}
+						}
+						if (!inside)
+							continue;
+
+						minX = Math.Min(minX, point.X()); minY = Math.Min(minY, point.Y()); minZ = Math.Min(minZ, point.Z());
+						maxX = Math.Max(maxX, point.X()); maxY = Math.Max(maxY, point.Y()); maxZ = Math.Max(maxZ, point.Z());
+						found = true;
+					}
+				}
+			}
+
+			if (!found)
+				return false;
+
+			mins = new Vector3(minX, minY, minZ);
+			maxs = new Vector3(maxX, maxY, maxZ);
+			return true;
+		}
+
+		// Solves for the single point where three planes (Dot(normal, p) = distance) intersect, via Cramer's
+		// rule. Returns false when the planes are parallel/coincident (no unique intersection).
+		private static bool TryIntersectPlanes(Vector3 n1, float d1, Vector3 n2, float d2, Vector3 n3, float d3, out Vector3 point)
+		{
+			var cross23 = Vector3.Cross(n2, n3);
+			var denom = Vector3.Dot(n1, cross23);
+			if (Math.Abs(denom) < 1e-6f)
+			{
+				point = new Vector3(0f, 0f, 0f);
+				return false;
+			}
+
+			var cross31 = Vector3.Cross(n3, n1);
+			var cross12 = Vector3.Cross(n1, n2);
+			point = (cross23 * d1 + cross31 * d2 + cross12 * d3) / denom;
+			return true;
 		}
 
 		// TODO: Add face references in order for showtriggers_toggle to work?

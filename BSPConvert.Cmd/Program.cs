@@ -29,6 +29,9 @@ namespace BSPConvert.Cmd
 			[Option("mindmg", Required = false, Default = 50, HelpText = "Minimum damage for trigger_hurt to respawn player.")]
 			public int MinDamageToRespawnPlayer { get; set; }
 
+			[Option("lavatriggers", Required = false, HelpText = "Duplicate Quake 3 lava brushes into trigger_hurt volumes that kill/respawn the player on contact.")]
+			public bool LavaTriggers { get; set; }
+
 			[Option("nozones", Required = false, HelpText = "Ignore timer zone triggers.")]
 			public bool IgnoreZones { get; set; }
 
@@ -122,6 +125,7 @@ namespace BSPConvert.Cmd
 					patchesAsPrimitives = options.PatchesAsPrimitives,
 					DisplacementPower = options.DisplacementPower,
 					minDamageToRespawnPlayer = options.MinDamageToRespawnPlayer,
+					lavaTriggers = options.LavaTriggers,
 					ignoreZones = options.IgnoreZones,
 					noEnvMap = options.NoEnvMap,
 					//oldBSP = options.OldBSP,
