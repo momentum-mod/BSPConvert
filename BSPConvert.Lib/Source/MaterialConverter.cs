@@ -298,13 +298,18 @@ namespace BSPConvert.Lib
 		private static ShaderStage? GetTextureStage(IEnumerable<ShaderStage> stages)
 		{
 			bool IsTextureStage(ShaderStage x) => x.bundles[0].tcGen != TexCoordGen.TCGEN_ENVIRONMENT_MAPPED && x.bundles[0].tcGen != TexCoordGen.TCGEN_LIGHTMAP;
-			// The base surface is the opaque stage; transparent overlays (additive caustics, alpha-blended
-			// detail) sit on top of it. So prefer an opaque (non-overlay) stage, and only fall back to an
-			// overlay if there's no opaque candidate. Among opaque candidates prefer a static one - this
-			// keeps a pool floor (static base, scrolling caustic overlays) while still picking opaque
-			// scrolling lava (animated base, static alpha overlay), which a static/animated rule alone can't.
+
+			// Pick the most surface-like stage, relaxing the criteria in priority order:
+			//  1. A static opaque base (the ideal: a plain wall/floor under animated overlays).
+			//  2. Any static non-alpha texture - a static texture drawn additively still reads as the surface
+			//     (e.g. a glowing decal), while the animated stages around it are effects we drop.
+			//  3. An animated opaque base (e.g. scrolling lava with a static alpha overlay on top).
+			//  4. Looser fallbacks so $basetexture is always emitted.
+			// Alpha-blended stages are excluded from (2) because a static alpha layer is translucent detail
+			// sitting on a base, so the base (reached at 3) should win instead of the detail.
 			bool IsBaseCandidate(ShaderStage x) => IsTextureStage(x) && !IsDepthPrimingStage(x) && !IsOverlayBlend(x);
 			return stages.FirstOrDefault(x => IsBaseCandidate(x) && !IsAnimatedStage(x))
+				?? stages.FirstOrDefault(x => IsTextureStage(x) && !IsDepthPrimingStage(x) && !IsAnimatedStage(x) && !IsAlphaBlendStage(x))
 				?? stages.FirstOrDefault(IsBaseCandidate)
 				?? stages.FirstOrDefault(x => IsTextureStage(x) && !IsDepthPrimingStage(x))
 				?? stages.FirstOrDefault(IsTextureStage)
@@ -312,13 +317,23 @@ namespace BSPConvert.Lib
 				?? stages.FirstOrDefault();
 		}
 
-		// A stage whose texcoords animate over time (scroll/rotate/stretch/turbulence) - i.e. a moving
-		// overlay rather than a static base surface. (tcmod scale is a constant, so it doesn't count.)
+		// Alpha-blended overlay ("GL_src_alpha GL_one_minus_src_alpha"), e.g. a translucent detail/decal layer.
+		private static bool IsAlphaBlendStage(ShaderStage stage)
+		{
+			var srcBlend = stage.flags & ShaderStageFlags.GLS_SRCBLEND_BITS;
+			var dstBlend = stage.flags & ShaderStageFlags.GLS_DSTBLEND_BITS;
+			return srcBlend == ShaderStageFlags.GLS_SRCBLEND_SRC_ALPHA &&
+				dstBlend == ShaderStageFlags.GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA;
+		}
+
+		// A stage that animates over time - a multi-frame animMap, or texcoords that move
+		// (scroll/rotate/stretch/turbulence) - i.e. an effect layer rather than a static base surface.
 		private static bool IsAnimatedStage(ShaderStage stage)
 		{
-			return stage.bundles[0].texMods.Any(t =>
-				t.type == TexMod.TMOD_SCROLL || t.type == TexMod.TMOD_ROTATE ||
-				t.type == TexMod.TMOD_STRETCH || t.type == TexMod.TMOD_TURBULENT);
+			return stage.bundles[0].numImageAnimations > 1 ||
+				stage.bundles[0].texMods.Any(t =>
+					t.type == TexMod.TMOD_SCROLL || t.type == TexMod.TMOD_ROTATE ||
+					t.type == TexMod.TMOD_STRETCH || t.type == TexMod.TMOD_TURBULENT);
 		}
 
 		// A transparent overlay blend - additive ("GL_one GL_one"/"GL_src_alpha GL_one") or alpha
@@ -395,6 +410,16 @@ namespace BSPConvert.Lib
 
 				// Alpha blend (e.g. "GL_SRC_ALPHA GL_ONE_MINUS_SRC_ALPHA")
 				isAlphaBlend = srcBlend == ShaderStageFlags.GLS_SRCBLEND_SRC_ALPHA && dstBlend == ShaderStageFlags.GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA;
+			}
+
+			// When a multi-stage shader has been reduced to its static base surface (the animated effect
+			// layers above it were dropped during conversion), the base's own additive/alpha blend was only
+			// meaningful as one layer of that composite. On its own it should read as a solid opaque decal,
+			// so drop the transparency it inherited from the discarded effect stages.
+			if (textureStage != null && !IsAnimatedStage(textureStage) && stages.Any(IsAnimatedStage))
+			{
+				isAdditive = false;
+				isAlphaBlend = false;
 			}
 
 			var flags = (textureStage?.flags ?? 0) | (envMapStage?.flags ?? 0);

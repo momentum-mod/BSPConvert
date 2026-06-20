@@ -56,6 +56,9 @@ namespace BSPConvert.Cmd
 			[Option("wateralpha", Required = false, Default = 1.0f, HelpText = "Flipbook water translucency [0-1]. 1 (default) derives per-texel translucency from each texture's alpha/luminance; any value below 1 uses a flat constant alpha (DXT1-friendly, lower = more see-through).")]
 			public float WaterAlpha { get; set; }
 
+			[Option("animmapres", Required = false, Default = 256, HelpText = "Max resolution (px) for baking complex layered animMap shaders - multi-blend effects (e.g. a decal with overlaid animated rings) composited into a looping texture. These can reach hundreds of frames, so a large source is downsampled to this to bound file size. 0 uses the source resolution. Simple single-stage animMaps always bake at their native resolution.")]
+			public int AnimMapMaxResolution { get; set; }
+
 			[Option("prefix", Required = false, Default = "df_", HelpText = "Prefix for the converted BSP's file name.")]
 			public string Prefix { get; set; }
 
@@ -135,7 +138,8 @@ namespace BSPConvert.Cmd
 						frames = frames,
 						minFps = minFps,
 						alpha = options.WaterAlpha,
-						autoAlpha = options.WaterAlpha >= 1f
+						autoAlpha = options.WaterAlpha >= 1f,
+						layeredResolution = options.AnimMapMaxResolution
 					}
 				};
 				var converter = new BSPConverter(converterOptions, new ConsoleLogger());

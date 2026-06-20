@@ -51,6 +51,12 @@ namespace BSPConvert.Lib
 		// Tiles the fastest scrolling layer travels per loop. >=2 keeps slower layers from rounding to a
 		// standstill so each layer still moves in its own direction.
 		public int maxLoopTiles = 2;
+
+		// Max bake resolution (px) for a layered blend-stack composite (the complex multi-blend animMap path).
+		// Unlike a plain animMap, these loops can run to ~256 frames, so a large source (e.g. a 1024px decal)
+		// would balloon the file; the composite is capped to this and downsampled. The animated detail in these
+		// effects is usually low-res anyway. 0 = no cap (use the largest source size).
+		public int layeredResolution = 256;
 	}
 
 	// Converts a Q3 multi-pass scrolling shader (e.g. baseq3 liquids water - several "GL_dst_color"
@@ -171,6 +177,13 @@ namespace BSPConvert.Lib
 			if (animStages.Count == 0)
 				return false;
 
+			// A non-additive overlay (a multiply/filter mask or an alpha layer) can't be reproduced by the
+			// simple additive-sum below. That's a complex layered effect (e.g. masked ring animations over a
+			// decal) - hand it to the full ordered blend-stack compositor, which replays each stage's real
+			// blendFunc, animMap, tcMod stretch and rgbGen wave into a looping flipbook.
+			if (stages.Skip(1).Any(s => !IsAdditiveBlend(s)))
+				return ConvertLayeredStack(textureName, shader, stages);
+
 			// The surface is additive (black = transparent) only when every stage is an additive/overlay glow.
 			// If there's an opaque base stage (e.g. a lit launchpad texture under additive arrow/dot overlays),
 			// the surface is opaque - the overlays just brighten it - so $additive must NOT be emitted.
@@ -264,6 +277,357 @@ namespace BSPConvert.Lib
 			WriteAnimMapVmt(textureName, shader, fps, isAdditive);
 			return true;
 		}
+
+		// Playback fps and the max baked frame count for layered stacks. 30fps reads smoothly; the cap bounds
+		// file size - when a stack's rounded loop needs more frames than this, it's truncated (a slight seam at
+		// the loop point) rather than dropping layers or slowing playback.
+		private const int LayeredFps = 30;
+		private const int LayeredMaxFrames = 256;
+
+		// One stage of a layered blend stack: its frame image(s) plus everything needed to replay it over time.
+		private class StackLayer
+		{
+			public Rgba32[][] frames = Array.Empty<Rgba32[]>(); // one buffer per animMap frame (>=1)
+			public int width;
+			public int height;
+			public float animSpeed;                  // animMap fps (0 => single static image)
+			public bool clamp;                        // clampMap => clamp texcoords instead of wrapping
+			public List<TexModInfo> texMods = new();
+			public ColorGen rgbGen;
+			public WaveForm rgbWave = new();
+			public AlphaGen alphaGen;
+			public WaveForm alphaWave = new();
+			public byte[] constantColor = new byte[4];
+			public ShaderStageFlags flags;            // src/dst blend factors
+		}
+
+		// Bakes a complex multi-blend shader (opaque base + additive/multiply/mask overlays, each possibly
+		// animMap-cycled and tcMod-stretched) into one looping flipbook by replaying Q3's fixed-function blend
+		// stack per pixel per frame. The opaque base stage makes the result self-contained (independent of the
+		// scene behind the surface), so it bakes to an opaque RGB VTF; the lightmap multiply is left to the engine.
+		private bool ConvertLayeredStack(string textureName, Shader shader, List<ShaderStage> stages)
+		{
+			var layers = new List<StackLayer>();
+			int bakeW = 0, bakeH = 0;
+			foreach (var stage in stages)
+			{
+				var bundle = stage.bundles[0];
+				var count = bundle.numImageAnimations > 1 ? bundle.numImageAnimations : 1;
+				var buffers = new Rgba32[count][];
+				int lw = 0, lh = 0;
+				for (var i = 0; i < count; i++)
+				{
+					var imagePath = resolveImagePath(Path.ChangeExtension(bundle.images[i], null));
+					if (imagePath == null || !File.Exists(imagePath))
+						return false; // missing a frame - leave it for the normal path (static decal)
+
+					using var image = Image.Load<Rgba32>(imagePath);
+					if (lw == 0) { lw = image.Width; lh = image.Height; }
+					if (image.Width != lw || image.Height != lh)
+						image.Mutate(x => x.Resize(lw, lh)); // frames of one stage must share size
+
+					var pixels = new Rgba32[lw * lh];
+					image.CopyPixelDataTo(pixels);
+					buffers[i] = pixels;
+				}
+
+				layers.Add(new StackLayer
+				{
+					frames = buffers,
+					width = lw,
+					height = lh,
+					animSpeed = bundle.numImageAnimations > 1 ? bundle.imageAnimationSpeed : 0f,
+					clamp = bundle.clamp,
+					texMods = bundle.texMods,
+					rgbGen = stage.rgbGen,
+					rgbWave = stage.rgbWave,
+					alphaGen = stage.alphaGen,
+					alphaWave = stage.alphaWave,
+					constantColor = stage.constantColor,
+					flags = stage.flags
+				});
+
+				bakeW = Math.Max(bakeW, lw);
+				bakeH = Math.Max(bakeH, lh);
+			}
+
+			if (bakeW == 0 || bakeH == 0)
+				return false;
+
+			// Cap the composite size (a layered loop can be ~256 frames, so a 1024px source would balloon the
+			// file). Downsample proportionally; we composite directly at bake size by sampling sources via UV.
+			var cap = options.layeredResolution;
+			var maxDim = Math.Max(bakeW, bakeH);
+			if (cap > 0 && maxDim > cap)
+			{
+				bakeW = Math.Max(1, bakeW * cap / maxDim);
+				bakeH = Math.Max(1, bakeH * cap / maxDim);
+			}
+
+			// DXT compression needs dimensions that are multiples of 4.
+			bakeW = (bakeW + 3) & ~3;
+			bakeH = (bakeH + 3) & ~3;
+
+			var (frameCount, fps) = ComputeLayeredLoop(layers);
+			var pixelCount = bakeW * bakeH;
+			var frames = new List<byte[]>(frameCount);
+
+			for (var f = 0; f < frameCount; f++)
+			{
+				var t = (float)f / fps; // seconds into the loop
+				var frame = new byte[pixelCount * 4];
+				for (var y = 0; y < bakeH; y++)
+				{
+					for (var x = 0; x < bakeW; x++)
+					{
+						var uv = new Vector2((x + 0.5f) / bakeW, (y + 0.5f) / bakeH);
+
+						// Replay the blend stack onto the framebuffer (starts black; the opaque base stage
+						// overwrites it, then each overlay composites with its real blendFunc).
+						var fb = Vector3.Zero;
+						foreach (var layer in layers)
+						{
+							var animIdx = layer.animSpeed > 0f && layer.frames.Length > 1
+								? (int)MathF.Floor(t * layer.animSpeed) % layer.frames.Length
+								: 0;
+							var st = TransformTexcoord(uv, layer.texMods, t);
+							var texel = SampleTexel(layer.frames[animIdx], layer.width, layer.height, st, layer.clamp);
+
+							var src = new Vector3(texel.X, texel.Y, texel.Z) * EvalRgb(layer, t);
+							var srcAlpha = EvalAlpha(layer, texel.W, t);
+							fb = BlendStage(layer.flags, src, srcAlpha, fb);
+							fb = Vector3.Clamp(fb, Vector3.Zero, Vector3.One); // Q3's 8-bit framebuffer clamps each pass
+						}
+
+						var index = (y * bakeW + x) * 4;
+						frame[index + 0] = (byte)(fb.X * 255f + 0.5f);
+						frame[index + 1] = (byte)(fb.Y * 255f + 0.5f);
+						frame[index + 2] = (byte)(fb.Z * 255f + 0.5f);
+						frame[index + 3] = 255; // opaque base => opaque surface
+					}
+				}
+				frames.Add(frame);
+			}
+
+			var vtfPath = Path.Combine(pk3Dir, textureName + ".vtf");
+			Directory.CreateDirectory(Path.GetDirectoryName(vtfPath)!);
+			var format = Math.Max(bakeW, bakeH) >= 256 ? ImageFormat.STRATA_BC7 : ImageFormat.DXT1;
+			if (!BakeVtf(vtfPath, frames, bakeW, bakeH, format))
+				return false;
+
+			WriteAnimMapVmt(textureName, shader, fps, isAdditive: false);
+			return true;
+		}
+
+		// Loop length for a layered stack. Each animated element (animMap, tcMod stretch, rgbGen/alphaGen wave)
+		// has its own period; the loop is their LCM. The periods are first snapped to a shared base so the LCM
+		// stays small (a tiny speed adjustment per layer), then the frame count is derived at LayeredFps and
+		// capped at LayeredMaxFrames (truncating very long loops with a slight seam rather than growing the file).
+		private static (int frameCount, int fps) ComputeLayeredLoop(List<StackLayer> layers)
+		{
+			var periods = new List<float>();
+			foreach (var layer in layers)
+			{
+				if (layer.animSpeed > 0f && layer.frames.Length > 1)
+					periods.Add(layer.frames.Length / layer.animSpeed);
+
+				foreach (var texMod in layer.texMods)
+				{
+					if ((texMod.type == TexMod.TMOD_STRETCH || texMod.type == TexMod.TMOD_TURBULENT) && texMod.wave.frequency > 0f)
+						periods.Add(1f / texMod.wave.frequency);
+				}
+
+				if (layer.rgbGen == ColorGen.CGEN_WAVEFORM && layer.rgbWave.frequency > 0f)
+					periods.Add(1f / layer.rgbWave.frequency);
+				if (layer.alphaGen == AlphaGen.AGEN_WAVEFORM && layer.alphaWave.frequency > 0f)
+					periods.Add(1f / layer.alphaWave.frequency);
+			}
+
+			if (periods.Count == 0)
+				return (1, LayeredFps); // nothing animates (shouldn't happen on this path) - single frame
+
+			// Snap every period to an integer multiple of the smallest one, then the loop is base * LCM(multiples).
+			var quantum = periods.Min();
+			var multiples = periods.Select(p => Math.Clamp((int)MathF.Round(p / quantum), 1, 1000)).ToList();
+			var lcm = multiples.Aggregate(1, Lcm);
+			var loopSeconds = lcm * quantum;
+
+			var frameCount = Math.Clamp((int)MathF.Round(loopSeconds * LayeredFps), 1, LayeredMaxFrames);
+			return (frameCount, LayeredFps);
+		}
+
+		private static int Gcd(int a, int b)
+		{
+			while (b != 0)
+				(a, b) = (b, a % b);
+			return a;
+		}
+
+		// LCM with an upper clamp so a near-incommensurate set can't explode the frame budget (the caller caps frames).
+		private static int Lcm(int a, int b)
+		{
+			if (a == 0 || b == 0)
+				return Math.Max(a, b);
+			var lcm = (long)(a / Gcd(a, b)) * b;
+			return (int)Math.Min(lcm, 100000);
+		}
+
+		// Q3 texcoord modifiers applied in order, evaluated at time t. Reproduces scale/scroll/stretch/rotate
+		// (transform/turbulent shear aren't reproduced). Stretch and rotate are what animate these effect layers.
+		private static Vector2 TransformTexcoord(Vector2 st, List<TexModInfo> texMods, float t)
+		{
+			foreach (var texMod in texMods)
+			{
+				switch (texMod.type)
+				{
+					case TexMod.TMOD_SCALE:
+						st = new Vector2(st.X * texMod.scale[0], st.Y * texMod.scale[1]);
+						break;
+					case TexMod.TMOD_SCROLL:
+						st += new Vector2(texMod.scroll[0], texMod.scroll[1]) * t;
+						break;
+					case TexMod.TMOD_STRETCH:
+					{
+						// Q3 scales texcoords about (0.5,0.5) by 1/wave (a pulsing zoom).
+						var wave = EvalWave(texMod.wave, t);
+						var p = 1f / (MathF.Abs(wave) < 0.01f ? (wave < 0f ? -0.01f : 0.01f) : wave);
+						st = (st - new Vector2(0.5f)) * p + new Vector2(0.5f);
+						break;
+					}
+					case TexMod.TMOD_ROTATE:
+					{
+						var rad = texMod.rotateSpeed * t * (MathF.PI / 180f);
+						var c = MathF.Cos(rad);
+						var s = MathF.Sin(rad);
+						var d = st - new Vector2(0.5f);
+						st = new Vector2(d.X * c - d.Y * s, d.X * s + d.Y * c) + new Vector2(0.5f);
+						break;
+					}
+				}
+			}
+			return st;
+		}
+
+		// rgbGen color multiplier for a stage at time t (waveform pulse or constant color; otherwise white).
+		private static Vector3 EvalRgb(StackLayer layer, float t)
+		{
+			if (layer.rgbGen == ColorGen.CGEN_WAVEFORM)
+			{
+				var v = Math.Clamp(EvalWave(layer.rgbWave, t), 0f, 1f);
+				return new Vector3(v);
+			}
+			if (layer.rgbGen == ColorGen.CGEN_CONST)
+				return new Vector3(layer.constantColor[0], layer.constantColor[1], layer.constantColor[2]) / 255f;
+
+			return Vector3.One;
+		}
+
+		// Per-stage source alpha at time t (used only by alpha-factor blends; the texel's own alpha by default).
+		private static float EvalAlpha(StackLayer layer, float texelAlpha, float t)
+		{
+			if (layer.alphaGen == AlphaGen.AGEN_WAVEFORM)
+				return Math.Clamp(EvalWave(layer.alphaWave, t), 0f, 1f);
+			if (layer.alphaGen == AlphaGen.AGEN_CONST)
+				return layer.constantColor[3] / 255f;
+
+			return texelAlpha;
+		}
+
+		private static float EvalWave(WaveForm wave, float t)
+		{
+			var x = t * wave.frequency + wave.phase;
+			var frac = x - MathF.Floor(x);
+			float shape = wave.func switch
+			{
+				GenFunc.GF_SIN => MathF.Sin(frac * 2f * MathF.PI),
+				GenFunc.GF_SAWTOOTH => frac,
+				GenFunc.GF_INVERSE_SAWTOOTH => 1f - frac,
+				GenFunc.GF_TRIANGLE => frac < 0.5f ? frac * 2f : 2f - frac * 2f,
+				GenFunc.GF_SQUARE => frac < 0.5f ? 1f : -1f,
+				_ => 1f
+			};
+			return wave.base_ + wave.amplitude * shape;
+		}
+
+		// Replays one Q3 blendFunc: result = src*srcFactor + dst*dstFactor. No blend bits set means an opaque
+		// base ("GL_one GL_zero"), which simply overwrites the framebuffer.
+		private static Vector3 BlendStage(ShaderStageFlags flags, Vector3 src, float srcAlpha, Vector3 dst)
+		{
+			var srcBits = flags & ShaderStageFlags.GLS_SRCBLEND_BITS;
+			var dstBits = flags & ShaderStageFlags.GLS_DSTBLEND_BITS;
+			if (srcBits == 0 && dstBits == 0)
+				return src; // opaque replace
+
+			var sf = SrcFactor(srcBits, src, srcAlpha, dst);
+			var df = DstFactor(dstBits, src, srcAlpha, dst);
+			return src * sf + dst * df;
+		}
+
+		private static Vector3 SrcFactor(ShaderStageFlags bits, Vector3 src, float a, Vector3 dst) => bits switch
+		{
+			ShaderStageFlags.GLS_SRCBLEND_ZERO => Vector3.Zero,
+			ShaderStageFlags.GLS_SRCBLEND_ONE => Vector3.One,
+			ShaderStageFlags.GLS_SRCBLEND_DST_COLOR => dst,
+			ShaderStageFlags.GLS_SRCBLEND_ONE_MINUS_DST_COLOR => Vector3.One - dst,
+			ShaderStageFlags.GLS_SRCBLEND_SRC_ALPHA => new Vector3(a),
+			ShaderStageFlags.GLS_SRCBLEND_ONE_MINUS_SRC_ALPHA => new Vector3(1f - a),
+			ShaderStageFlags.GLS_SRCBLEND_DST_ALPHA => Vector3.One,        // opaque framebuffer => dst alpha 1
+			ShaderStageFlags.GLS_SRCBLEND_ONE_MINUS_DST_ALPHA => Vector3.Zero,
+			_ => Vector3.One
+		};
+
+		private static Vector3 DstFactor(ShaderStageFlags bits, Vector3 src, float a, Vector3 dst) => bits switch
+		{
+			ShaderStageFlags.GLS_DSTBLEND_ZERO => Vector3.Zero,
+			ShaderStageFlags.GLS_DSTBLEND_ONE => Vector3.One,
+			ShaderStageFlags.GLS_DSTBLEND_SRC_COLOR => src,
+			ShaderStageFlags.GLS_DSTBLEND_ONE_MINUS_SRC_COLOR => Vector3.One - src,
+			ShaderStageFlags.GLS_DSTBLEND_SRC_ALPHA => new Vector3(a),
+			ShaderStageFlags.GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA => new Vector3(1f - a),
+			ShaderStageFlags.GLS_DSTBLEND_DST_ALPHA => Vector3.One,
+			ShaderStageFlags.GLS_DSTBLEND_ONE_MINUS_DST_ALPHA => Vector3.Zero,
+			_ => Vector3.Zero
+		};
+
+		// Bilinear sample at texcoord st, wrapping or clamping per the stage's clampMap flag.
+		private static Vector4 SampleTexel(Rgba32[] pixels, int w, int h, Vector2 st, bool clamp)
+		{
+			if (clamp)
+				st = Vector2.Clamp(st, Vector2.Zero, Vector2.One);
+
+			var fx = WrapOrClampCoord(st.X, clamp) * w - 0.5f;
+			var fy = WrapOrClampCoord(st.Y, clamp) * h - 0.5f;
+
+			var x0 = (int)MathF.Floor(fx);
+			var y0 = (int)MathF.Floor(fy);
+			var dx = fx - x0;
+			var dy = fy - y0;
+
+			int X0, Y0, X1, Y1;
+			if (clamp)
+			{
+				X0 = Math.Clamp(x0, 0, w - 1);
+				Y0 = Math.Clamp(y0, 0, h - 1);
+				X1 = Math.Clamp(x0 + 1, 0, w - 1);
+				Y1 = Math.Clamp(y0 + 1, 0, h - 1);
+			}
+			else
+			{
+				X0 = ((x0 % w) + w) % w;
+				Y0 = ((y0 % h) + h) % h;
+				X1 = (X0 + 1) % w;
+				Y1 = (Y0 + 1) % h;
+			}
+
+			var c00 = ToVector(pixels[Y0 * w + X0]);
+			var c10 = ToVector(pixels[Y0 * w + X1]);
+			var c01 = ToVector(pixels[Y1 * w + X0]);
+			var c11 = ToVector(pixels[Y1 * w + X1]);
+
+			return Vector4.Lerp(Vector4.Lerp(c00, c10, dx), Vector4.Lerp(c01, c11, dx), dy);
+		}
+
+		private static float WrapOrClampCoord(float v, bool clamp) => clamp ? Math.Clamp(v, 0f, 1f) : v - MathF.Floor(v);
 
 		private static bool IsAdditiveBlend(ShaderStage stage)
 		{
