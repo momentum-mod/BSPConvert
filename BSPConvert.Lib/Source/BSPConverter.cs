@@ -2220,7 +2220,7 @@ namespace BSPConvert.Lib
 		// True if the Q3 face was emitted as primitive mesh face(s) (lightCoords baked by the converter)
 		// rather than displacement(s) (lightCoords computed at runtime by the engine). A Q3 face's split
 		// faces are homogeneous in the cases that matter here: non-patch polygons -> prims; patches ->
-		// displacements, or prims (+ invisible collision disps, prim listed first) under --patchprims.
+		// prims (+ invisible collision disps, prim listed first), or displacements under --patchdisps.
 		private bool FaceOutputUsesPrimitives(int qFaceIndex)
 		{
 			if (!splitFaceDict.TryGetValue(qFaceIndex, out var splitFaces) || splitFaces.Length == 0)
