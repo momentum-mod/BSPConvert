@@ -100,9 +100,26 @@ namespace BSPConvert.Lib
 			if (IsAnimMapShader(shader))
 				return ConvertAnimMap(textureName, shader);
 
-			if (!IsMultiPassScrollingShader(shader))
-				return false;
+			// Q3 layered liquids (every visible stage scrolls with a dst-color blend and there's no opaque
+			// base) get the dedicated translucent screen-blend bake - check it before the general path,
+			// since their scrolling stages would otherwise match the opaque-surface effect gate below.
+			if (IsMultiPassScrollingShader(shader))
+				return ConvertMultiPassScrolling(textureName, shader);
 
+			// Any opaque surface carrying animated overlay(s) that no single Source material can express -
+			// scrolling lights along a wall, a rotating vortex over a jump pad, a pulsing glow - is replayed
+			// stage by stage into a looping flipbook by the ordered blend-stack compositor.
+			if (IsLayeredEffectShader(shader))
+				return ConvertLayeredStack(textureName, shader, GetTextureStages(shader));
+
+			return false;
+		}
+
+		// Bakes a Q3 layered liquid (the multi-pass dst-color scrolling pattern) into a translucent
+		// flipbook: each layer's seamless tile is screen-composited per frame and the shared tcmod scale is
+		// reapplied on the surface via the VMT so ripple size matches Q3.
+		private bool ConvertMultiPassScrolling(string textureName, Shader shader)
+		{
 			var layers = LoadLayers(shader, out var maxScrollRate);
 			if (layers == null)
 				return false;
@@ -114,8 +131,6 @@ namespace BSPConvert.Lib
 			if (!BakeVtf(vtfPath, frames, options.resolution, options.resolution, GetOutputFormat()))
 				return false;
 
-			// The flipbook bakes one seamless source tile per layer; the shared tcmod scale is reproduced on
-			// the surface via the VMT so ripple size (and on-surface repetition) matches Q3.
 			var commonScale = new Vector2(layers.Average(l => l.scale.X), layers.Average(l => l.scale.Y));
 			WriteVmt(textureName, commonScale, ComputeFps(maxScrollRate));
 			return true;
@@ -163,6 +178,38 @@ namespace BSPConvert.Lib
 		private bool IsAnimMapShader(Shader shader)
 		{
 			return GetTextureStages(shader).Any(s => s.bundles[0].numImageAnimations > 1);
+		}
+
+		// Matches an opaque surface carrying one or more animated overlays that no single Source material can
+		// reproduce: a static base plus stage(s) that scroll (lights tracking along a wall), rotate (a vortex
+		// over a jump pad), stretch/pulse via a waveform, etc. The whole blend stack is composited per frame
+		// into a looping flipbook by ConvertLayeredStack. (animMap stacks and layered liquids are handled by
+		// their own paths before this is reached.)
+		private bool IsLayeredEffectShader(Shader shader)
+		{
+			var stages = GetTextureStages(shader);
+			if (stages.Count < 2)
+				return false;
+
+			// At least one stage must animate in a way the compositor can actually reproduce: scroll, rotate,
+			// stretch, or an rgb/alpha waveform. Transform/turbulent shear isn't replayed, so a stage animated
+			// only by those doesn't count (it would bake to a static frame).
+			var animates = stages.Any(s =>
+				(s.rgbGen == ColorGen.CGEN_WAVEFORM && s.rgbWave.frequency > 0f) ||
+				(s.alphaGen == AlphaGen.AGEN_WAVEFORM && s.alphaWave.frequency > 0f) ||
+				s.bundles[0].texMods.Any(t =>
+					t.type == TexMod.TMOD_SCROLL ||
+					t.type == TexMod.TMOD_ROTATE ||
+					(t.type == TexMod.TMOD_STRETCH && t.wave.frequency > 0f)));
+			if (!animates)
+				return false;
+
+			// ConvertLayeredStack overwrites the framebuffer with an opaque base stage and bakes an opaque
+			// VTF, so it only fits surfaces that have one (the wall/pad under the effect). An all-overlay
+			// stack (no opaque base) needs translucent/additive output instead - leave those for the normal
+			// path. A single animated stage with no base is also better served live by MaterialConverter's
+			// texture-transform proxies, so the >= 2 stage requirement above keeps those out too.
+			return stages.Any(s => !IsOverlayBlend(s));
 		}
 
 		// Bakes a Q3 animMap (explicit frame sequence, e.g. a fire effect) into a flipbook VTF - one VTF frame
@@ -435,6 +482,18 @@ namespace BSPConvert.Lib
 				{
 					if ((texMod.type == TexMod.TMOD_STRETCH || texMod.type == TexMod.TMOD_TURBULENT) && texMod.wave.frequency > 0f)
 						periods.Add(1f / texMod.wave.frequency);
+
+					// A scroll wraps seamlessly once it has travelled a whole tile, so its period is the
+					// time per tile (one per moving axis). A rotate's period is one full revolution.
+					else if (texMod.type == TexMod.TMOD_SCROLL)
+					{
+						if (MathF.Abs(texMod.scroll[0]) > 1e-4f)
+							periods.Add(1f / MathF.Abs(texMod.scroll[0]));
+						if (MathF.Abs(texMod.scroll[1]) > 1e-4f)
+							periods.Add(1f / MathF.Abs(texMod.scroll[1]));
+					}
+					else if (texMod.type == TexMod.TMOD_ROTATE && MathF.Abs(texMod.rotateSpeed) > 1e-4f)
+						periods.Add(360f / MathF.Abs(texMod.rotateSpeed));
 				}
 
 				if (layer.rgbGen == ColorGen.CGEN_WAVEFORM && layer.rgbWave.frequency > 0f)
