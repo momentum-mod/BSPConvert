@@ -32,6 +32,12 @@ namespace BSPConvert.Cmd
 			[Option("lavatriggers", Required = false, HelpText = "Duplicate Quake 3 lava brushes into trigger_hurt volumes that kill/respawn the player on contact.")]
 			public bool LavaTriggers { get; set; }
 
+			[Option("fog", Required = false, HelpText = "Convert Quake 3 fog brushes into volumetric fog (obb_volumefog) entities. Off by default: thin fog volumes can flicker as the camera pans, which may look worse than no fog on some maps.")]
+			public bool ConvertFog { get; set; }
+
+			[Option("fogminheight", Required = false, Default = 256f, HelpText = "Minimum vertical height (units) for converted fog volumes. Thin fog layers are expanded downward to this height so they span enough view froxels to reduce flickering. Only used with --fog.")]
+			public float FogMinHeight { get; set; }
+
 			[Option("nozones", Required = false, HelpText = "Ignore timer zone triggers.")]
 			public bool IgnoreZones { get; set; }
 
@@ -126,6 +132,8 @@ namespace BSPConvert.Cmd
 					DisplacementPower = options.DisplacementPower,
 					minDamageToRespawnPlayer = options.MinDamageToRespawnPlayer,
 					lavaTriggers = options.LavaTriggers,
+					convertFog = options.ConvertFog,
+					fogMinHeight = options.FogMinHeight,
 					ignoreZones = options.IgnoreZones,
 					noEnvMap = options.NoEnvMap,
 					//oldBSP = options.OldBSP,

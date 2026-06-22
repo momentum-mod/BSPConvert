@@ -7,6 +7,7 @@
 
 using LibBSP;
 using System;
+using System.Globalization;
 using System.IO;
 using System.Collections.Generic;
 using System.Linq;
@@ -61,6 +62,13 @@ namespace BSPConvert.Lib
 		// Duplicate Quake 3 lava brushes (CONTENTS_LAVA) into trigger_hurt volumes so players are
 		// killed/respawned on contact. See BSPConverter.ConvertLavaTriggers.
 		public bool lavaTriggers;
+		// Convert Quake 3 fog brushes into volumetric fog (obb_volumefog) entities. Off by default: thin
+		// fog volumes can flicker as the camera pans, which may look worse than no fog on some maps.
+		// See BSPConverter.ConvertFogVolumes.
+		public bool convertFog;
+		// Minimum vertical (Z) height, in units, for converted fog volumes. Thin fog layers are expanded
+		// downward to this height so they span enough view froxels to reduce flickering. See ConvertFogVolumes.
+		public float fogMinHeight;
 		public bool ignoreZones;
 		public bool noEnvMap;
 		public bool oldBSP;
@@ -178,6 +186,8 @@ namespace BSPConvert.Lib
 				ConvertModels();
 				ConvertBrushes();
 				ConvertBrushSides();
+				if (options.convertFog)
+					ConvertFogVolumes();
 				ConvertFuncDoorTriggers();
 				if (options.lavaTriggers)
 					ConvertLavaTriggers();
@@ -983,6 +993,80 @@ namespace BSPConvert.Lib
 			sourceBsp.Models.Add(model);
 
 			return sourceBsp.Models.Count - 1;
+		}
+
+		// depthForOpaque (Q3 distance at which the fog becomes fully opaque) that maps to a volumetric
+		// density of 1.0. Thicker fog (smaller depth) -> higher density. Source's density slider runs
+		// 0..1.5, so this is a heuristic mapping that may need per-map tuning.
+		private const float FogDensityReference = 512f;
+
+		// Replaces each Quake 3 fog brush with an obb_volumefog point entity placed at the brush's center,
+		// sized to its axis-aligned bounds. Q3 fog is an absorption model (flat color + opaque
+		// distance); Strata's is a scattering volumetric, so the color maps to emissive_color and the opaque
+		// distance is converted to an approximate density.
+		private void ConvertFogVolumes()
+		{
+			// Quake brushes map 1:1 onto the leading source brushes (same index, shared brush side range).
+			var brushCount = Math.Min(quakeBsp.Brushes.Count, sourceBsp.Brushes.Count);
+			for (var i = 0; i < brushCount; i++)
+			{
+				if (!IsFogBrush(quakeBsp.Brushes[i], out var fogParms))
+					continue;
+
+				var fogBrush = sourceBsp.Brushes[i];
+				if (!TryComputeBrushBounds(fogBrush.FirstSideIndex, fogBrush.NumSides, out var mins, out var maxs))
+					continue;
+
+				// Expand thin fog layers downward to a minimum height (lower the bottom, keep the original top
+				// in place) so the volume spans enough view froxels to avoid flickering as the camera pans.
+				if (maxs.Z() - mins.Z() < options.fogMinHeight)
+					mins = new Vector3(mins.X(), mins.Y(), maxs.Z() - options.fogMinHeight);
+
+				var center = (mins + maxs) * 0.5f;
+				var size = maxs - mins;
+
+				var color = fogParms.color;
+				var density = Math.Clamp(FogDensityReference / Math.Max(fogParms.depthForOpaque, 1f), 0.01f, 1.5f);
+
+				var fog = new Entity();
+				fog.ClassName = "obb_volumefog";
+				fog.Origin = center;
+				// obb_volumefog stores full (not half) extents as width=X, depth=Y, height=Z (see COBBVolumeFog::Spawn)
+				fog["width"] = FormatFloat(size.X());
+				fog["depth"] = FormatFloat(size.Y());
+				fog["height"] = FormatFloat(size.Z());
+				fog["density"] = FormatFloat(density);
+				// Q3 fog is a flat, light-independent color. The volumetric's scattering term only shows color
+				// where the volume is lit, which converted Q3 maps usually aren't (no sky/dynamic light feeds the
+				// volumetric), so scattering alone renders black. Map the color to emissive_color instead so it's
+				// always visible, matching Q3's constant-color fog. KeyValue parses "R G B A" as 0-255; alpha
+				// scales the color's contribution.
+				fog["emissive_color"] = $"{FormatFloat(color.X() * 255f)} {FormatFloat(color.Y() * 255f)} {FormatFloat(color.Z() * 255f)} 255";
+				sourceBsp.Entities.Add(fog);
+			}
+		}
+
+		// A Quake 3 brush is a fog brush when its shader declares fogParms (matches IsFogFace).
+		private bool IsFogBrush(Brush qBrush, out Shader.FogParms fogParms)
+		{
+			fogParms = null;
+			if (string.IsNullOrEmpty(qBrush.Texture.Name))
+				return false;
+
+			if (shaderDict.TryGetValue(qBrush.Texture.Name, out var shader) && shader.fogParms != null)
+			{
+				fogParms = shader.fogParms;
+				return true;
+			}
+
+			return false;
+		}
+
+		// Formats a float for an entity keyvalue using invariant culture so locales using ',' as the
+		// decimal separator don't produce values the engine can't parse.
+		private static string FormatFloat(float value)
+		{
+			return value.ToString(CultureInfo.InvariantCulture);
 		}
 
 		// Duplicates each Quake 3 lava brush (CONTENTS_LAVA) into a trigger_hurt brush entity that kills the
