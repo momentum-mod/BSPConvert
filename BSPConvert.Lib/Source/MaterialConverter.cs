@@ -351,6 +351,20 @@ namespace BSPConvert.Lib
 			return isAdditive || isAlphaBlend;
 		}
 
+		// An opaque stage writes solid color to the framebuffer ("GL_one GL_zero" or no blendFunc). Any shader
+		// containing one is opaque overall: later additive/alpha stages only lighten or tint that base, so the
+		// world behind the surface is never visible.
+		private static bool IsOpaqueStage(ShaderStage stage)
+		{
+			var srcBlend = stage.flags & ShaderStageFlags.GLS_SRCBLEND_BITS;
+			var dstBlend = stage.flags & ShaderStageFlags.GLS_DSTBLEND_BITS;
+
+			var noBlend = srcBlend == 0 && dstBlend == 0;
+			var isOneZero = srcBlend == ShaderStageFlags.GLS_SRCBLEND_ONE && dstBlend == ShaderStageFlags.GLS_DSTBLEND_ZERO;
+
+			return noBlend || isOneZero;
+		}
+
 		private void AppendShaderParameters(StringBuilder sb, Shader shader)
 		{
 			var stages = shader.GetImageStages();
@@ -412,14 +426,23 @@ namespace BSPConvert.Lib
 				isAlphaBlend = srcBlend == ShaderStageFlags.GLS_SRCBLEND_SRC_ALPHA && dstBlend == ShaderStageFlags.GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA;
 			}
 
-			// When a multi-stage shader has been reduced to its static base surface (the animated effect
-			// layers above it were dropped during conversion), the base's own additive/alpha blend was only
-			// meaningful as one layer of that composite. On its own it should read as a solid opaque decal,
-			// so drop the transparency it inherited from the discarded effect stages.
-			if (textureStage != null && !IsAnimatedStage(textureStage) && stages.Any(IsAnimatedStage))
+			// When a multi-stage shader has been reduced to its base surface, the chosen stage's own
+			// additive/alpha blend was only meaningful as one layer of that composite, not against the
+			// framebuffer. On its own as the $basetexture it should read as a solid opaque surface, so drop
+			// the inherited transparency. This applies when:
+			//   - the discarded layers were animated effects sitting on top of a static base, or
+			//   - an opaque stage sits beneath the chosen one and already fills the surface (e.g. a shiny
+			//     metal whose environment reflection is drawn as the GL_ONE GL_ZERO base, with the metal
+			//     texture added on top - that metal becomes the $basetexture but is not the bottom layer).
+			if (textureStage != null && (isAdditive || isAlphaBlend))
 			{
-				isAdditive = false;
-				isAlphaBlend = false;
+				var droppedAnimatedLayer = !IsAnimatedStage(textureStage) && stages.Any(IsAnimatedStage);
+				var hasOpaqueBaseBeneath = stages.Any(s => s != textureStage && IsOpaqueStage(s) && !IsDepthPrimingStage(s));
+				if (droppedAnimatedLayer || hasOpaqueBaseBeneath)
+				{
+					isAdditive = false;
+					isAlphaBlend = false;
+				}
 			}
 
 			var flags = (textureStage?.flags ?? 0) | (envMapStage?.flags ?? 0);
