@@ -65,8 +65,11 @@ namespace BSPConvert.Lib
                 // CreationOptions is a struct, so this copy lets us bake per-texture flags without
                 // mutating the shared base options. "clampmap" shader stages need clamped (non-repeating)
                 // texture coordinates, which in Source is a VTF flag (TEXTUREFLAGS_CLAMPS/T) rather than a VMT parameter.
+                // Skybox faces (moved under skybox/ by MaterialConverter) must also be clamped, otherwise
+                // bilinear filtering samples the wrapped-around opposite edge and produces seams between faces.
+                var relativeTexturePath = GetRelativeTexturePath(inputPath);
                 var textureOptions = options;
-                if (clampedTextures.Contains(GetRelativeTexturePath(inputPath)))
+                if (clampedTextures.Contains(relativeTexturePath) || IsSkyboxTexture(relativeTexturePath))
                     textureOptions.VTFFlags |= VTF.Flags.V0_CLAMP_S | VTF.Flags.V0_CLAMP_T;
 
                 bool success = VTF.Create(inputPath, outputPath, textureOptions);
@@ -116,6 +119,13 @@ namespace BSPConvert.Lib
                 .Replace(Path.DirectorySeparatorChar, '/');
 
             return Path.ChangeExtension(relative, null);
+        }
+
+        // Skybox face images are relocated under skybox/ by MaterialConverter (image-box skies) and
+        // CloudSkyboxBaker (baked cloud skies); both need clamped wrap flags to avoid edge seams.
+        private static bool IsSkyboxTexture(string relativeTexturePath)
+        {
+            return relativeTexturePath.StartsWith("skybox/", StringComparison.OrdinalIgnoreCase);
         }
 
 		private void OnFinishedConvertingTextures()

@@ -369,6 +369,22 @@ namespace BSPConvert.Lib
 				shader.GetImageStages().Any();
 		}
 
+		// Decides whether a surface should reveal Source's single global skybox. q3map2 only bakes the
+		// SURF_SKY flag into the BSP when the shader uses "surfaceparm sky", but a sky shader can render
+		// purely from the "skyparms" keyword (the Q3 runtime marks it as sky from skyParms, no surfaceparm
+		// needed). Those surfaces reach us without the BSP sky flag, so fall back to the shader: a real
+		// image-box skybox or a baked cloud sky (the same skies GetSkyName resolves) must carry SURF_SKY,
+		// or they render as ordinary - here untextured, white - world walls instead of the skybox.
+		private bool IsSkySurface(Texture texture)
+		{
+			if (((Q3SurfaceFlags)texture.Flags).HasFlag(Q3SurfaceFlags.SURF_SKY))
+				return !IsSingleTextureSky(texture.Name); // fake skies stay ordinary surfaces
+
+			return shaderDict.TryGetValue(texture.Name, out var shader) &&
+				((shader.skyParms != null && shader.skyParms.HasImageBox) ||
+				CloudSkyboxBaker.IsCloudSkyShader(shader));
+		}
+
 		private void ConvertSounds()
 		{
 			var converter = options.noPak ?
@@ -2036,9 +2052,8 @@ namespace BSPConvert.Lib
 			if (q3Flags.HasFlag(Q3SurfaceFlags.SURF_NOLIGHTMAP))
 				textureInfo.Flags |= (int)SourceSurfaceFlags.SURF_NOLIGHT;
 
-			// Skip the sky flag for single-texture fake skies so they render as ordinary surfaces instead
-			// of revealing the map's one global skybox (see IsSingleTextureSky).
-			if (q3Flags.HasFlag(Q3SurfaceFlags.SURF_SKY) && !IsSingleTextureSky(texture.Name))
+			// Reveal Source's global skybox on real sky surfaces (see IsSkySurface).
+			if (IsSkySurface(texture))
 				textureInfo.Flags |= (int)(SourceSurfaceFlags.SURF_SKY | SourceSurfaceFlags.SURF_NOLIGHT | SourceSurfaceFlags.SURF_SKYNOEMIT);
 
 			if (q3Flags.HasFlag(Q3SurfaceFlags.SURF_NODRAW))
