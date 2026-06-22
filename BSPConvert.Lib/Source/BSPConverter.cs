@@ -100,6 +100,7 @@ namespace BSPConvert.Lib
 		private Dictionary<int, int> invisibleDispTexDataByFlags = new Dictionary<int, int>(); // Maps a physics surface-flag set to its invisible-displacement texdata variant
 		private Dictionary<int, int[]> splitFaceDict = new Dictionary<int, int[]>(); // Maps the original face index to the new face indices split by triangles
 		private Dictionary<(Vector3, float), int> planeDict = new Dictionary<(Vector3, float), int>();
+		private HashSet<int> triggerPatchFaces = new HashSet<int>(); // Q3 patch faces that belong to trigger entities; converted without collision (see MarkTriggerPatchFaces)
 
 		// TODO: Replace weapon clip textures
 		private static readonly Dictionary<string, string> replacementTextures = new Dictionary<string, string>()
@@ -155,6 +156,7 @@ namespace BSPConvert.Lib
 
 				LoadBSP(bsp);
 
+				MarkTriggerPatchFaces();
 				ReplaceToolTextures();
 				PrepareAssets();
 				CreatePakFile();
@@ -201,6 +203,7 @@ namespace BSPConvert.Lib
 			splitFaceDict.Clear();
 			planeDict.Clear();
 			invisibleDispTexDataByFlags.Clear();
+			triggerPatchFaces.Clear();
 		}
 
 		private void LoadBSP(BSP bsp)
@@ -1424,8 +1427,47 @@ namespace BSPConvert.Lib
 			return face;
 		}
 
+		// Records the patch faces belonging to trigger entities. A Quake 3 trigger volume can be built from
+		// bezier patches instead of brushes, but a patch has no good Source equivalent: it converts to a
+		// collision displacement, which is solid. That both fails to act as a trigger and blocks movement on
+		// whatever sits beneath it (e.g. a common/slick floor under the trigger - see GetPhysicsSurfaceFlags).
+		// We can't meaningfully convert these, so flag them to be emitted without collision in ConvertPatch.
+		// Must run before ConvertEntities, which rewrites the Q3 trigger classnames.
+		private void MarkTriggerPatchFaces()
+		{
+			foreach (var entity in quakeBsp.Entities)
+			{
+				if (!entity.ClassName.StartsWith("trigger", StringComparison.OrdinalIgnoreCase))
+					continue;
+
+				var modelNum = entity.ModelNumber;
+				if (modelNum <= 0 || modelNum >= quakeBsp.Models.Count) // Skip worldspawn (0) and non-brush triggers
+					continue;
+
+				var model = quakeBsp.Models[modelNum];
+				for (var f = 0; f < model.NumFaces; f++)
+				{
+					var faceIndex = model.FirstFaceIndex + f;
+					if (faceIndex < 0 || faceIndex >= quakeBsp.Faces.Count)
+						continue;
+
+					if (quakeBsp.Faces[faceIndex].Type == FaceType.Patch)
+						triggerPatchFaces.Add(faceIndex);
+				}
+			}
+		}
+
 		private void ConvertPatch(int faceIndex)
 		{
+			// Trigger patches can't be solid (they'd block the surface beneath and never fire), so emit them
+			// as render-only primitives with no collision. Trigger entities don't render in Source, so the
+			// leftover invisible faces are harmless - and keeping them preserves the model's face range.
+			if (triggerPatchFaces.Contains(faceIndex))
+			{
+				ConvertPatchAsPrimitive(faceIndex, skipCollision: true);
+				return;
+			}
+
 			if (options.patchesAsPrimitives)
 			{
 				ConvertPatchAsPrimitive(faceIndex);
@@ -1451,12 +1493,13 @@ namespace BSPConvert.Lib
 			}
 		}
 
-		private void ConvertPatchAsPrimitive(int faceIndex)
+		private void ConvertPatchAsPrimitive(int faceIndex, bool skipCollision = false)
 		{
 			var qFace = quakeBsp.Faces[faceIndex];
 
 			// Each sub-patch produces a visible primitive face (which supports the per-vertex UV
 			// mapping that displacements can't) plus an invisible, collision-only displacement face.
+			// skipCollision omits the collision face (used for trigger patches - see ConvertPatch).
 			var faceIndices = new List<int>();
 			for (var y = 0; y < qFace.PatchSize.Y - 1; y += 2)
 			{
@@ -1465,6 +1508,9 @@ namespace BSPConvert.Lib
 					var patchStartVertex = qFace.FirstVertexIndex + x + y * (int)qFace.PatchSize.X;
 
 					faceIndices.Add(CreatePatchFaceAsPrimitive(faceIndex, patchStartVertex));
+
+					if (skipCollision)
+						continue;
 
 					var collisionFaceIndex = CreatePatchCollisionFace(faceIndex, patchStartVertex);
 					if (collisionFaceIndex >= 0)
