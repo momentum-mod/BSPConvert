@@ -1,4 +1,4 @@
-﻿#if UNITY_3_4 || UNITY_3_5 || UNITY_4_0 || UNITY_4_0_1 || UNITY_4_2 || UNITY_4_3 || UNITY_4_5 || UNITY_4_6 || UNITY_5 || UNITY_5_3_OR_NEWER
+#if UNITY_3_4 || UNITY_3_5 || UNITY_4_0 || UNITY_4_0_1 || UNITY_4_2 || UNITY_4_3 || UNITY_4_5 || UNITY_4_6 || UNITY_5 || UNITY_5_3_OR_NEWER
 #define UNITY
 #if !UNITY_5_6_OR_NEWER
 #define OLDUNITY
@@ -854,18 +854,18 @@ namespace BSPConvert.Lib
 				if (modelNumber <= 0 || modelNumber >= sourceBsp.Models.Count)
 					continue;
 
+				if (!string.IsNullOrEmpty(door["targetname"]) || (!float.TryParse(door["health"], out var health) && health > 0)) // create trigger only if it isn't being targeted or can't be shot open
+					continue;
+
 				var model = sourceBsp.Models[modelNumber];
 				var mins = model.Minimums;
 				var maxs = model.Maximums;
 
 				ExpandDoorTriggerBounds(ref mins, ref maxs);
 
-				if (string.IsNullOrEmpty(door["targetname"]))
-					door.Name = $"door{modelNumber}";
+				door.Name = $"door{modelNumber}";
 
 				var triggerModelIndex = CreateBoxTrigger(mins, maxs);
-
-				var input = door["spawnpos"] == "1" ? "Close" : "Open";
 
 				var trigger = new Entity();
 				trigger.ClassName = "trigger_multiple";
@@ -876,7 +876,7 @@ namespace BSPConvert.Lib
 				{
 					name = "OnStartTouch",
 					target = door["targetname"],
-					action = input,
+					action = "Open",
 					param = null,
 					delay = 0,
 					fireOnce = -1
