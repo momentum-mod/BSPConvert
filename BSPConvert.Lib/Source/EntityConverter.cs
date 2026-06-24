@@ -352,7 +352,7 @@ namespace BSPConvert.Lib
 
 			if (spawnflags.HasFlag(FuncDoorFlags.StartOpen))
 			{
-				door.Spawnflags -= 1;
+				door.Spawnflags &= ~(uint)FuncDoorFlags.StartOpen;
 				FlipStartAndEndPositions(door); // start open is just broken and doesn't handle inputs properly, simpler to flip the start/end pos and the movedir
 			}
 
