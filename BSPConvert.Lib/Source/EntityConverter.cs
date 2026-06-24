@@ -38,6 +38,7 @@ namespace BSPConvert.Lib
 			StartOpen = 1,
 			Passable = 8,
 			Toggle = 32,
+			DamageOpens = 131072
 		}
 
 		[Flags]
@@ -351,64 +352,39 @@ namespace BSPConvert.Lib
 
 			if (spawnflags.HasFlag(FuncDoorFlags.StartOpen))
 			{
-				door["spawnpos"] = "1";
-				door.Spawnflags = (int)FuncDoorFlags.Toggle;
-
-				ResetDoorPosition(door); // Door doesn't automatically reopen if StartOpen spawnflag is set
+				door.Spawnflags -= 1;
+				FlipStartAndEndPositions(door); // start open is just broken and doesn't handle inputs properly, simpler to flip the start/end pos and the movedir
 			}
 
-			if (float.TryParse(door["health"], out _))
-			{
-				CreateNewDoorButton(door); // Health is obsolete on func_door, make a new button parented to the door to open it. TODO: Fix in engine and delete this?
-				door.Spawnflags |= (int)FuncDoorFlags.Passable; // Make the door non-solid so you can shoot the new parented button through the door
-			}
+			if (float.TryParse(door["health"], out var health) && health > 0)
+				door.Spawnflags |= (int)FuncDoorFlags.DamageOpens;
 
 			var target = GetTargetEntities(door).FirstOrDefault();
 			if (target != null)
 			{
 				var input = "OnFullyOpen";
-				if (door["spawnpos"] == "1")
-					input = "OnFullyClosed";
-
 				ConvertEntityTargetsRecursive(door, door, input, 0, new HashSet<Entity>());
 			}
 		}
 
-		private void CreateNewDoorButton(Entity door)
+		private void FlipStartAndEndPositions(Entity door)
 		{
-			var button = new Entity();
+			var angleString = door["movedir"].Split(new[] { ' ' });
 
-			if (string.IsNullOrEmpty(door.Name))
-				door.Name = $"door{door.ModelNumber}";
+			float pitch = 0f;
+			float yaw = 0f;
+			float.TryParse(angleString[0], CultureInfo.InvariantCulture, out pitch);
+			float.TryParse(angleString[1], CultureInfo.InvariantCulture, out yaw);
 
-			button["parentname"] = door.Name;
-			button.ClassName = "func_button";
-			button.Model = door.Model;
-			button["rendermode"] = "1";
-			button["renderamt"] = "0"; // Make button invisible
-			button.Spawnflags |= (int)FuncButtonFlags.DamageActivates;
-			button.Spawnflags |= (int)FuncButtonFlags.DontMove;
+			var dir = ConvertAnglesToVector(pitch, yaw);
+			var absDir = new Vector3(Math.Abs(dir.X), Math.Abs(dir.Y), Math.Abs(dir.Z));
 
-			sourceEntities.Add(button);
+			var model = q3Models[door.ModelNumber];
+			var size = model.Maximums - model.Minimums;
+			var distance = Vector3.Dot(size, absDir) - (float.TryParse(door["lip"], out var lip) ? lip : 0);
+			door.Origin += distance * dir;
 
-			OpenDoorOnOutput(button, door, "OnPressed", 0);
-		}
-
-		private static void ResetDoorPosition(Entity door)
-		{
-			if (!float.TryParse(door["wait"], out var delay))
-				return;
-
-			var connection = new Entity.EntityConnection()
-			{
-				name = "OnFullyClosed",
-				target = "!self",
-				action = "Open",
-				param = null,
-				delay = delay,
-				fireOnce = -1
-			};
-			door.connections.Add(connection);
+			door["movedir"] = $"{pitch * -1} {yaw * -1} 0"; // invert movedir
 		}
 
 		private void ConvertFuncButton(Entity button)
@@ -440,17 +416,11 @@ namespace BSPConvert.Lib
 
 		private static void OpenDoorOnOutput(Entity entity, Entity door, string output, float delay)
 		{
-			var input = "Open";
-			var spawnflags = (FuncDoorFlags)door.Spawnflags;
-
-			if (spawnflags.HasFlag(FuncDoorFlags.StartOpen) || door["spawnpos"] == "1")
-				input = "Close";
-
 			var connection = new Entity.EntityConnection()
 			{
 				name = output,
 				target = door["targetname"],
-				action = input,
+				action = "Open",
 				param = null,
 				delay = delay,
 				fireOnce = -1
