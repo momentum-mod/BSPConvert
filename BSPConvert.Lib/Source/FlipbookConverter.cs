@@ -204,12 +204,14 @@ namespace BSPConvert.Lib
 			if (!animates)
 				return false;
 
-			// ConvertLayeredStack overwrites the framebuffer with an opaque base stage and bakes an opaque
-			// VTF, so it only fits surfaces that have one (the wall/pad under the effect). An all-overlay
-			// stack (no opaque base) needs translucent/additive output instead - leave those for the normal
-			// path. A single animated stage with no base is also better served live by MaterialConverter's
-			// texture-transform proxies, so the >= 2 stage requirement above keeps those out too.
-			return stages.Any(s => !IsOverlayBlend(s));
+			// A stack with an opaque base bakes to a self-contained opaque flipbook (ConvertLayeredStack
+			// overwrites the framebuffer with that base). A stack with no opaque base can still bake when every
+			// stage is additive ("GL_one GL_one"): the layers sum from black into an additive flipbook (black =
+			// transparent, emitted as $additive), e.g. a static glow under a scrolling glow. Mixed alpha-only
+			// overlay stacks aren't reproduced here - those stay on the normal path. A single animated stage is
+			// better served live by MaterialConverter's texture-transform proxies, which the >= 2 stage
+			// requirement above already keeps out.
+			return stages.Any(s => !IsOverlayBlend(s)) || stages.All(IsAdditiveBlend);
 		}
 
 		// Bakes a Q3 animMap (explicit frame sequence, e.g. a fire effect) into a flipbook VTF - one VTF frame
@@ -450,7 +452,7 @@ namespace BSPConvert.Lib
 						frame[index + 0] = (byte)(fb.X * 255f + 0.5f);
 						frame[index + 1] = (byte)(fb.Y * 255f + 0.5f);
 						frame[index + 2] = (byte)(fb.Z * 255f + 0.5f);
-						frame[index + 3] = 255; // opaque base => opaque surface
+						frame[index + 3] = 255; // opaque base bakes opaque; additive stacks ignore alpha ($additive)
 					}
 				}
 				frames.Add(frame);
@@ -462,7 +464,10 @@ namespace BSPConvert.Lib
 			if (!BakeVtf(vtfPath, frames, bakeW, bakeH, format))
 				return false;
 
-			WriteAnimMapVmt(textureName, shader, fps, isAdditive: false);
+			// With no opaque base the stack is all additive overlays (see IsLayeredEffectShader), so the
+			// composite is an additive glow - emit $additive 1 so the baked black reads back as transparent.
+			var isAdditive = !stages.Any(s => !IsOverlayBlend(s));
+			WriteAnimMapVmt(textureName, shader, fps, isAdditive);
 			return true;
 		}
 
