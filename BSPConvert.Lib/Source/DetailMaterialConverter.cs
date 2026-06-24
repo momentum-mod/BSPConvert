@@ -5,9 +5,6 @@ using System.IO;
 using System.Linq;
 using System.Numerics;
 using System.Text;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
-using SixLabors.ImageSharp.Processing;
 using static BSPConvert.Lib.ShaderStageUtils;
 
 namespace BSPConvert.Lib
@@ -244,14 +241,15 @@ namespace BSPConvert.Lib
 			sb.AppendLine(CultureInfo.InvariantCulture, $"\t$detailblendmode {DetailCombineMode(detailStage)}");
 			sb.AppendLine("\t$detailblendfactor 1");
 
-			// Q3 liquids fake reflections with flat textures drawn through "tcGen environment"; Source maps that onto
-			// a real cubemap reflection. GetTextureStages dropped those env stages, so look at the full shader, and
-			// tint the cubemap by the env texture's own hue (the gold/teal sheen the flat texture provided).
-			if (!noEnvMap && TryGetEnvmapTint(shader, out var envTint))
+			// Q3 liquids fake reflections with flat textures drawn through "tcGen environment". GetTextureStages
+			// dropped those env stages, so pull the reflection stage from the full shader and route it to Strata's
+			// Q3-accurate $spheremap path (the flat texture projected per-vertex), shared with the material and
+			// flipbook paths. Works for both LightmappedGeneric and UnlitGeneric; $envmaplightscale is only emitted
+			// when a lightmap stage is present (so unlit surfaces don't get the shadow-dimming).
+			if (!noEnvMap && TryGetEnvStage(shader, out var envStage) && resolveImagePath(GetStageImagePath(envStage)!) != null)
 			{
-				sb.AppendLine("\t$envmap \"env_cubemap\"");
-				sb.AppendLine(CultureInfo.InvariantCulture, $"\t$envmaptint \"[{envTint.X} {envTint.Y} {envTint.Z}]\"");
-				sb.AppendLine("\t$envmapcontrast 0.2");
+				copyExternalContent(GetStageImagePath(envStage)!); // ensure the reflection texture reaches a VTF
+				MaterialConverter.AppendSpheremapParameters(sb, envStage, HasLightmapStage(shader), hasBaseAlphaMask: false);
 			}
 
 			if (mode == OutputMode.Additive)
@@ -462,40 +460,20 @@ namespace BSPConvert.Lib
 			return Path.ChangeExtension(image, null).Replace('\\', '/');
 		}
 
-		// Derives a cubemap reflection tint from the shader's "tcGen environment" stages - the flat textures Q3 used
-		// to fake reflections. Prefers the additive ("GL_one GL_one") reflection stage, takes its texture's average
-		// color and rescales it so the brightest channel is a vivid 0.8, preserving hue: a gold sheen texture yields
-		// a gold tint, matching the original look. Returns false when there's no usable env stage.
-		private bool TryGetEnvmapTint(Shader shader, out Vector3 tint)
+		// Finds the shader's "tcGen environment" reflection stage - the flat texture Q3 used to fake reflections -
+		// preferring the additive ("GL_one GL_one") reflection stage over any other env stage. Returns false when
+		// the shader carries no usable env stage.
+		private bool TryGetEnvStage(Shader shader, out ShaderStage envStage)
 		{
-			tint = Vector3.One;
+			envStage = null!;
 			if (shader.stages == null)
 				return false;
 
 			var envStages = shader.stages
 				.Where(s => s.bundles[0].tcGen == TexCoordGen.TCGEN_ENVIRONMENT_MAPPED && GetStageImagePath(s) != null)
 				.ToList();
-			var envStage = envStages.FirstOrDefault(IsAdditiveBlend) ?? envStages.FirstOrDefault();
-			if (envStage == null)
-				return false;
-
-			var imagePath = resolveImagePath(GetStageImagePath(envStage)!);
-			if (imagePath == null || !File.Exists(imagePath))
-				return false;
-
-			var avg = ComputeAverageColor(imagePath);
-			var peak = MathF.Max(avg.X, MathF.Max(avg.Y, avg.Z));
-			tint = peak > 1e-3f ? avg / peak * 0.8f : new Vector3(0.8f);
-			return true;
-		}
-
-		// Average color of an image (0..1 per channel), via a box-filtered downscale to a single texel.
-		private static Vector3 ComputeAverageColor(string imagePath)
-		{
-			using var image = Image.Load<Rgba32>(imagePath);
-			image.Mutate(x => x.Resize(new ResizeOptions { Size = new Size(1, 1), Sampler = KnownResamplers.Box }));
-			var p = image[0, 0];
-			return new Vector3(p.R, p.G, p.B) / 255f;
+			envStage = envStages.FirstOrDefault(IsAdditiveBlend) ?? envStages.FirstOrDefault()!;
+			return envStage != null;
 		}
 	}
 }

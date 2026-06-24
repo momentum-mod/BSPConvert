@@ -9,12 +9,23 @@ namespace BSPConvert.Lib
 {
 	public class MaterialConverter
 	{
+		// Shared placeholder $basetexture for env-map-only shaders (relative material path, no extension).
+		// Backed by the pre-made Assets/materials/tools/envmapinvisible.vtf (a transparent tools texture).
+		private const string InvisibleBaseTexture = "tools/envmapinvisible";
+
+		// Suffix for the alpha-inverted copy of a reverse-alpha Q3 chrome diffuse texture (drawn "blendFunc
+		// GL_ONE_MINUS_SRC_ALPHA GL_SRC_ALPHA"). TextureConverter bakes the inverted variant under this name
+		// and MaterialConverter points $basetexture at it, so the texture's normal VTF is never clobbered for
+		// other materials that share the same image. Kept here so both converters agree on the name.
+		internal const string InvertedAlphaSuffix = "_invalpha";
+
 		private string pk3Dir;
 		private Dictionary<string, Shader> shaderDict;
 		private Dictionary<string, string> pk3ImageDict;
 		private Dictionary<string, string> q3ImageDict;
 		private Dictionary<string, string> customImageDict;
 		private bool noEnvMap;
+		private bool invisibleBaseTextureCreated;
 		private FlipbookConverter flipbookConverter;
 		private DetailMaterialConverter detailMaterialConverter;
 		private CloudSkyboxBaker cloudSkyboxBaker;
@@ -38,7 +49,7 @@ namespace BSPConvert.Lib
 			q3ImageDict = GetImageLookupDictionary(ContentManager.GetQ3ContentDir());
 			customImageDict = GetImageLookupDictionary(ContentManager.GetCustomContentDir());
 			var resolvedFlipbookOptions = flipbookOptions ?? new FlipbookOptions();
-			flipbookConverter = new FlipbookConverter(pk3Dir, resolvedFlipbookOptions, ResolveImagePath);
+			flipbookConverter = new FlipbookConverter(pk3Dir, resolvedFlipbookOptions, ResolveImagePath, noEnvMap);
 			detailMaterialConverter = new DetailMaterialConverter(pk3Dir, resolvedFlipbookOptions, ResolveImagePath, noEnvMap, TryCopyQ3Content);
 			cloudSkyboxBaker = new CloudSkyboxBaker(pk3Dir, ResolveImagePath);
 		}
@@ -258,10 +269,7 @@ namespace BSPConvert.Lib
 			// the $lightmap stage, that diffuse stage would otherwise be misread as a standalone modulate.
 			// Source's Modulate shader multiplies onto the world behind the surface, so only treat a filter
 			// blend as Modulate when no lightmap stage is feeding it.
-			var hasLightmapStage = shader.stages.Any(s =>
-				s.bundles[0].tcGen == TexCoordGen.TCGEN_LIGHTMAP || s.bundles[0].images[0] == "$lightmap");
-
-			return !hasLightmapStage;
+			return !ShaderStageUtils.HasLightmapStage(shader);
 		}
 
 		private void WriteVMT(string texture, string vmt)
@@ -270,6 +278,41 @@ namespace BSPConvert.Lib
 			Directory.CreateDirectory(Path.GetDirectoryName(vmtPath));
 
 			File.WriteAllText(vmtPath, vmt);
+		}
+
+		// Returns the relative material path of the shared invisible placeholder texture, copying its pre-made
+		// VTF into pk3Dir on first use. The texture pass (TextureConverter) later relocates/embeds it like any
+		// other VTF.
+		private string GetInvisibleBaseTexture()
+		{
+			if (!invisibleBaseTextureCreated)
+			{
+				CopyInvisibleBaseTexture();
+				invisibleBaseTextureCreated = true;
+			}
+
+			return InvisibleBaseTexture;
+		}
+
+		// Copies the pre-made transparent placeholder VTF (Assets/materials/tools/envmapinvisible.vtf) into
+		// pk3Dir so an env-map-only material's $basetexture resolves. Mirrors BSPConverter.PrepareAssets.
+		private void CopyInvisibleBaseTexture()
+		{
+			var relativePath = InvisibleBaseTexture.Replace('/', Path.DirectorySeparatorChar) + ".vtf";
+			var sourcePath = Path.Combine(AppContext.BaseDirectory, "Assets", "materials", relativePath);
+			var destPath = Path.Combine(pk3Dir, relativePath);
+
+			if (File.Exists(destPath))
+				return;
+
+			if (!File.Exists(sourcePath))
+			{
+				Console.WriteLine($"Missing invisible base texture asset: {sourcePath}");
+				return;
+			}
+
+			Directory.CreateDirectory(Path.GetDirectoryName(destPath)!);
+			File.Copy(sourcePath, destPath, true);
 		}
 
 		// Copies content from the Q3Content folder, falling back to the user-managed CustomContent
@@ -331,14 +374,17 @@ namespace BSPConvert.Lib
 				dstBlend == ShaderStageFlags.GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA;
 		}
 
-		// A stage that animates over time - a multi-frame animMap, or texcoords that move
-		// (scroll/rotate/stretch/turbulence) - i.e. an effect layer rather than a static base surface.
+		// A stage that animates over time - a multi-frame animMap, texcoords that move
+		// (scroll/rotate/stretch/turbulence), or a color/alpha driven by a waveform (e.g. a pulsing/
+		// flickering glow via "rgbGen wave") - i.e. an effect layer rather than a static base surface.
 		private static bool IsAnimatedStage(ShaderStage stage)
 		{
 			return stage.bundles[0].numImageAnimations > 1 ||
 				stage.bundles[0].texMods.Any(t =>
 					t.type == TexMod.TMOD_SCROLL || t.type == TexMod.TMOD_ROTATE ||
-					t.type == TexMod.TMOD_STRETCH || t.type == TexMod.TMOD_TURBULENT);
+					t.type == TexMod.TMOD_STRETCH || t.type == TexMod.TMOD_TURBULENT) ||
+				(stage.rgbGen == ColorGen.CGEN_WAVEFORM && stage.rgbWave.func != GenFunc.GF_NONE) ||
+				(stage.alphaGen == AlphaGen.AGEN_WAVEFORM && stage.alphaWave.func != GenFunc.GF_NONE);
 		}
 
 		// A transparent overlay blend - additive ("GL_one GL_one"/"GL_src_alpha GL_one") or alpha
@@ -374,19 +420,38 @@ namespace BSPConvert.Lib
 		{
 			var stages = shader.GetImageStages();
 			var textureStage = GetTextureStage(stages);
+
+			// An "env-map-only" shader (e.g. Q3 chrome/glass) has no plain diffuse stage, so GetTextureStage
+			// falls back to the tcGen-environment stage. Reusing that reflection texture as the diffuse
+			// $basetexture would double-draw it. A VMT still needs a $basetexture to load, and our spheremap
+			// shader path wants a black (non-contributing) albedo, so point it at a tiny fully-transparent
+			// texture - sampled without $translucent its rgb reads as black, letting $spheremap supply the
+			// only visible color.
+			var isEnvMapOnly = textureStage != null && textureStage.bundles[0].tcGen == TexCoordGen.TCGEN_ENVIRONMENT_MAPPED;
+
+			// Reverse-alpha Q3 chrome (diffuse drawn "blendFunc GL_ONE_MINUS_SRC_ALPHA GL_SRC_ALPHA" over an
+			// opaque reflection) needs the base texture's alpha inverted so $basealphaenvmapmask (which masks
+			// by 1 - alpha) yields the refl*alpha weighting. TextureConverter bakes that inverted copy under a
+			// distinct name, so reference the variant here to leave the shared texture's normal VTF intact.
+			var isReverseAlphaChrome = !noEnvMap && textureStage != null && !isEnvMapOnly &&
+				ShaderStageUtils.IsReverseAlphaBlend(textureStage) &&
+				stages.Any(s => s.bundles[0].tcGen == TexCoordGen.TCGEN_ENVIRONMENT_MAPPED && IsOpaqueStage(s));
+
 			if (textureStage != null)
 			{
-				var texture = Path.ChangeExtension(textureStage.bundles[0].images[0], null);
+				var texture = isEnvMapOnly ? GetInvisibleBaseTexture() : Path.ChangeExtension(textureStage.bundles[0].images[0], null);
+				if (isReverseAlphaChrome)
+					texture += InvertedAlphaSuffix;
 				sb.AppendLine(CultureInfo.InvariantCulture, $"\t$basetexture \"{texture}\"");
 
-				if (textureStage.rgbGen.HasFlag(ColorGen.CGEN_CONST))
+				if (!isEnvMapOnly && textureStage.rgbGen.HasFlag(ColorGen.CGEN_CONST))
 				{
 					var color = textureStage.constantColor;
 					var colorStr = $"{color[0]} {color[1]} {color[2]}";
 					sb.AppendLine("\t$color \"{" + colorStr + "}\"");
 				}
 
-				if (textureStage.alphaGen.HasFlag(AlphaGen.AGEN_CONST))
+				if (!isEnvMapOnly && textureStage.alphaGen.HasFlag(AlphaGen.AGEN_CONST))
 				{
 					var alpha = (float)textureStage.constantColor[3] / 255;
 					sb.AppendLine(CultureInfo.InvariantCulture, $"\t$alpha {alpha}");
@@ -396,7 +461,14 @@ namespace BSPConvert.Lib
 			var envMapStage = noEnvMap ? null : stages.FirstOrDefault(x => x.bundles[0].tcGen == TexCoordGen.TCGEN_ENVIRONMENT_MAPPED);
 			if (envMapStage != null)
 			{
-				sb.AppendLine($"\t$envmap \"engine/defaultcubemap\"");
+				// Emit $spheremap (+ scale, lightmap dimming, base-alpha reflection mask). Q3 chrome draws the
+				// reflection as the opaque base with the diffuse alpha-blended over it, so the diffuse alpha
+				// masks how much reflection shows; $basealphaenvmapmask reproduces that when the env stage is
+				// the opaque base beneath a (forward or reverse) alpha-blended diffuse. Reverse-blend textures
+				// have their VTF alpha inverted by TextureConverter so the single (1-alpha) param still applies.
+				var hasBaseAlphaMask = textureStage != null && !isEnvMapOnly && IsOpaqueStage(envMapStage) &&
+					(IsAlphaBlendStage(textureStage) || ShaderStageUtils.IsReverseAlphaBlend(textureStage));
+				AppendSpheremapParameters(sb, envMapStage, ShaderStageUtils.HasLightmapStage(shader), hasBaseAlphaMask);
 
 				if (envMapStage.alphaGen == AlphaGen.AGEN_CONST)
 				{
@@ -482,6 +554,30 @@ namespace BSPConvert.Lib
 			if (textureStage != null && textureStage.bundles[0].texMods.Any(y => y.type == TexMod.TMOD_SCROLL || y.type == TexMod.TMOD_ROTATE ||
 				y.type == TexMod.TMOD_STRETCH || y.type == TexMod.TMOD_SCALE))
 				ConvertTexMods(sb, textureStage);
+		}
+
+		// Emits the spheremap reflection params for a Q3 "tcGen environment" shader. Shared by the live
+		// material path and FlipbookConverter's baked-animation path so both reproduce the reflection
+		// identically. The env stage's image is the reflection texture; a "tcMod scale" on it maps to
+		// $spheremapscale (else the shader's identity [1 1]). hasLightmap forwards Q3's lightmap dimming of
+		// the reflection ($envmaplightscale), and hasBaseAlphaMask masks the reflection by the base texture
+		// alpha ($basealphaenvmapmask) for the chrome-under-alpha-diffuse idiom.
+		internal static void AppendSpheremapParameters(StringBuilder sb, ShaderStage envMapStage, bool hasLightmap, bool hasBaseAlphaMask)
+		{
+			// Q3's "tcGen environment" is a spheremap (a flat 2D texture projected via per-vertex reflection
+			// coords - see ioq3 RB_CalcEnvironmentTexCoords), not a cubemap, so route it to $spheremap.
+			var sphereTexture = Path.ChangeExtension(envMapStage.bundles[0].images[0], null);
+			sb.AppendLine(CultureInfo.InvariantCulture, $"\t$spheremap \"{sphereTexture}\"");
+
+			var sphereScale = envMapStage.bundles[0].texMods.FirstOrDefault(t => t.type == TexMod.TMOD_SCALE);
+			if (sphereScale != null)
+				sb.AppendLine(CultureInfo.InvariantCulture, $"\t$spheremapscale \"[{sphereScale.scale[0]} {sphereScale.scale[1]}]\"");
+
+			if (hasLightmap)
+				sb.AppendLine("\t$envmaplightscale 1");
+
+			if (hasBaseAlphaMask)
+				sb.AppendLine("\t$basealphaenvmapmask 1");
 		}
 
 		// Detects Q3 depth-priming stages: a "tcmod scale 0 0" collapses the stage's texcoords to a single

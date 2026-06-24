@@ -106,6 +106,25 @@ namespace BSPConvert.Lib
 			return (stage.flags & ShaderStageFlags.GLS_SRCBLEND_BITS) == ShaderStageFlags.GLS_SRCBLEND_DST_COLOR;
 		}
 
+		// A reverse alpha blend ("GL_one_minus_src_alpha GL_src_alpha"). Drawn over an opaque reflection base, this
+		// reveals the underlying reflection where the stage's alpha is high (refl*alpha) rather than low - the Q3
+		// blue-metal chrome idiom whose diffuse alpha is authored inverted.
+		public static bool IsReverseAlphaBlend(ShaderStage stage)
+		{
+			var srcBlend = stage.flags & ShaderStageFlags.GLS_SRCBLEND_BITS;
+			var dstBlend = stage.flags & ShaderStageFlags.GLS_DSTBLEND_BITS;
+			return srcBlend == ShaderStageFlags.GLS_SRCBLEND_ONE_MINUS_SRC_ALPHA &&
+				dstBlend == ShaderStageFlags.GLS_DSTBLEND_SRC_ALPHA;
+		}
+
+		// True when the shader draws to a lightmap (an explicit "$lightmap" stage or a tcGen-lightmap stage). Used
+		// to forward Q3's lightmap dimming of a spheremap reflection ($envmaplightscale).
+		public static bool HasLightmapStage(Shader shader)
+		{
+			return shader.stages != null && shader.stages.Any(s =>
+				s.bundles[0].tcGen == TexCoordGen.TCGEN_LIGHTMAP || s.bundles[0].images[0] == "$lightmap");
+		}
+
 		// A transparent overlay blend - additive ("GL_one GL_one") or alpha ("GL_src_alpha GL_one_minus_src_alpha").
 		// A stage that's neither is an opaque base (e.g. a plain map, or a "GL_dst_color" lightmap multiply).
 		public static bool IsOverlayBlend(ShaderStage stage)

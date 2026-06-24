@@ -57,12 +57,14 @@ namespace BSPConvert.Lib
 		private readonly string pk3Dir;
 		private readonly FlipbookOptions options;
 		private readonly Func<string, string?> resolveImagePath;
+		private readonly bool noEnvMap;
 
-		public FlipbookConverter(string pk3Dir, FlipbookOptions options, Func<string, string?> resolveImagePath)
+		public FlipbookConverter(string pk3Dir, FlipbookOptions options, Func<string, string?> resolveImagePath, bool noEnvMap = false)
 		{
 			this.pk3Dir = pk3Dir;
 			this.options = options;
 			this.resolveImagePath = resolveImagePath;
+			this.noEnvMap = noEnvMap;
 		}
 
 		// One stage of the blend stack: its frame image(s) plus everything needed to replay it over time.
@@ -101,7 +103,29 @@ namespace BSPConvert.Lib
 			if (IsAnimatedStackShader(shader, out var stages, out var mode))
 				return BakeAnimatedStack(textureName, shader, stages, mode);
 
+			// Q3 chrome carrying an animated overlay (e.g. a pulsing glow) over a spheremap reflection: the
+			// reverse-alpha diffuse base isn't an opaque GL_one GL_zero blend, so IsAnimatedStackShader doesn't
+			// claim it. Bake the diffuse+overlay stack (Opaque) and add the view-dependent reflection live via
+			// $spheremap - MaterialConverter would otherwise keep the reflection but drop the animation.
+			if (IsReflectiveAnimatedStack(shader, out var reflStages, out var envStage))
+				return BakeAnimatedStack(textureName, shader, reflStages, OutputMode.Opaque, envStage);
+
 			return false;
+		}
+
+		// Matches a "tcGen environment" reflection sitting beneath an animated diffuse stack (>= 2 visible stages,
+		// at least one reproducibly animated) with a non-overlay diffuse base - the Q3 blue-metal chrome idiom.
+		// The reflection is added live ($spheremap) atop the baked animation rather than baked away. Env maps off
+		// => no reflection, so it's left for the normal path. Runs after IsAnimatedStackShader, so it only sees
+		// stacks that matcher rejected (its opaque base is GL_one GL_zero, which a reverse-alpha base is not).
+		private bool IsReflectiveAnimatedStack(Shader shader, out List<ShaderStage> stages, out ShaderStage? envStage)
+		{
+			stages = GetTextureStages(shader);
+			envStage = noEnvMap ? null : shader.GetImageStages()
+				.FirstOrDefault(s => s.bundles[0].tcGen == TexCoordGen.TCGEN_ENVIRONMENT_MAPPED && IsOpaqueBlend(s));
+
+			return envStage != null && stages.Count >= 2 && AnimatesReproducibly(stages) &&
+				stages.Any(s => !IsOverlayBlend(s));
 		}
 
 		// Matches shaders with an animMap stage - an explicit frame sequence (Q3 "animMap <fps> f1 f2 ...").
@@ -223,7 +247,7 @@ namespace BSPConvert.Lib
 		// The unified bake: replays a multi-pass shader's blend stack per pixel per frame into one seamless looping
 		// flipbook. Shared by liquids (Brighten), opaque-base overlays (Opaque) and stacked glows (Additive); the
 		// per-pixel composite differs only in how the layers combine and how alpha is produced.
-		private bool BakeAnimatedStack(string textureName, Shader shader, List<ShaderStage> stages, OutputMode mode)
+		private bool BakeAnimatedStack(string textureName, Shader shader, List<ShaderStage> stages, OutputMode mode, ShaderStage? envStage = null)
 		{
 			var layers = new List<StackLayer>();
 			int srcW = 0, srcH = 0;
@@ -276,6 +300,14 @@ namespace BSPConvert.Lib
 			if (srcW == 0 || srcH == 0)
 				return false;
 
+			// For reflective chrome, the reverse-alpha diffuse base's alpha masks how much of the live
+			// $spheremap reflection shows through. It's baked into the flipbook's alpha as (1 - alpha) so the
+			// VMT's $basealphaenvmapmask (reflection *= 1 - bakedAlpha) reproduces the Q3 refl*alpha weighting.
+			// Track the source layer so it survives DropOutlierLayers and the AdjustLayer copy below. (layers is
+			// built 1:1 with stages, so the reverse-alpha stage's index selects its layer.)
+			var maskIndex = envStage == null ? -1 : stages.FindIndex(IsReverseAlphaBlend);
+			var maskLayerSrc = maskIndex >= 0 ? layers[maskIndex] : null;
+
 			// Anchor the bake to the lowest-frequency (coarsest) layer: the bake tile spans exactly one of its tiles,
 			// so every other layer tiles a whole number of times within it and keeps its true Q3 scale, tiling
 			// seamlessly. That coarsest layer's scale is reapplied on the surface via $basetexturetransform. To stop a
@@ -317,6 +349,11 @@ namespace BSPConvert.Lib
 			for (var i = 0; i < layers.Count; i++)
 				bakeLayers.Add(AdjustLayer(layers[i], tileCounts[i], snapRates, loopSeconds));
 
+			// The reflection-mask layer's bake-ready copy (unless DropOutlierLayers removed it). bakeLayers is
+			// built 1:1 with the post-drop layers, so its position in layers selects the adjusted copy.
+			var maskPos = maskLayerSrc == null ? -1 : layers.IndexOf(maskLayerSrc);
+			var maskLayer = maskPos >= 0 ? bakeLayers[maskPos] : null;
+
 			// Ideal bake size: a layer tiling N times wants N * source pixels to stay sharp; take the largest demand.
 			int idealW = 0, idealH = 0;
 			for (var i = 0; i < layers.Count; i++)
@@ -325,7 +362,8 @@ namespace BSPConvert.Lib
 				idealH = Math.Max(idealH, (int)MathF.Ceiling(layers[i].height * tileCounts[i].Y));
 			}
 
-			var alphaNeeded = mode == OutputMode.Brighten && options.autoAlpha;
+			// The reflection mask also needs 8-bit alpha, so an alpha-capable (BC7) format - DXT1 would drop it.
+			var alphaNeeded = (mode == OutputMode.Brighten && options.autoAlpha) || maskLayer != null;
 			var bytesPerTexel = alphaNeeded ? 1.0f : 0.5f; // BC7 (alpha) vs DXT1 (no alpha)
 			var (bakeW, bakeH) = SolveResolution(idealW, idealH, frameCount, bytesPerTexel);
 
@@ -343,7 +381,7 @@ namespace BSPConvert.Lib
 					for (var x = 0; x < bakeW; x++)
 					{
 						var uv = new Vector2((x + 0.5f) / bakeW, (y + 0.5f) / bakeH);
-						var (rgb, alpha) = CompositePixel(bakeLayers, uv, t, mode, useSourceAlpha);
+						var (rgb, alpha) = CompositePixel(bakeLayers, uv, t, mode, useSourceAlpha, maskLayer);
 
 						var index = (y * bakeW + x) * 4;
 						frame[index + 0] = (byte)(rgb.X * 255f + 0.5f);
@@ -361,8 +399,11 @@ namespace BSPConvert.Lib
 			if (!BakeVtf(vtfPath, frames, bakeW, bakeH, format))
 				return false;
 
+			if (envStage != null)
+				CopyEnvImage(envStage); // ensure the reflection texture reaches a VTF for $spheremap
+
 			var applyScale = MathF.Abs(surfaceScale.X - 1f) > 0.01f || MathF.Abs(surfaceScale.Y - 1f) > 0.01f;
-			WriteStackVmt(textureName, shader, fps, mode, applyScale ? surfaceScale : null);
+			WriteStackVmt(textureName, shader, fps, mode, applyScale ? surfaceScale : null, envStage, maskLayer != null);
 			return true;
 		}
 
@@ -429,7 +470,7 @@ namespace BSPConvert.Lib
 		// replay the real Q3 blend stack onto a black framebuffer (opaque base overwrites; additives sum). Brighten
 		// (Q3 liquids that brighten the scene behind them) screen-composites the layers into a standalone translucent
 		// texel, since their real "GL_dst_color" blend depends on the live framebuffer and can't be baked.
-		private (Vector3 rgb, float alpha) CompositePixel(List<StackLayer> layers, Vector2 surfUV, float t, OutputMode mode, bool useSourceAlpha)
+		private (Vector3 rgb, float alpha) CompositePixel(List<StackLayer> layers, Vector2 surfUV, float t, OutputMode mode, bool useSourceAlpha, StackLayer? maskLayer = null)
 		{
 			if (mode == OutputMode.Brighten)
 			{
@@ -461,15 +502,19 @@ namespace BSPConvert.Lib
 			// Opaque / Additive: replay the ordered blend stack onto the framebuffer (starts black; an opaque base
 			// stage overwrites it, then each overlay composites with its real blendFunc).
 			var fb = Vector3.Zero;
+			var maskAlpha = 1f;
 			foreach (var layer in layers)
 			{
 				var sample = SampleStackLayer(layer, surfUV, t);
 				var src = new Vector3(sample.X, sample.Y, sample.Z) * EvalRgb(layer, t);
 				var srcA = EvalAlpha(layer, sample.W, t);
+				// Reflection mask: bake (1 - diffuseAlpha) so $basealphaenvmapmask yields refl*alpha (see BakeAnimatedStack).
+				if (layer == maskLayer)
+					maskAlpha = 1f - srcA;
 				fb = BlendStage(layer.flags, src, srcA, fb);
 				fb = Vector3.Clamp(fb, Vector3.Zero, Vector3.One); // Q3's 8-bit framebuffer clamps each pass
 			}
-			return (fb, 1f); // opaque base bakes opaque; additive stacks ignore alpha ($additive)
+			return (fb, maskLayer != null ? maskAlpha : 1f); // else opaque base bakes opaque; additive ignores alpha ($additive)
 		}
 
 		// Samples a layer's current animMap frame at loop time t, after applying its tcmods to the surface coord.
@@ -826,7 +871,8 @@ namespace BSPConvert.Lib
 
 		// Writes the AnimatedTexture VMT for a baked stack. The output mode drives translucency: Opaque emits a
 		// plain lit/unlit surface, Additive emits $additive (black = transparent), Brighten emits $translucent.
-		private void WriteStackVmt(string textureName, Shader shader, int fps, OutputMode mode, Vector2? basetextureScale)
+		private void WriteStackVmt(string textureName, Shader shader, int fps, OutputMode mode, Vector2? basetextureScale,
+			ShaderStage? envStage = null, bool hasReflectionMask = false)
 		{
 			var shaderType = shader.surfaceFlags.HasFlag(Q3SurfaceFlags.SURF_NOLIGHTMAP) ? "UnlitGeneric" : "LightmappedGeneric";
 
@@ -834,6 +880,10 @@ namespace BSPConvert.Lib
 			sb.AppendLine(shaderType);
 			sb.AppendLine("{");
 			sb.AppendLine(CultureInfo.InvariantCulture, $"\t$basetexture \"{textureName}\"");
+
+			// A "tcGen environment" reflection rides live on top of the baked animation via $spheremap.
+			if (envStage != null)
+				MaterialConverter.AppendSpheremapParameters(sb, envStage, HasLightmapStage(shader), hasReflectionMask);
 
 			// The factored-out tcmod scale (see BakeAnimatedStack) is reapplied here so the surface tiles at Q3's rate.
 			if (basetextureScale.HasValue &&
@@ -870,6 +920,20 @@ namespace BSPConvert.Lib
 			var vmtPath = Path.Combine(pk3Dir, textureName + ".vmt");
 			Directory.CreateDirectory(Path.GetDirectoryName(vmtPath)!);
 			File.WriteAllText(vmtPath, sb.ToString());
+		}
+
+		// Copies the reflection ("tcGen environment") source image into pk3Dir so TextureConverter bakes its
+		// VTF for $spheremap. The flipbook bakes only the diffuse/overlay stages, so this stage would otherwise
+		// never be emitted unless another (non-flipbook) shader happened to reference the same reflection image.
+		private void CopyEnvImage(ShaderStage envStage)
+		{
+			var relative = Path.ChangeExtension(envStage.bundles[0].images[0], null);
+			var source = resolveImagePath(relative);
+			if (source == null)
+				return;
+
+			var dest = Path.Combine(pk3Dir, relative.Replace('/', Path.DirectorySeparatorChar) + Path.GetExtension(source));
+			FileUtil.CopyFile(source, dest);
 		}
 
 		private static Vector4 ToVector(Rgba32 pixel) => new(pixel.R / 255f, pixel.G / 255f, pixel.B / 255f, pixel.A / 255f);

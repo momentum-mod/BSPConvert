@@ -50,6 +50,7 @@ namespace BSPConvert.Lib
             string[] supportedExtensions = [".png", ".jpg", ".jpeg", ".tga", ".bmp", ".webp", ".exr", ".hdr"];
 
             var clampedTextures = GetClampedTextures();
+            var alphaInvertedTextures = GetAlphaInvertedTextures();
 
             foreach (var inputPath in Directory.EnumerateFiles(pk3Dir, "*", SearchOption.AllDirectories))
             {
@@ -75,6 +76,24 @@ namespace BSPConvert.Lib
                 bool success = VTF.Create(inputPath, outputPath, textureOptions);
                 if (!success)
                     Console.WriteLine($"Failed to convert: {inputPath}");
+
+                // Reverse-alpha Q3 chrome diffuse textures (drawn "blendFunc GL_ONE_MINUS_SRC_ALPHA
+                // GL_SRC_ALPHA" over a reflection) reveal the reflection where alpha is high. Source's
+                // $basealphaenvmapmask only masks by (1 - alpha), so additionally bake a copy with the alpha
+                // inverted - then (1 - invertedAlpha) == alpha gives the correct mask without a custom shader
+                // param. The copy gets a distinct name (the material points $basetexture at it) so the normal
+                // VTF above is preserved for any other material that shares this image.
+                if (alphaInvertedTextures.Contains(relativeTexturePath))
+                {
+                    var invertedOutputPath = Path.Combine
+                    (
+                        Path.GetDirectoryName(inputPath)!,
+                        Path.GetFileNameWithoutExtension(inputPath) + MaterialConverter.InvertedAlphaSuffix + ".vtf"
+                    );
+
+                    if (!CreateAlphaInvertedVTF(inputPath, invertedOutputPath, textureOptions))
+                        Console.WriteLine($"Failed to convert (inverted alpha): {inputPath}");
+                }
             }
 
             OnFinishedConvertingTextures();
@@ -108,6 +127,64 @@ namespace BSPConvert.Lib
             }
 
             return clampedTextures;
+        }
+
+        // Collects the diffuse textures of Q3 reverse-alpha chrome shaders so their VTFs can be baked with
+        // an inverted alpha channel. The idiom is an opaque "tcGen environment" reflection base with a
+        // diffuse drawn over it via "blendFunc GL_ONE_MINUS_SRC_ALPHA GL_SRC_ALPHA" (reflection = refl*alpha).
+        // Inverting the alpha lets the stock $basetexture alpha envmap mask (which masks by 1 - alpha)
+        // reproduce the refl*alpha weighting. Mirrors MaterialConverter's chrome detection.
+        private HashSet<string> GetAlphaInvertedTextures()
+        {
+            var alphaInvertedTextures = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var shader in shaderDict.Values)
+            {
+                if (shader.stages == null)
+                    continue;
+
+                var hasOpaqueEnvStage = shader.stages.Any(s =>
+                    s.bundles[0].tcGen == TexCoordGen.TCGEN_ENVIRONMENT_MAPPED && ShaderStageUtils.IsOpaqueBlend(s));
+                if (!hasOpaqueEnvStage)
+                    continue;
+
+                foreach (var stage in shader.stages)
+                {
+                    if (!ShaderStageUtils.IsReverseAlphaBlend(stage))
+                        continue;
+
+                    var image = stage.bundles[0].images[0];
+                    if (!string.IsNullOrEmpty(image) && !image.StartsWith('$'))
+                        alphaInvertedTextures.Add(Path.ChangeExtension(image, null).Replace('\\', '/'));
+                }
+            }
+
+            return alphaInvertedTextures;
+        }
+
+        // Bakes a VTF from an image file with its alpha channel inverted. Decodes the source to raw pixels
+        // once (so BC7 compression only happens at bake time, avoiding a double-compression quality loss),
+        // normalizes to RGBA8888 so alpha sits at a known byte offset, flips it, then bakes with the same
+        // options as a normal conversion.
+        private static bool CreateAlphaInvertedVTF(string inputPath, string outputPath, VTF.CreationOptions options)
+        {
+            var fileBytes = File.ReadAllBytes(inputPath);
+
+            var format = ImageFormat.RGBA8888;
+            int width = 0, height = 0, frameCount = 0;
+            var pixels = ImageConversion.ConvertImageDataToFile(fileBytes, ref format, ref width, ref height, ref frameCount);
+            if (pixels == null || pixels.Length == 0)
+                return false;
+
+            if (format != ImageFormat.RGBA8888)
+            {
+                pixels = ImageConversion.ConvertImageDataToFormat(pixels, format, ImageFormat.RGBA8888, (ushort)width, (ushort)height);
+                format = ImageFormat.RGBA8888;
+            }
+
+            for (var i = 3; i < pixels.Length; i += 4)
+                pixels[i] = (byte)(255 - pixels[i]);
+
+            return VTF.Create(pixels, ImageFormat.RGBA8888, (ushort)width, (ushort)height, outputPath, options);
         }
 
         // Converts a file path under pk3Dir into the shader-relative texture path (no extension,
