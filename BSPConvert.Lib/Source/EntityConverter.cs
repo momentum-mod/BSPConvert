@@ -142,6 +142,7 @@ namespace BSPConvert.Lib
 		public void Convert()
 		{
 			var giveTargets = GetGiveTargets();
+			HandleGamemodeSpecificEntities();
 
 			foreach (var entity in q3Entities)
 			{
@@ -566,6 +567,10 @@ namespace BSPConvert.Lib
 				if (visited.Contains(target) || targetEntity == target)
 					continue;
 
+				var compatibleGamemode = CheckGamemodeCompatability(target, entity);
+				if (!compatibleGamemode)
+					continue;
+
 				switch (target.ClassName)
 				{
 					case "target_startTimer":
@@ -635,11 +640,31 @@ namespace BSPConvert.Lib
 			}
 		}
 
+		private bool CheckGamemodeCompatability(Entity target, Entity entity)
+		{
+			var notcpm = target["notcpm"] == "1";
+			var notvq3 = target["notvq3"] == "1";
+
+			if (notcpm || notvq3)
+			{
+				var requiredGamemode = notcpm ? "vq3" : "cpm";
+				var entityGamemode = entity["gamemode"];
+
+				if (entityGamemode != requiredGamemode)
+					return false;
+			}
+			return true;
+		}
+
 		private void FireTargetTeleporterOnOutput(Entity entity, Entity targetTeleporter, string output, float delay)
 		{
 			var targets = GetTargetEntities(targetTeleporter);
 			foreach (var target in targets)
 			{
+				var compatibleGamemode = CheckGamemodeCompatability(target, entity);
+				if (!compatibleGamemode)
+					continue;
+
 				if (target.ClassName != "point_teleport")
 				{
 					if (target.ClassName != "info_teleport_destination") //if already a teleport_destination, origin has been fixed elsewhere
@@ -943,9 +968,6 @@ namespace BSPConvert.Lib
 
 		private void ConvertTargetSpeed(Entity targetSpeed)
 		{
-			if (targetSpeed["notcpm"] == "1") // TODO: Figure out how to handle gamemode specific entities more robustly
-				return;
-
 			targetSpeed.ClassName = "player_speed";
 
 			if (!targetSpeed.TryGetValue("speed", out var speed))
@@ -1148,6 +1170,10 @@ namespace BSPConvert.Lib
 			var targets = GetTargetEntities(targetGive);
 			foreach (var target in targets)
 			{
+				var compatibleGamemode = CheckGamemodeCompatability(target, entity);
+				if (!compatibleGamemode)
+					continue;
+
 				switch (target.ClassName)
 				{
 					case "item_haste":
@@ -1299,9 +1325,6 @@ namespace BSPConvert.Lib
 
 		private void GiveAmmoOnOutput(Entity entity, Entity ammoEnt, string output, float delay)
 		{
-			if (ammoEnt["notcpm"] == "1") // TODO: Figure out how to handle gamemode specific entities more robustly
-				return;
-
 			var ammoOutput = GetAmmoOutput(ammoEnt.ClassName);
 			if (string.IsNullOrEmpty(ammoOutput))
 				return;
@@ -1655,5 +1678,85 @@ namespace BSPConvert.Lib
 
 			return new List<Entity>();
 		}
+
+		private void HandleGamemodeSpecificEntities()
+		{
+			var gamemodEntities = new HashSet<Entity>();
+
+			foreach (var entity in q3Entities)
+			{
+				if (entity["notcpm"] == "1" || entity["notvq3"] == "1")
+				{
+					var initialEntities = GetInitialEntitiesInChain(entity); // we can't disable specific outputs in a chain like in q3, need to find the initial entity and filter that instead
+					foreach (var initialEntity in initialEntities)
+					{
+						gamemodEntities.Add(initialEntity);
+					}
+				}
+			}
+
+			foreach (var entity in gamemodEntities)
+			{
+				if (entity["notcpm"] == "1")
+					entity["gamemode"] = "vq3";
+				else if
+					(entity["notvq3"] == "1")
+					entity["gamemode"] = "cpm";
+				else
+				{
+					var newEntity = new Entity(); // split the entity into 2, have one entity handle cpm only outputs and the other vq3 only
+					CopyEntityData(entity, newEntity);
+					newEntity["gamemode"] = "vq3";
+					entity["gamemode"] = "cpm";
+					q3Entities.Add(newEntity);
+				}
+			}
+		}
+
+		private HashSet<Entity> GetInitialEntitiesInChain(Entity startEntity)
+		{
+			var initialEntities = new HashSet<Entity>();
+			var visited = new HashSet<Entity>();
+
+			void GetTargettingEntity(Entity currentEntity)
+			{
+				if (visited.Contains(currentEntity))
+					return;
+
+				visited.Add(currentEntity);
+
+				var targetingEntities = q3Entities.Where(x => x.TryGetValue("target", out var target) && target == currentEntity.Name).ToList();  // find all entities that target the current entity
+
+				if (targetingEntities.Count == 0)
+				{
+					initialEntities.Add(currentEntity);
+				}
+				else
+				{
+					foreach (var entity in targetingEntities)
+					{
+						GetTargettingEntity(entity);
+					}
+				}
+			}
+
+			GetTargettingEntity(startEntity);
+
+			return initialEntities;
+		}
+
+		private void CopyEntityData(Entity originalEntity, Entity newEntity)
+		{
+			foreach (var kv in originalEntity)
+			{
+				newEntity[kv.Key] = kv.Value;
+			}
+
+			foreach (var connection in originalEntity.connections)
+			{
+				newEntity.connections.Add(connection);
+			}
+		}
+
 	}
 }
