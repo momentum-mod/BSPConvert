@@ -253,9 +253,6 @@ namespace BSPConvert.Lib
 
 		private void ConvertFuncStatic(Entity funcStatic)
 		{
-			if (funcStatic["notcpm"] == "1") // TODO: Figure out how to handle gamemode specific entities more robustly
-				return;
-
 			funcStatic.ClassName = "func_brush";
 		}
 
