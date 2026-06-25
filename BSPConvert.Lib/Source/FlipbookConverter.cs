@@ -13,59 +13,54 @@ using sourcepp.vtfpp;
 
 namespace BSPConvert.Lib
 {
-	// Tunables for the multi-pass scrolling shader -> flipbook conversion. These are plain numeric knobs;
-	// the CLI maps its two friendly presets (resolution + playback accuracy) onto them.
+	// Tunables for baking Q3 multi-pass / animated shaders into looping flipbook VTFs. File size is governed by
+	// a single size budget: the baker picks the frame count from the animation's seamless loop length, then sizes
+	// the resolution to fit the budget (more frames -> lower resolution), bounded by maxResolution. The CLI maps
+	// its --anim* flags straight onto these.
 	public class FlipbookOptions
 	{
 		public bool enabled = true;
 
-		// Square frame size in pixels. 128 (DXT5/DXT1) is compact; 256 (BC7) is sharper but ~4x bytes/frame.
-		public int resolution = 128;
+		// Target maximum size (in bytes) of each baked animated VTF. The master knob: resolution adapts down as
+		// the frame count rises so total bytes (frames * resolution^2 * bytesPerTexel) stays near this. Mips add
+		// ~33% on top, so it's an approximate target rather than a hard ceiling.
+		public long byteBudget = 16L * 1024 * 1024;
 
-		// Number of baked frames in the loop. More frames let the water play at (or nearer) Q3's true slow
-		// scroll speed while staying smooth - at the cost of linearly larger files. See ComputeFps.
-		public int frames = 240;
+		// Sharpness ceiling - the bake never exceeds this per-axis resolution even when the budget would allow it
+		// (and never upscales past the source/tiling detail either). Effectively the "max resolution" override.
+		public int maxResolution = 512;
 
-		// Lowest playback fps the auto-speed will allow. Q3 water often scrolls too slowly to animate smoothly
-		// within a bounded frame count, so the detected scroll speed is increased until fps reaches this floor
-		// (see FlipbookConverter.ComputeFps). More frames reach the floor at a speed closer to Q3's true rate.
-		public int minFps = 12;
+		// Playback fps of the AnimatedTexture proxy, i.e. smoothness. The seamless loop is baked at this rate;
+		// when the loop needs more frames than maxFrames it is compressed into the budget (plays faster) rather
+		// than dropped below this fps.
+		public int fps = 16;
 
-		// When true, translucency is derived per-texel from the source images: their alpha channel if they
-		// have one, otherwise their luminance (bright caustics opaque, dark gaps see-through - matching the
-		// Q3 "GL_dst_color GL_one" brightening). This bakes an alpha channel, so 128px uses DXT5 instead of
-		// DXT1 (~2x size). When false, a flat constant alpha is used instead (DXT1-friendly).
-		public bool autoAlpha = true;
+		// Hard cap on baked frame count (bounds file size and stays within the VTF frame limit). When the loop's
+		// true length exceeds this at the chosen fps, the animation is sped up to fit while staying seamless.
+		public int maxFrames = 512;
 
-		// Translucency control. With autoAlpha it scales the per-texel alpha (1 = full luminance range);
-		// without it, it's the flat constant alpha (1 = opaque, lower = more see-through).
+		// Translucency for the brighten/water output mode. 1 (default) derives per-texel alpha from each source's
+		// alpha/luminance (the "GL_dst_color" brightening look); below 1 uses a flat constant alpha instead.
 		public float alpha = 1.0f;
-
-		// Multiplier on the auto-detected scroll speed (from the shader's tcmod scroll). 1.0 = detected speed;
-		// >1 faster, <1 slower. Normally left at 1.0 (speed is automatic); exposed for programmatic fine-tuning.
-		public float speed = 1.0f;
-
-		// Explicit playback fps override; null = derive automatically from the scroll rate (see ComputeFps).
-		public int? fps;
-
-		// Tiles the fastest scrolling layer travels per loop. >=2 keeps slower layers from rounding to a
-		// standstill so each layer still moves in its own direction.
-		public int maxLoopTiles = 2;
-
-		// Max bake resolution (px) for a layered blend-stack composite (the complex multi-blend animMap path).
-		// Unlike a plain animMap, these loops can run to ~256 frames, so a large source (e.g. a 1024px decal)
-		// would balloon the file; the composite is capped to this and downsampled. The animated detail in these
-		// effects is usually low-res anyway. 0 = no cap (use the largest source size).
-		public int layeredResolution = 256;
+		public bool autoAlpha = true;
 	}
 
-	// Converts a Q3 multi-pass scrolling shader (e.g. baseq3 liquids water - several "GL_dst_color"
-	// scrolling layers over a lightmap) into a single looping flipbook VTF plus an AnimatedTexture VMT.
-	// Source has no shader that reproduces the multi-pass blend live, so the layers are pre-composited
-	// per frame here with ImageSharp and baked into one animated texture; the lightmap multiply is left
-	// to the engine via LightmappedGeneric.
+	// Bakes Q3 multi-pass / animated shaders that no single Source material can reproduce into one looping
+	// flipbook VTF plus an AnimatedTexture VMT. A unified compositor replays the shader's layers per pixel per
+	// frame; the output mode (opaque self-contained surface, additive glow, or translucent brightening liquid)
+	// is chosen from the blend stack. animMap frame sequences (e.g. fire) keep their own frame-exact path.
 	public class FlipbookConverter
 	{
+		private const int MinResolution = 16;
+
+		// How the composited stack is written out, decided by the blend stack (see ClassifyOutputMode).
+		private enum OutputMode
+		{
+			Opaque,    // has an opaque base -> self-contained opaque surface (ordered real-blendFunc replay)
+			Additive,  // all additive, no base -> $additive glow (replay from black, black = transparent)
+			Brighten   // all dst-color, no base (Q3 liquids) -> screen-composited translucent surface
+		}
+
 		private readonly string pk3Dir;
 		private readonly FlipbookOptions options;
 		private readonly Func<string, string?> resolveImagePath;
@@ -77,93 +72,42 @@ namespace BSPConvert.Lib
 			this.resolveImagePath = resolveImagePath;
 		}
 
-		// One scrolling pass: its source pixels plus the per-loop tile offset used to reproduce its scroll.
-		private class Layer
+		// One stage of the blend stack: its frame image(s) plus everything needed to replay it over time.
+		private class StackLayer
 		{
-			public Rgba32[] pixels = Array.Empty<Rgba32>();
+			public Rgba32[][] frames = Array.Empty<Rgba32[]>(); // one buffer per animMap frame (>=1)
 			public int width;
 			public int height;
-			public bool hasAlpha;               // source image carries a real (non-opaque) alpha channel
-			public Vector2 scale = Vector2.One; // tcmod scale magnitude, reproduced via the VMT (not baked - see SampleLayer)
-			public Vector2 scrollTiles;         // whole tiles this layer travels over the full loop (keeps it seamless)
+			public bool hasAlpha;                     // any source texel has a non-opaque alpha channel
+			public float animSpeed;                   // animMap fps (0 => single static image)
+			public bool clamp;                        // clampMap => clamp texcoords instead of wrapping
+			public List<TexModInfo> texMods = new();
+			public ColorGen rgbGen;
+			public WaveForm rgbWave = new();
+			public AlphaGen alphaGen;
+			public WaveForm alphaWave = new();
+			public byte[] constantColor = new byte[4];
+			public ShaderStageFlags flags;            // src/dst blend factors
 		}
 
-		// Bakes the flipbook + writes the VMT if the shader matches the multi-pass scrolling pattern.
-		// Returns false (leaving the shader for the normal material path) when disabled, unmatched, or a
-		// source image is missing.
+		// Bakes the flipbook + writes the VMT if the shader matches an animated multi-pass pattern. Returns false
+		// (leaving the shader for the normal material path) when disabled, unmatched, or a source image is missing.
 		public bool TryConvert(string textureName, Shader shader)
 		{
 			if (!options.enabled)
 				return false;
 
-			// animMap shaders are explicit frame sequences (e.g. fire), which map directly to a flipbook.
+			// animMap shaders are explicit frame sequences (e.g. fire) baked frame-exact at native resolution;
+			// complex animMap stacks delegate into the unified compositor from there.
 			if (IsAnimMapShader(shader))
 				return ConvertAnimMap(textureName, shader);
 
-			// Q3 layered liquids (every visible stage scrolls with a dst-color blend and there's no opaque
-			// base) get the dedicated translucent screen-blend bake - check it before the general path,
-			// since their scrolling stages would otherwise match the opaque-surface effect gate below.
-			if (IsMultiPassScrollingShader(shader))
-				return ConvertMultiPassScrolling(textureName, shader);
-
-			// Any opaque surface carrying animated overlay(s) that no single Source material can express -
-			// scrolling lights along a wall, a rotating vortex over a jump pad, a pulsing glow - is replayed
-			// stage by stage into a looping flipbook by the ordered blend-stack compositor.
-			if (IsLayeredEffectShader(shader))
-				return ConvertLayeredStack(textureName, shader, GetTextureStages(shader));
+			// Any other multi-pass animated surface - scrolling liquids, scrolling/rotating/pulsing overlays on an
+			// opaque base, stacked additive glows - is composited stage by stage into a looping flipbook.
+			if (IsAnimatedStackShader(shader, out var stages, out var mode))
+				return BakeAnimatedStack(textureName, shader, stages, mode);
 
 			return false;
-		}
-
-		// Bakes a Q3 layered liquid (the multi-pass dst-color scrolling pattern) into a translucent
-		// flipbook: each layer's seamless tile is screen-composited per frame and the shared tcmod scale is
-		// reapplied on the surface via the VMT so ripple size matches Q3.
-		private bool ConvertMultiPassScrolling(string textureName, Shader shader)
-		{
-			var layers = LoadLayers(shader, out var maxScrollRate);
-			if (layers == null)
-				return false;
-
-			var frames = BakeFrames(layers);
-
-			var vtfPath = Path.Combine(pk3Dir, textureName + ".vtf");
-			Directory.CreateDirectory(Path.GetDirectoryName(vtfPath)!);
-			if (!BakeVtf(vtfPath, frames, options.resolution, options.resolution, GetOutputFormat()))
-				return false;
-
-			var commonScale = new Vector2(layers.Average(l => l.scale.X), layers.Average(l => l.scale.Y));
-			WriteVmt(textureName, commonScale, ComputeFps(maxScrollRate));
-			return true;
-		}
-
-		// Playback fps for the AnimatedTexture proxy. The loop scrolls maxLoopTiles tiles, so
-		// fps = Frames * scrollSpeed / maxLoopTiles. We scroll at the shader's detected rate, but raise it
-		// until fps hits options.minFps - i.e. only speed water up past Q3's true rate when the frame budget
-		// can't animate it smoothly otherwise.
-		private int ComputeFps(float maxScrollRate)
-		{
-			if (options.fps.HasValue)
-				return Math.Clamp(options.fps.Value, 1, 30);
-
-			var minSpeed = (float)options.minFps * options.maxLoopTiles / options.frames;
-			var scrollSpeed = MathF.Max(maxScrollRate, minSpeed) * options.speed;
-			var fps = (int)MathF.Round(options.frames * scrollSpeed / options.maxLoopTiles);
-
-			return Math.Clamp(fps, 1, 30);
-		}
-
-		// Matches shaders made of >= 2 visible scrolling layers that all use a dst-color blend - the
-		// signature of Q3's layered caustic/ripple water. Deliberately narrow so ordinary multi-stage
-		// shaders aren't swept up.
-		private bool IsMultiPassScrollingShader(Shader shader)
-		{
-			var textureStages = GetTextureStages(shader);
-			if (textureStages.Count < 2)
-				return false;
-
-			return textureStages.All(s =>
-				s.bundles[0].texMods.Any(t => t.type == TexMod.TMOD_SCROLL) &&
-				(s.flags & ShaderStageFlags.GLS_SRCBLEND_BITS) == ShaderStageFlags.GLS_SRCBLEND_DST_COLOR);
 		}
 
 		private static List<ShaderStage> GetTextureStages(Shader shader)
@@ -180,43 +124,62 @@ namespace BSPConvert.Lib
 			return GetTextureStages(shader).Any(s => s.bundles[0].numImageAnimations > 1);
 		}
 
-		// Matches an opaque surface carrying one or more animated overlays that no single Source material can
-		// reproduce: a static base plus stage(s) that scroll (lights tracking along a wall), rotate (a vortex
-		// over a jump pad), stretch/pulse via a waveform, etc. The whole blend stack is composited per frame
-		// into a looping flipbook by ConvertLayeredStack. (animMap stacks and layered liquids are handled by
-		// their own paths before this is reached.)
-		private bool IsLayeredEffectShader(Shader shader)
+		// Matches a multi-pass animated surface the unified compositor can bake, and reports which output mode it
+		// needs. Requires >= 2 visible stages (a single animated stage is better served live by MaterialConverter's
+		// texture-transform proxies) and at least one reproducibly animated stage. Mixed translucent stacks with no
+		// opaque base (neither all-additive nor all-brighten) are left for the normal path.
+		private bool IsAnimatedStackShader(Shader shader, out List<ShaderStage> stages, out OutputMode mode)
 		{
-			var stages = GetTextureStages(shader);
-			if (stages.Count < 2)
+			stages = GetTextureStages(shader);
+			mode = OutputMode.Opaque;
+			if (stages.Count < 2 || !AnimatesReproducibly(stages))
 				return false;
 
-			// At least one stage must animate in a way the compositor can actually reproduce: scroll, rotate,
-			// stretch, or an rgb/alpha waveform. Transform/turbulent shear isn't replayed, so a stage animated
-			// only by those doesn't count (it would bake to a static frame).
-			var animates = stages.Any(s =>
+			if (stages.Any(IsOpaqueBlend))
+			{
+				mode = OutputMode.Opaque;
+				return true;
+			}
+			if (stages.All(IsAdditiveBlend))
+			{
+				mode = OutputMode.Additive;
+				return true;
+			}
+			if (stages.All(IsBrightenBlend))
+			{
+				mode = OutputMode.Brighten;
+				return true;
+			}
+			return false;
+		}
+
+		// True when at least one stage animates in a way the compositor reproduces: scroll, rotate, stretch, an
+		// rgb/alpha waveform, or an animMap sequence. (Transform/turbulent shear isn't replayed.)
+		private static bool AnimatesReproducibly(List<ShaderStage> stages)
+		{
+			return stages.Any(s =>
+				s.bundles[0].numImageAnimations > 1 ||
 				(s.rgbGen == ColorGen.CGEN_WAVEFORM && s.rgbWave.frequency > 0f) ||
 				(s.alphaGen == AlphaGen.AGEN_WAVEFORM && s.alphaWave.frequency > 0f) ||
 				s.bundles[0].texMods.Any(t =>
 					t.type == TexMod.TMOD_SCROLL ||
 					t.type == TexMod.TMOD_ROTATE ||
 					(t.type == TexMod.TMOD_STRETCH && t.wave.frequency > 0f)));
-			if (!animates)
-				return false;
-
-			// ConvertLayeredStack overwrites the framebuffer with an opaque base stage and bakes an opaque
-			// VTF, so it only fits surfaces that have one (the wall/pad under the effect). An all-overlay
-			// stack (no opaque base) needs translucent/additive output instead - leave those for the normal
-			// path. A single animated stage with no base is also better served live by MaterialConverter's
-			// texture-transform proxies, so the >= 2 stage requirement above keeps those out too.
-			return stages.Any(s => !IsOverlayBlend(s));
 		}
 
-		// Bakes a Q3 animMap (explicit frame sequence, e.g. a fire effect) into a flipbook VTF - one VTF frame
-		// per animMap frame, played by an AnimatedTexture proxy at the animMap's own frequency. Each animMap
-		// stage advances through its own frame list; plain "map" stages stay constant. Additive shaders (the
-		// common sfx case, "GL_one GL_one") sum every stage per frame; otherwise the first animMap stage is
-		// used as an opaque animated base.
+		private static OutputMode ClassifyOutputMode(List<ShaderStage> stages)
+		{
+			if (stages.Any(IsOpaqueBlend))
+				return OutputMode.Opaque;
+			if (stages.All(IsAdditiveBlend))
+				return OutputMode.Additive;
+			return OutputMode.Brighten;
+		}
+
+		// Bakes a Q3 animMap (explicit frame sequence, e.g. a fire effect) into a flipbook VTF - one VTF frame per
+		// animMap frame, played at the animMap's own frequency. Each animMap stage advances through its own frame
+		// list; plain "map" stages stay constant. Additive shaders (the common sfx case, "GL_one GL_one") sum every
+		// stage per frame; otherwise the first animMap stage is used as an opaque animated base.
 		private bool ConvertAnimMap(string textureName, Shader shader)
 		{
 			var stages = GetTextureStages(shader);
@@ -224,12 +187,11 @@ namespace BSPConvert.Lib
 			if (animStages.Count == 0)
 				return false;
 
-			// A non-additive overlay (a multiply/filter mask or an alpha layer) can't be reproduced by the
-			// simple additive-sum below. That's a complex layered effect (e.g. masked ring animations over a
-			// decal) - hand it to the full ordered blend-stack compositor, which replays each stage's real
-			// blendFunc, animMap, tcMod stretch and rgbGen wave into a looping flipbook.
+			// A non-additive overlay (a multiply/filter mask or an alpha layer) can't be reproduced by the simple
+			// additive-sum below. That's a complex layered effect (e.g. masked ring animations over a decal) - hand
+			// it to the unified compositor, which replays each stage's real blendFunc, animMap, tcMod and waveforms.
 			if (stages.Skip(1).Any(s => !IsAdditiveBlend(s)))
-				return ConvertLayeredStack(textureName, shader, stages);
+				return BakeAnimatedStack(textureName, shader, stages, ClassifyOutputMode(stages));
 
 			// The surface is additive (black = transparent) only when every stage is an additive/overlay glow.
 			// If there's an opaque base stage (e.g. a lit launchpad texture under additive arrow/dot overlays),
@@ -243,8 +205,7 @@ namespace BSPConvert.Lib
 			var fps = Math.Clamp((int)MathF.Round(animStages[0].bundles[0].imageAnimationSpeed), 1, 30);
 
 			// animMap frames are authored at a specific size, so bake at the original resolution (taken from the
-			// first frame) rather than --waterres. Any mismatched frame is resized to match (frames in one VTF
-			// must share dimensions).
+			// first frame). Any mismatched frame is resized to match (frames in one VTF must share dimensions).
 			int width = 0, height = 0;
 			var stageFrames = new List<Rgba32[][]>();
 			foreach (var stage in compositeStages)
@@ -321,52 +282,29 @@ namespace BSPConvert.Lib
 			if (!BakeVtf(vtfPath, frames, width, height, format))
 				return false;
 
-			WriteAnimMapVmt(textureName, shader, fps, isAdditive);
+			WriteStackVmt(textureName, shader, fps, isAdditive ? OutputMode.Additive : OutputMode.Opaque, null);
 			return true;
 		}
 
-		// Playback fps and the max baked frame count for layered stacks. 30fps reads smoothly; the cap bounds
-		// file size - when a stack's rounded loop needs more frames than this, it's truncated (a slight seam at
-		// the loop point) rather than dropping layers or slowing playback.
-		private const int LayeredFps = 30;
-		private const int LayeredMaxFrames = 256;
-
-		// One stage of a layered blend stack: its frame image(s) plus everything needed to replay it over time.
-		private class StackLayer
-		{
-			public Rgba32[][] frames = Array.Empty<Rgba32[]>(); // one buffer per animMap frame (>=1)
-			public int width;
-			public int height;
-			public float animSpeed;                  // animMap fps (0 => single static image)
-			public bool clamp;                        // clampMap => clamp texcoords instead of wrapping
-			public List<TexModInfo> texMods = new();
-			public ColorGen rgbGen;
-			public WaveForm rgbWave = new();
-			public AlphaGen alphaGen;
-			public WaveForm alphaWave = new();
-			public byte[] constantColor = new byte[4];
-			public ShaderStageFlags flags;            // src/dst blend factors
-		}
-
-		// Bakes a complex multi-blend shader (opaque base + additive/multiply/mask overlays, each possibly
-		// animMap-cycled and tcMod-stretched) into one looping flipbook by replaying Q3's fixed-function blend
-		// stack per pixel per frame. The opaque base stage makes the result self-contained (independent of the
-		// scene behind the surface), so it bakes to an opaque RGB VTF; the lightmap multiply is left to the engine.
-		private bool ConvertLayeredStack(string textureName, Shader shader, List<ShaderStage> stages)
+		// The unified bake: replays a multi-pass shader's blend stack per pixel per frame into one seamless looping
+		// flipbook. Shared by liquids (Brighten), opaque-base overlays (Opaque) and stacked glows (Additive); the
+		// per-pixel composite differs only in how the layers combine and how alpha is produced.
+		private bool BakeAnimatedStack(string textureName, Shader shader, List<ShaderStage> stages, OutputMode mode)
 		{
 			var layers = new List<StackLayer>();
-			int bakeW = 0, bakeH = 0;
+			int srcW = 0, srcH = 0;
 			foreach (var stage in stages)
 			{
 				var bundle = stage.bundles[0];
 				var count = bundle.numImageAnimations > 1 ? bundle.numImageAnimations : 1;
 				var buffers = new Rgba32[count][];
+				var hasAlpha = false;
 				int lw = 0, lh = 0;
 				for (var i = 0; i < count; i++)
 				{
 					var imagePath = resolveImagePath(Path.ChangeExtension(bundle.images[i], null));
 					if (imagePath == null || !File.Exists(imagePath))
-						return false; // missing a frame - leave it for the normal path (static decal)
+						return false; // can't composite without every layer - fall back to the normal path
 
 					using var image = Image.Load<Rgba32>(imagePath);
 					if (lw == 0) { lw = image.Width; lh = image.Height; }
@@ -375,6 +313,8 @@ namespace BSPConvert.Lib
 
 					var pixels = new Rgba32[lw * lh];
 					image.CopyPixelDataTo(pixels);
+					if (!hasAlpha)
+						hasAlpha = pixels.Any(p => p.A < 255);
 					buffers[i] = pixels;
 				}
 
@@ -383,6 +323,7 @@ namespace BSPConvert.Lib
 					frames = buffers,
 					width = lw,
 					height = lh,
+					hasAlpha = hasAlpha,
 					animSpeed = bundle.numImageAnimations > 1 ? bundle.imageAnimationSpeed : 0f,
 					clamp = bundle.clamp,
 					texMods = bundle.texMods,
@@ -394,63 +335,87 @@ namespace BSPConvert.Lib
 					flags = stage.flags
 				});
 
-				bakeW = Math.Max(bakeW, lw);
-				bakeH = Math.Max(bakeH, lh);
+				srcW = Math.Max(srcW, lw);
+				srcH = Math.Max(srcH, lh);
 			}
 
-			if (bakeW == 0 || bakeH == 0)
+			if (srcW == 0 || srcH == 0)
 				return false;
 
-			// Cap the composite size (a layered loop can be ~256 frames, so a 1024px source would balloon the
-			// file). Downsample proportionally; we composite directly at bake size by sampling sources via UV.
-			var cap = options.layeredResolution;
-			var maxDim = Math.Max(bakeW, bakeH);
-			if (cap > 0 && maxDim > cap)
+			// Anchor the bake to the lowest-frequency (coarsest) layer: the bake tile spans exactly one of its tiles,
+			// so every other layer tiles a whole number of times within it and keeps its true Q3 scale, tiling
+			// seamlessly. That coarsest layer's scale is reapplied on the surface via $basetexturetransform. To stop a
+			// very coarse overlay (e.g. slime's big bubbles) from forcing the finer layers to tile so many times they
+			// blur at the resolution cap, outlier-coarse layers are dropped first (never the opaque base; see
+			// DropOutlierLayers).
+			var layerScales = layers.Select(l => GetScaleFromTexMods(l.texMods)).ToList();
+			DropOutlierLayers(layers, layerScales, options.maxResolution);
+			var refIndex = ChooseReferenceLayer(layers, layerScales);
+			var surfaceScale = new Vector2(
+				MathF.Max(layerScales[refIndex].X, 1e-4f),
+				MathF.Max(layerScales[refIndex].Y, 1e-4f));
+			var tileCounts = new List<Vector2>(layers.Count);
+			for (var i = 0; i < layers.Count; i++)
 			{
-				bakeW = Math.Max(1, bakeW * cap / maxDim);
-				bakeH = Math.Max(1, bakeH * cap / maxDim);
+				// Clamped layers can't wrap, so they stay at one tile.
+				var tx = layers[i].clamp ? 1f : MathF.Max(1f, MathF.Round(layerScales[i].X / surfaceScale.X));
+				var ty = layers[i].clamp ? 1f : MathF.Max(1f, MathF.Round(layerScales[i].Y / surfaceScale.Y));
+				tileCounts.Add(new Vector2(tx, ty));
 			}
 
-			// DXT compression needs dimensions that are multiples of 4.
-			bakeW = (bakeW + 3) & ~3;
-			bakeH = (bakeH + 3) & ~3;
+			// Loop length. The seamless period is 1/gcd(rates); if it fits the frame budget (maxFrames at fps) it's
+			// baked exactly at true speed. If it's longer, the loop is bounded to the budget and each layer's rate is
+			// snapped to a whole number of cycles over it (a small per-layer speed adjustment) - a short, seamless
+			// loop that plays near Q3's speed, rather than compressing a huge period into the budget (too fast).
+			var fps = Math.Clamp(options.fps, 1, 60);
+			var maxFrames = Math.Clamp(options.maxFrames, 1, 4096);
+			var trueLoop = ComputeTrueLoopSeconds(layers);
+			var budgetLoop = (float)maxFrames / fps;
+			var snapRates = trueLoop > budgetLoop;
+			var loopSeconds = trueLoop <= 0f ? 0f : (snapRates ? budgetLoop : trueLoop);
+			var frameCount = loopSeconds <= 0f
+				? 1
+				: (snapRates ? maxFrames : Math.Clamp((int)MathF.Round(loopSeconds * fps), 2, maxFrames));
 
-			var (frameCount, fps) = ComputeLayeredLoop(layers);
+			// Fold each layer's snapped tiling (and snapped rates, when bounding the loop) into a bake-ready copy, so
+			// the composite samples directly at uv and stays seamless in both space and time.
+			var bakeLayers = new List<StackLayer>(layers.Count);
+			for (var i = 0; i < layers.Count; i++)
+				bakeLayers.Add(AdjustLayer(layers[i], tileCounts[i], snapRates, loopSeconds));
+
+			// Ideal bake size: a layer tiling N times wants N * source pixels to stay sharp; take the largest demand.
+			int idealW = 0, idealH = 0;
+			for (var i = 0; i < layers.Count; i++)
+			{
+				idealW = Math.Max(idealW, (int)MathF.Ceiling(layers[i].width * tileCounts[i].X));
+				idealH = Math.Max(idealH, (int)MathF.Ceiling(layers[i].height * tileCounts[i].Y));
+			}
+
+			var alphaNeeded = mode == OutputMode.Brighten && options.autoAlpha;
+			var bytesPerTexel = alphaNeeded ? 1.0f : 0.5f; // BC7 (alpha) vs DXT1 (no alpha)
+			var (bakeW, bakeH) = SolveResolution(idealW, idealH, frameCount, bytesPerTexel);
+
+			var useSourceAlpha = layers.Any(l => l.hasAlpha);
 			var pixelCount = bakeW * bakeH;
 			var frames = new List<byte[]>(frameCount);
 
 			for (var f = 0; f < frameCount; f++)
 			{
-				var t = (float)f / fps; // seconds into the loop
+				// Spread frames evenly across one loop period so the last leads straight back into the first.
+				var t = frameCount > 0 ? (float)f / frameCount * loopSeconds : 0f;
 				var frame = new byte[pixelCount * 4];
 				for (var y = 0; y < bakeH; y++)
 				{
 					for (var x = 0; x < bakeW; x++)
 					{
 						var uv = new Vector2((x + 0.5f) / bakeW, (y + 0.5f) / bakeH);
-
-						// Replay the blend stack onto the framebuffer (starts black; the opaque base stage
-						// overwrites it, then each overlay composites with its real blendFunc).
-						var fb = Vector3.Zero;
-						foreach (var layer in layers)
-						{
-							var animIdx = layer.animSpeed > 0f && layer.frames.Length > 1
-								? (int)MathF.Floor(t * layer.animSpeed) % layer.frames.Length
-								: 0;
-							var st = TransformTexcoord(uv, layer.texMods, t);
-							var texel = SampleTexel(layer.frames[animIdx], layer.width, layer.height, st, layer.clamp);
-
-							var src = new Vector3(texel.X, texel.Y, texel.Z) * EvalRgb(layer, t);
-							var srcAlpha = EvalAlpha(layer, texel.W, t);
-							fb = BlendStage(layer.flags, src, srcAlpha, fb);
-							fb = Vector3.Clamp(fb, Vector3.Zero, Vector3.One); // Q3's 8-bit framebuffer clamps each pass
-						}
+						var (rgb, alpha) = CompositePixel(bakeLayers, uv, t, mode, useSourceAlpha);
 
 						var index = (y * bakeW + x) * 4;
-						frame[index + 0] = (byte)(fb.X * 255f + 0.5f);
-						frame[index + 1] = (byte)(fb.Y * 255f + 0.5f);
-						frame[index + 2] = (byte)(fb.Z * 255f + 0.5f);
-						frame[index + 3] = 255; // opaque base => opaque surface
+						frame[index + 0] = (byte)(rgb.X * 255f + 0.5f);
+						frame[index + 1] = (byte)(rgb.Y * 255f + 0.5f);
+						frame[index + 2] = (byte)(rgb.Z * 255f + 0.5f);
+						frame[index + 3] = (byte)(alpha * 255f + 0.5f);
 					}
 				}
 				frames.Add(frame);
@@ -458,77 +423,329 @@ namespace BSPConvert.Lib
 
 			var vtfPath = Path.Combine(pk3Dir, textureName + ".vtf");
 			Directory.CreateDirectory(Path.GetDirectoryName(vtfPath)!);
-			var format = Math.Max(bakeW, bakeH) >= 256 ? ImageFormat.STRATA_BC7 : ImageFormat.DXT1;
+			var format = alphaNeeded ? ImageFormat.STRATA_BC7 : ImageFormat.DXT1;
 			if (!BakeVtf(vtfPath, frames, bakeW, bakeH, format))
 				return false;
 
-			WriteAnimMapVmt(textureName, shader, fps, isAdditive: false);
+			var applyScale = MathF.Abs(surfaceScale.X - 1f) > 0.01f || MathF.Abs(surfaceScale.Y - 1f) > 0.01f;
+			WriteStackVmt(textureName, shader, fps, mode, applyScale ? surfaceScale : null);
 			return true;
 		}
 
-		// Loop length for a layered stack. Each animated element (animMap, tcMod stretch, rgbGen/alphaGen wave)
-		// has its own period; the loop is their LCM. The periods are first snapped to a shared base so the LCM
-		// stays small (a tiny speed adjustment per layer), then the frame count is derived at LayeredFps and
-		// capped at LayeredMaxFrames (truncating very long loops with a slight seam rather than growing the file).
-		private static (int frameCount, int fps) ComputeLayeredLoop(List<StackLayer> layers)
+		// The reference layer kept at exactly one tile: the lowest-frequency (coarsest) layer. Anchoring the bake to
+		// it lets every other (finer) layer tile a whole number of times within the bake while keeping its true Q3
+		// scale. Outlier-coarse layers are dropped beforehand (DropOutlierLayers) so the remaining spread stays sharp.
+		private static int ChooseReferenceLayer(List<StackLayer> layers, List<Vector2> scales)
 		{
-			var periods = new List<float>();
+			var refIdx = 0;
+			var lowest = float.MaxValue;
+			for (var i = 0; i < layers.Count; i++)
+			{
+				var freq = LayerFrequency(scales[i]);
+				if (freq < lowest)
+				{
+					lowest = freq;
+					refIdx = i;
+				}
+			}
+			return refIdx;
+		}
+
+		// Scalar spatial frequency of a layer (geometric mean of its per-axis tcMod scale): higher = the texture
+		// repeats more often across the surface (finer detail), lower = magnified / coarser.
+		private static float LayerFrequency(Vector2 scale)
+		{
+			return MathF.Sqrt(MathF.Max(scale.X, 1e-4f) * MathF.Max(scale.Y, 1e-4f));
+		}
+
+		// Drops overlay layers whose spatial frequency is far below the rest of the stack. The bake is anchored to
+		// the coarsest layer to preserve every layer's true scale (see BakeAnimatedStack); but if one layer is much
+		// coarser than the others, that anchor forces the finer layers to tile so many times they blur at the
+		// resolution cap. So outlier-coarse layers are discarded - never the opaque base (the dominant visual), and
+		// never below two layers - until the finest layer tiles no more than maxRes/finestSource times over the
+		// coarsest remaining layer (i.e. it can still be baked at roughly full source resolution).
+		private static void DropOutlierLayers(List<StackLayer> layers, List<Vector2> scales, int maxResolution)
+		{
+			while (layers.Count > 2)
+			{
+				int lowIdx = 0, highIdx = 0;
+				for (var i = 1; i < layers.Count; i++)
+				{
+					if (LayerFrequency(scales[i]) < LayerFrequency(scales[lowIdx])) lowIdx = i;
+					if (LayerFrequency(scales[i]) > LayerFrequency(scales[highIdx])) highIdx = i;
+				}
+
+				// How many times the finest layer must tile if the coarsest layer is the reference.
+				var spread = LayerFrequency(scales[highIdx]) / LayerFrequency(scales[lowIdx]);
+				var finestDim = Math.Max(layers[highIdx].width, layers[highIdx].height);
+				var maxTiles = Math.Max(2f, (float)maxResolution / Math.Max(1, finestDim));
+				if (spread <= maxTiles)
+					break;
+
+				// Never drop the opaque base; if it's the coarsest layer, accept the softer finer layers instead.
+				if (IsOpaqueBlendFlags(layers[lowIdx].flags))
+					break;
+
+				layers.RemoveAt(lowIdx);
+				scales.RemoveAt(lowIdx);
+			}
+		}
+
+		// Composites one output texel from every layer at surface coordinate surfUV and loop time t. Opaque/Additive
+		// replay the real Q3 blend stack onto a black framebuffer (opaque base overwrites; additives sum). Brighten
+		// (Q3 liquids that brighten the scene behind them) screen-composites the layers into a standalone translucent
+		// texel, since their real "GL_dst_color" blend depends on the live framebuffer and can't be baked.
+		private (Vector3 rgb, float alpha) CompositePixel(List<StackLayer> layers, Vector2 surfUV, float t, OutputMode mode, bool useSourceAlpha)
+		{
+			if (mode == OutputMode.Brighten)
+			{
+				var color = Vector3.Zero;
+				var srcAlpha = 0f;
+				foreach (var layer in layers)
+				{
+					var sample = SampleStackLayer(layer, surfUV, t);
+					var rgb = new Vector3(sample.X, sample.Y, sample.Z) * EvalRgb(layer, t);
+					color = Vector3.One - (Vector3.One - color) * (Vector3.One - rgb);
+					srcAlpha = 1f - (1f - srcAlpha) * (1f - sample.W);
+				}
+				color = Vector3.Clamp(color, Vector3.Zero, Vector3.One);
+
+				float alpha;
+				if (options.autoAlpha)
+				{
+					// Luminance (Rec.601) gives "bright caustics opaque, dark gaps transparent".
+					var basis = useSourceAlpha ? srcAlpha : (0.299f * color.X + 0.587f * color.Y + 0.114f * color.Z);
+					alpha = Math.Clamp(basis * options.alpha, 0f, 1f);
+				}
+				else
+				{
+					alpha = 1f; // opaque texels; translucency (if any) comes from the VMT's constant $alpha
+				}
+				return (color, alpha);
+			}
+
+			// Opaque / Additive: replay the ordered blend stack onto the framebuffer (starts black; an opaque base
+			// stage overwrites it, then each overlay composites with its real blendFunc).
+			var fb = Vector3.Zero;
+			foreach (var layer in layers)
+			{
+				var sample = SampleStackLayer(layer, surfUV, t);
+				var src = new Vector3(sample.X, sample.Y, sample.Z) * EvalRgb(layer, t);
+				var srcA = EvalAlpha(layer, sample.W, t);
+				fb = BlendStage(layer.flags, src, srcA, fb);
+				fb = Vector3.Clamp(fb, Vector3.Zero, Vector3.One); // Q3's 8-bit framebuffer clamps each pass
+			}
+			return (fb, 1f); // opaque base bakes opaque; additive stacks ignore alpha ($additive)
+		}
+
+		// Samples a layer's current animMap frame at loop time t, after applying its tcmods to the surface coord.
+		private static Vector4 SampleStackLayer(StackLayer layer, Vector2 surfUV, float t)
+		{
+			var animIdx = layer.animSpeed > 0f && layer.frames.Length > 1
+				? (int)MathF.Floor(t * layer.animSpeed) % layer.frames.Length
+				: 0;
+			var st = TransformTexcoord(surfUV, layer.texMods, t);
+			return SampleTexel(layer.frames[animIdx], layer.width, layer.height, st, layer.clamp);
+		}
+
+		// Bake resolution, adapted to the size budget for a given frame count. Total texels across all frames must
+		// fit byteBudget/bytesPerTexel, so more frames => lower resolution. Bounded by maxResolution and never
+		// upscaled past the ideal (source/tiling) detail.
+		private (int bakeW, int bakeH) SolveResolution(int idealW, int idealH, int frameCount, float bytesPerTexel)
+		{
+			var maxRes = Math.Clamp(options.maxResolution, MinResolution, 2048);
+			float w = Math.Min(Math.Max(idealW, 1), maxRes);
+			float h = Math.Min(Math.Max(idealH, 1), maxRes);
+
+			// Shrink (preserving aspect) until one frame fits its share of the texel budget.
+			var perFrameTexels = options.byteBudget / (double)bytesPerTexel / Math.Max(1, frameCount);
+			if (w * h > perFrameTexels && w * h > 0)
+			{
+				var s = (float)Math.Sqrt(perFrameTexels / (w * h));
+				w *= s;
+				h *= s;
+			}
+
+			// Source VTFs are power-of-two (sourcepp rounds non-PoT dimensions UP, which would blow past the
+			// budget), so snap each axis DOWN to the largest PoT that fits.
+			var bakeW = Math.Max(MinResolution, FloorToPowerOfTwo((int)MathF.Round(w)));
+			var bakeH = Math.Max(MinResolution, FloorToPowerOfTwo((int)MathF.Round(h)));
+			return (bakeW, bakeH);
+		}
+
+		private static int FloorToPowerOfTwo(int v)
+		{
+			if (v < 1)
+				return 1;
+			var p = 1;
+			while (p * 2 <= v)
+				p *= 2;
+			return p;
+		}
+
+		// The true seamless period: each animated element (animMap, scroll, rotate, tcMod stretch, rgb/alpha wave)
+		// cycles at its own rate, and the loop wraps cleanly once every one has completed a whole number of cycles,
+		// i.e. after 1 / gcd(rates). Returns 0 when nothing animates. May be very large for incommensurate rates -
+		// the caller bounds it to the frame budget and snaps rates rather than baking an enormous loop.
+		private static float ComputeTrueLoopSeconds(List<StackLayer> layers)
+		{
+			var rates = GatherRates(layers);
+			if (rates.Count == 0)
+				return 0f;
+
+			var rateGcd = rates.Aggregate(RateGcd);
+			if (rateGcd <= 1e-4f)
+				return float.MaxValue; // effectively incommensurate -> treat as infinite so the loop gets bounded
+			return 1f / rateGcd;
+		}
+
+		// Cycles-per-second of every reproduced periodic element across all layers (one entry per scroll axis, etc.).
+		private static List<float> GatherRates(List<StackLayer> layers)
+		{
+			var rates = new List<float>();
 			foreach (var layer in layers)
 			{
 				if (layer.animSpeed > 0f && layer.frames.Length > 1)
-					periods.Add(layer.frames.Length / layer.animSpeed);
+					rates.Add(layer.animSpeed / layer.frames.Length); // full image-sequence cycles per second
 
 				foreach (var texMod in layer.texMods)
 				{
-					if ((texMod.type == TexMod.TMOD_STRETCH || texMod.type == TexMod.TMOD_TURBULENT) && texMod.wave.frequency > 0f)
-						periods.Add(1f / texMod.wave.frequency);
+					// TMOD_TURBULENT / TMOD_TRANSFORM shear isn't reproduced, so it doesn't constrain the loop.
+					if (texMod.type == TexMod.TMOD_STRETCH && texMod.wave.frequency > 0f)
+						rates.Add(texMod.wave.frequency);
 
-					// A scroll wraps seamlessly once it has travelled a whole tile, so its period is the
-					// time per tile (one per moving axis). A rotate's period is one full revolution.
+					// A scroll cycles once per tile travelled (one rate per moving axis); a rotate once per revolution.
 					else if (texMod.type == TexMod.TMOD_SCROLL)
 					{
 						if (MathF.Abs(texMod.scroll[0]) > 1e-4f)
-							periods.Add(1f / MathF.Abs(texMod.scroll[0]));
+							rates.Add(MathF.Abs(texMod.scroll[0]));
 						if (MathF.Abs(texMod.scroll[1]) > 1e-4f)
-							periods.Add(1f / MathF.Abs(texMod.scroll[1]));
+							rates.Add(MathF.Abs(texMod.scroll[1]));
 					}
 					else if (texMod.type == TexMod.TMOD_ROTATE && MathF.Abs(texMod.rotateSpeed) > 1e-4f)
-						periods.Add(360f / MathF.Abs(texMod.rotateSpeed));
+						rates.Add(MathF.Abs(texMod.rotateSpeed) / 360f);
 				}
 
 				if (layer.rgbGen == ColorGen.CGEN_WAVEFORM && layer.rgbWave.frequency > 0f)
-					periods.Add(1f / layer.rgbWave.frequency);
+					rates.Add(layer.rgbWave.frequency);
 				if (layer.alphaGen == AlphaGen.AGEN_WAVEFORM && layer.alphaWave.frequency > 0f)
-					periods.Add(1f / layer.alphaWave.frequency);
+					rates.Add(layer.alphaWave.frequency);
 			}
-
-			if (periods.Count == 0)
-				return (1, LayeredFps); // nothing animates (shouldn't happen on this path) - single frame
-
-			// Snap every period to an integer multiple of the smallest one, then the loop is base * LCM(multiples).
-			var quantum = periods.Min();
-			var multiples = periods.Select(p => Math.Clamp((int)MathF.Round(p / quantum), 1, 1000)).ToList();
-			var lcm = multiples.Aggregate(1, Lcm);
-			var loopSeconds = lcm * quantum;
-
-			var frameCount = Math.Clamp((int)MathF.Round(loopSeconds * LayeredFps), 1, LayeredMaxFrames);
-			return (frameCount, LayeredFps);
+			return rates;
 		}
 
-		private static int Gcd(int a, int b)
+		// Builds a bake-ready copy of a layer with its tiling overridden to `tiles` tiles and, when bounding the
+		// loop, every periodic rate snapped to a whole number of cycles over loopSeconds (so the loop wraps cleanly).
+		private static StackLayer AdjustLayer(StackLayer src, Vector2 tiles, bool snapRates, float loopSeconds)
 		{
-			while (b != 0)
-				(a, b) = (b, a % b);
+			return new StackLayer
+			{
+				frames = src.frames,
+				width = src.width,
+				height = src.height,
+				hasAlpha = src.hasAlpha,
+				clamp = src.clamp,
+				rgbGen = src.rgbGen,
+				alphaGen = src.alphaGen,
+				constantColor = src.constantColor,
+				flags = src.flags,
+				animSpeed = snapRates && src.animSpeed > 0f && src.frames.Length > 1
+					? SnapRateMag(src.animSpeed / src.frames.Length, loopSeconds) * src.frames.Length
+					: src.animSpeed,
+				rgbWave = SnapWaveFreq(src.rgbWave, snapRates && src.rgbGen == ColorGen.CGEN_WAVEFORM, loopSeconds),
+				alphaWave = SnapWaveFreq(src.alphaWave, snapRates && src.alphaGen == AlphaGen.AGEN_WAVEFORM, loopSeconds),
+				texMods = AdjustTexMods(src.texMods, tiles, snapRates, loopSeconds)
+			};
+		}
+
+		// A whole number of cycles per loop keeps a rate seamless: round rate*loop to the nearest integer >= 1 (so a
+		// layer slower than one cycle per loop still moves rather than freezing), then convert back to a rate.
+		private static float SnapRateMag(float rate, float loopSeconds)
+		{
+			if (rate <= 1e-4f || loopSeconds <= 0f)
+				return rate;
+			return MathF.Max(1f, MathF.Round(rate * loopSeconds)) / loopSeconds;
+		}
+
+		private static float SnapSignedRate(float rate, float loopSeconds) =>
+			MathF.CopySign(SnapRateMag(MathF.Abs(rate), loopSeconds), rate);
+
+		private static WaveForm SnapWaveFreq(WaveForm w, bool snap, float loopSeconds)
+		{
+			var c = new WaveForm { func = w.func, base_ = w.base_, amplitude = w.amplitude, phase = w.phase, frequency = w.frequency };
+			if (snap && w.frequency > 1e-4f)
+				c.frequency = SnapRateMag(w.frequency, loopSeconds);
+			return c;
+		}
+
+		// Clones a layer's tcmods, overriding the scale to the snapped tile count and (when snapping) bumping each
+		// periodic rate to a whole number of cycles per loop. A layer with no tcmod scale gets one prepended.
+		private static List<TexModInfo> AdjustTexMods(List<TexModInfo> src, Vector2 tiles, bool snapRates, float loopSeconds)
+		{
+			var result = new List<TexModInfo>(src.Count + 1);
+			var hasScale = false;
+			foreach (var tm in src)
+			{
+				var c = CloneTexMod(tm);
+				switch (tm.type)
+				{
+					case TexMod.TMOD_SCALE:
+						// First scale becomes the tile-count override; any further scales collapse to identity.
+						c.scale[0] = hasScale ? 1f : tiles.X;
+						c.scale[1] = hasScale ? 1f : tiles.Y;
+						hasScale = true;
+						break;
+					case TexMod.TMOD_SCROLL when snapRates:
+						c.scroll[0] = SnapSignedRate(tm.scroll[0], loopSeconds);
+						c.scroll[1] = SnapSignedRate(tm.scroll[1], loopSeconds);
+						break;
+					case TexMod.TMOD_ROTATE when snapRates:
+						c.rotateSpeed = SnapSignedRate(tm.rotateSpeed / 360f, loopSeconds) * 360f; // cycle = 360 deg
+						break;
+					case TexMod.TMOD_STRETCH when snapRates:
+						c.wave.frequency = SnapRateMag(tm.wave.frequency, loopSeconds);
+						break;
+				}
+				result.Add(c);
+			}
+			if (!hasScale && (MathF.Abs(tiles.X - 1f) > 0.01f || MathF.Abs(tiles.Y - 1f) > 0.01f))
+			{
+				var scale = new TexModInfo { type = TexMod.TMOD_SCALE };
+				scale.scale[0] = tiles.X;
+				scale.scale[1] = tiles.Y;
+				result.Insert(0, scale); // applied before scroll, matching Q3's scale-then-scroll order
+			}
+			return result;
+		}
+
+		private static TexModInfo CloneTexMod(TexModInfo tm)
+		{
+			var c = new TexModInfo { type = tm.type, rotateSpeed = tm.rotateSpeed };
+			c.scale[0] = tm.scale[0];
+			c.scale[1] = tm.scale[1];
+			c.scroll[0] = tm.scroll[0];
+			c.scroll[1] = tm.scroll[1];
+			c.wave.func = tm.wave.func;
+			c.wave.base_ = tm.wave.base_;
+			c.wave.amplitude = tm.wave.amplitude;
+			c.wave.phase = tm.wave.phase;
+			c.wave.frequency = tm.wave.frequency;
+			return c;
+		}
+
+		// gcd of two non-negative values via the Euclidean algorithm with a tolerance, so floats that are
+		// near-multiples of a common base collapse to it (e.g. 0.04 and 0.03 -> 0.01) instead of a tiny residual.
+		private static float RateGcd(float a, float b)
+		{
+			a = MathF.Abs(a);
+			b = MathF.Abs(b);
+			while (b > 1e-4f)
+			{
+				var rem = a - b * MathF.Floor(a / b);
+				a = b;
+				b = rem;
+			}
 			return a;
-		}
-
-		// LCM with an upper clamp so a near-incommensurate set can't explode the frame budget (the caller caps frames).
-		private static int Lcm(int a, int b)
-		{
-			if (a == 0 || b == 0)
-				return Math.Max(a, b);
-			var lcm = (long)(a / Gcd(a, b)) * b;
-			return (int)Math.Min(lcm, 100000);
 		}
 
 		// Q3 texcoord modifiers applied in order, evaluated at time t. Reproduces scale/scroll/stretch/rotate
@@ -688,12 +905,31 @@ namespace BSPConvert.Lib
 
 		private static float WrapOrClampCoord(float v, bool clamp) => clamp ? Math.Clamp(v, 0f, 1f) : v - MathF.Floor(v);
 
+		// An opaque base stage writes solid color to the framebuffer ("GL_one GL_zero" or no blendFunc).
+		private static bool IsOpaqueBlend(ShaderStage stage) => IsOpaqueBlendFlags(stage.flags);
+
+		private static bool IsOpaqueBlendFlags(ShaderStageFlags flags)
+		{
+			var srcBlend = flags & ShaderStageFlags.GLS_SRCBLEND_BITS;
+			var dstBlend = flags & ShaderStageFlags.GLS_DSTBLEND_BITS;
+			var noBlend = srcBlend == 0 && dstBlend == 0;
+			var isOneZero = srcBlend == ShaderStageFlags.GLS_SRCBLEND_ONE && dstBlend == ShaderStageFlags.GLS_DSTBLEND_ZERO;
+			return noBlend || isOneZero;
+		}
+
 		private static bool IsAdditiveBlend(ShaderStage stage)
 		{
 			var srcBlend = stage.flags & ShaderStageFlags.GLS_SRCBLEND_BITS;
 			var dstBlend = stage.flags & ShaderStageFlags.GLS_DSTBLEND_BITS;
 			return dstBlend == ShaderStageFlags.GLS_DSTBLEND_ONE &&
 				(srcBlend == ShaderStageFlags.GLS_SRCBLEND_ONE || srcBlend == ShaderStageFlags.GLS_SRCBLEND_SRC_ALPHA);
+		}
+
+		// A "GL_dst_color ..." brightening blend - the Q3 layered-liquid signature, where each pass multiplies and
+		// brightens the live framebuffer. Can't be baked against a fixed base, so these use the screen composite.
+		private static bool IsBrightenBlend(ShaderStage stage)
+		{
+			return (stage.flags & ShaderStageFlags.GLS_SRCBLEND_BITS) == ShaderStageFlags.GLS_SRCBLEND_DST_COLOR;
 		}
 
 		// A transparent overlay blend - additive ("GL_one GL_one") or alpha ("GL_src_alpha GL_one_minus_src_alpha").
@@ -707,7 +943,21 @@ namespace BSPConvert.Lib
 			return IsAdditiveBlend(stage) || isAlphaBlend;
 		}
 
-		private void WriteAnimMapVmt(string textureName, Shader shader, int fps, bool isAdditive)
+		// Combined tcmod scale magnitude across a stage's texMods (sign/flip dropped - it only mirrors the pattern).
+		private static Vector2 GetScaleFromTexMods(List<TexModInfo> texMods)
+		{
+			var scale = Vector2.One;
+			foreach (var texMod in texMods)
+			{
+				if (texMod.type == TexMod.TMOD_SCALE)
+					scale *= new Vector2(texMod.scale[0], texMod.scale[1]);
+			}
+			return new Vector2(MathF.Abs(scale.X), MathF.Abs(scale.Y));
+		}
+
+		// Writes the AnimatedTexture VMT for a baked stack. The output mode drives translucency: Opaque emits a
+		// plain lit/unlit surface, Additive emits $additive (black = transparent), Brighten emits $translucent.
+		private void WriteStackVmt(string textureName, Shader shader, int fps, OutputMode mode, Vector2? basetextureScale)
 		{
 			var shaderType = shader.surfaceFlags.HasFlag(Q3SurfaceFlags.SURF_NOLIGHTMAP) ? "UnlitGeneric" : "LightmappedGeneric";
 
@@ -715,10 +965,28 @@ namespace BSPConvert.Lib
 			sb.AppendLine(shaderType);
 			sb.AppendLine("{");
 			sb.AppendLine(CultureInfo.InvariantCulture, $"\t$basetexture \"{textureName}\"");
-			if (isAdditive)
+
+			// The factored-out tcmod scale (see BakeAnimatedStack) is reapplied here so the surface tiles at Q3's rate.
+			if (basetextureScale.HasValue &&
+				(MathF.Abs(basetextureScale.Value.X - 1f) > 0.01f || MathF.Abs(basetextureScale.Value.Y - 1f) > 0.01f))
+				sb.AppendLine(CultureInfo.InvariantCulture, $"\t$basetexturetransform \"center .5 .5 scale {basetextureScale.Value.X} {basetextureScale.Value.Y} rotate 0 translate 0 0\"");
+
+			if (mode == OutputMode.Additive)
+			{
 				sb.AppendLine("\t$additive 1");
+			}
+			else if (mode == OutputMode.Brighten)
+			{
+				sb.AppendLine("\t$translucent 1");
+				// Without autoAlpha the VTF carries no per-texel alpha, so a flat constant $alpha drives translucency.
+				var alpha = Math.Clamp(options.alpha, 0f, 1f);
+				if (!options.autoAlpha && alpha < 1f)
+					sb.AppendLine(CultureInfo.InvariantCulture, $"\t$alpha {alpha}");
+			}
+
 			if (shader.cullType == CullType.TWO_SIDED)
 				sb.AppendLine("\t$nocull 1");
+
 			sb.AppendLine("\tProxies");
 			sb.AppendLine("\t{");
 			sb.AppendLine("\t\tAnimatedTexture");
@@ -733,170 +1001,6 @@ namespace BSPConvert.Lib
 			var vmtPath = Path.Combine(pk3Dir, textureName + ".vmt");
 			Directory.CreateDirectory(Path.GetDirectoryName(vmtPath)!);
 			File.WriteAllText(vmtPath, sb.ToString());
-		}
-
-		private List<Layer>? LoadLayers(Shader shader, out float maxRate)
-		{
-			var stages = GetTextureStages(shader);
-
-			// The fastest scroll component sets the loop's pace; every layer's per-loop travel is scaled
-			// against it and snapped to a whole number of tiles so the baked loop is seamless. maxRate (the
-			// real Q3 scroll rate, in tiles/sec) is also handed back to drive the auto playback speed.
-			maxRate = stages
-				.Select(GetScroll)
-				.SelectMany(v => new[] { Math.Abs(v.X), Math.Abs(v.Y) })
-				.DefaultIfEmpty(0f)
-				.Max();
-			if (maxRate <= 0f)
-				return null;
-
-			var layers = new List<Layer>();
-			foreach (var stage in stages)
-			{
-				var imagePath = resolveImagePath(Path.ChangeExtension(stage.bundles[0].images[0], null));
-				if (imagePath == null || !File.Exists(imagePath))
-					return null; // can't composite without every layer - fall back to the normal path
-
-				using var image = Image.Load<Rgba32>(imagePath);
-				var pixels = new Rgba32[image.Width * image.Height];
-				image.CopyPixelDataTo(pixels);
-
-				var scroll = GetScroll(stage);
-				layers.Add(new Layer
-				{
-					pixels = pixels,
-					width = image.Width,
-					height = image.Height,
-					hasAlpha = pixels.Any(p => p.A < 255),
-					scale = GetScale(stage),
-					scrollTiles = new Vector2(
-						MathF.Round(scroll.X / maxRate * options.maxLoopTiles),
-						MathF.Round(scroll.Y / maxRate * options.maxLoopTiles))
-				});
-			}
-
-			return layers;
-		}
-
-		private static Vector2 GetScroll(ShaderStage stage)
-		{
-			var scroll = Vector2.Zero;
-			foreach (var texMod in stage.bundles[0].texMods)
-			{
-				if (texMod.type == TexMod.TMOD_SCROLL)
-					scroll += new Vector2(texMod.scroll[0], texMod.scroll[1]);
-			}
-			return scroll;
-		}
-
-		// Combined tcmod scale magnitude for a layer (sign/flip is dropped - it only mirrors the pattern).
-		private static Vector2 GetScale(ShaderStage stage)
-		{
-			var scale = Vector2.One;
-			foreach (var texMod in stage.bundles[0].texMods)
-			{
-				if (texMod.type == TexMod.TMOD_SCALE)
-					scale *= new Vector2(texMod.scale[0], texMod.scale[1]);
-			}
-			return new Vector2(MathF.Abs(scale.X), MathF.Abs(scale.Y));
-		}
-
-		private List<byte[]> BakeFrames(List<Layer> layers)
-		{
-			var size = options.resolution;
-			var frames = new List<byte[]>(options.frames);
-
-			// Drive per-texel alpha from the source alpha channel when one exists, otherwise from luminance.
-			var useSourceAlpha = layers.Any(l => l.hasAlpha);
-
-			for (var f = 0; f < options.frames; f++)
-			{
-				var phase = (float)f / options.frames; // 0..1 across the loop; phase 1 == phase 0 -> seamless
-				var frame = new byte[size * size * 4];
-
-				for (var y = 0; y < size; y++)
-				{
-					for (var x = 0; x < size; x++)
-					{
-						var uv = new Vector2((x + 0.5f) / size, (y + 0.5f) / size);
-
-						// Composite every layer symmetrically with a screen blend (1-(1-a)(1-b)). The Q3 layers
-						// each brighten the framebuffer ("GL_dst_color GL_one"); screening keeps all of them
-						// visible at once - so the different scroll directions read as distinct ripple sets -
-						// while staying bounded in [0,1] (unlike a raw additive accumulation). Alpha (when the
-						// sources have one) is screened the same way.
-						var color = Vector3.Zero;
-						var srcAlpha = 0f;
-						foreach (var layer in layers)
-						{
-							var sample = SampleLayer(layer, uv, phase);
-							var rgb = new Vector3(sample.X, sample.Y, sample.Z);
-							color = Vector3.One - (Vector3.One - color) * (Vector3.One - rgb);
-							srcAlpha = 1f - (1f - srcAlpha) * (1f - sample.W);
-						}
-
-						color = Vector3.Clamp(color, Vector3.Zero, Vector3.One);
-
-						float alpha;
-						if (options.autoAlpha)
-						{
-							// Luminance (Rec.601) gives "bright caustics opaque, dark gaps transparent".
-							var basis = useSourceAlpha ? srcAlpha : (0.299f * color.X + 0.587f * color.Y + 0.114f * color.Z);
-							alpha = Math.Clamp(basis * options.alpha, 0f, 1f);
-						}
-						else
-						{
-							alpha = 1f; // opaque texels; translucency (if any) comes from the VMT's constant $alpha
-						}
-
-						var index = (y * size + x) * 4;
-						frame[index + 0] = (byte)(color.X * 255f + 0.5f);
-						frame[index + 1] = (byte)(color.Y * 255f + 0.5f);
-						frame[index + 2] = (byte)(color.Z * 255f + 0.5f);
-						frame[index + 3] = (byte)(alpha * 255f + 0.5f);
-					}
-				}
-
-				frames.Add(frame);
-			}
-
-			return frames;
-		}
-
-		// Samples one full, seamless source tile for the layer, scrolled by its whole-tile travel * phase.
-		// Baking exactly one tile (rather than a fractional "tcmod scale" crop) is what keeps each flipbook
-		// repeat seamless; the scale itself is reapplied on the surface via the VMT. Whole-tile scroll * phase
-		// (instead of rate * time) makes the last frame line up with the first. TMOD_TRANSFORM/ROTATE/TURB/
-		// STRETCH (shear and animated wobble) aren't reproduced yet.
-		private Vector4 SampleLayer(Layer layer, Vector2 uv, float phase)
-		{
-			return SampleBilinearWrap(layer, uv + layer.scrollTiles * phase);
-		}
-
-		private static Vector4 SampleBilinearWrap(Layer layer, Vector2 st)
-		{
-			var w = layer.width;
-			var h = layer.height;
-
-			var fx = (st.X - MathF.Floor(st.X)) * w - 0.5f;
-			var fy = (st.Y - MathF.Floor(st.Y)) * h - 0.5f;
-
-			var x0 = (int)MathF.Floor(fx);
-			var y0 = (int)MathF.Floor(fy);
-			var dx = fx - x0;
-			var dy = fy - y0;
-
-			var x0w = ((x0 % w) + w) % w;
-			var y0w = ((y0 % h) + h) % h;
-			var x1w = (x0w + 1) % w;
-			var y1w = (y0w + 1) % h;
-
-			var c00 = ToVector(layer.pixels[y0w * w + x0w]);
-			var c10 = ToVector(layer.pixels[y0w * w + x1w]);
-			var c01 = ToVector(layer.pixels[y1w * w + x0w]);
-			var c11 = ToVector(layer.pixels[y1w * w + x1w]);
-
-			return Vector4.Lerp(Vector4.Lerp(c00, c10, dx), Vector4.Lerp(c01, c11, dx), dy);
 		}
 
 		private static Vector4 ToVector(Rgba32 pixel) => new(pixel.R / 255f, pixel.G / 255f, pixel.B / 255f, pixel.A / 255f);
@@ -928,58 +1032,6 @@ namespace BSPConvert.Lib
 			vtf.ComputeTransparencyFlags();
 
 			return vtf.Bake(vtfPath);
-		}
-
-		// Picks a compact format. 256px uses BC7 (full alpha, higher quality). 128px uses DXT1 (0.5 byte/px)
-		// when alpha isn't needed, or DXT5 (1 byte/px) when autoAlpha bakes a per-texel alpha channel (DXT1's
-		// 1-bit alpha can't hold a smooth gradient).
-		private ImageFormat GetOutputFormat()
-		{
-			if (options.resolution >= 256)
-				return ImageFormat.STRATA_BC7;
-
-			return options.autoAlpha ? ImageFormat.DXT5 : ImageFormat.DXT1;
-		}
-
-		private void WriteVmt(string textureName, Vector2 scale, int fps)
-		{
-			// Q3 liquids are surfaceparm trans (see-through). $translucent puts the surface on the translucent
-			// render/sort path. With autoAlpha the per-texel alpha baked into the VTF drives translucency;
-			// otherwise a flat constant $alpha does (needs no texture alpha channel, so DXT1 is fine).
-			var alpha = Math.Clamp(options.alpha, 0f, 1f);
-			string alphaLine;
-			if (options.autoAlpha)
-				alphaLine = "\n\t$translucent 1";
-			else if (alpha < 1f)
-				alphaLine = $"\n\t$translucent 1\n\t$alpha {alpha.ToString(CultureInfo.InvariantCulture)}";
-			else
-				alphaLine = string.Empty;
-
-			// Reapply the shader's tcmod scale on the surface (the flipbook itself is baked at scale 1). A
-			// scale < 1 enlarges the texture / reduces visible tiling, matching Q3's "tcmod scale".
-			var transformLine = (MathF.Abs(scale.X - 1f) > 0.01f || MathF.Abs(scale.Y - 1f) > 0.01f)
-				? $"\n\t$basetexturetransform \"center .5 .5 scale {scale.X.ToString(CultureInfo.InvariantCulture)} {scale.Y.ToString(CultureInfo.InvariantCulture)} rotate 0 translate 0 0\""
-				: string.Empty;
-
-			var vmt = $$"""
-				LightmappedGeneric
-				{
-					$basetexture "{{textureName}}"{{alphaLine}}{{transformLine}}
-					Proxies
-					{
-						AnimatedTexture
-						{
-							animatedTextureVar $basetexture
-							animatedTextureFrameNumVar $frame
-							animatedTextureFrameRate {{fps.ToString(CultureInfo.InvariantCulture)}}
-						}
-					}
-				}
-				""";
-
-			var vmtPath = Path.Combine(pk3Dir, textureName + ".vmt");
-			Directory.CreateDirectory(Path.GetDirectoryName(vmtPath)!);
-			File.WriteAllText(vmtPath, vmt);
 		}
 	}
 }

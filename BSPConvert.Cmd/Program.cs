@@ -4,12 +4,6 @@ using CommandLine.Text;
 
 namespace BSPConvert.Cmd
 {
-	// Flipbook water texture resolution.
-	enum WaterResolution { Medium, High }
-
-	// Flipbook water playback accuracy - trades file size for smoothness and fidelity to Q3's scroll speed.
-	enum WaterPlaybackAccuracy { Low, Medium, High, Ultra }
-
 	internal class Program
 	{
 		class Options
@@ -53,20 +47,23 @@ namespace BSPConvert.Cmd
 			//[Option("oldbsp", Required = false, HelpText = "Use BSP version 20 (HL2 / CS:S).")]
 			//public bool OldBSP { get; set; }
 
-			[Option("nowater", Required = false, HelpText = "Disable baking Q3 multi-pass scrolling water shaders into animated flipbook textures.")]
-			public bool NoWater { get; set; }
+			[Option("noanim", Required = false, HelpText = "Disable baking Q3 multi-pass / animated shaders (scrolling liquids, layered effects, animMaps) into animated flipbook textures.")]
+			public bool NoAnim { get; set; }
 
-			[Option("waterres", Required = false, Default = WaterResolution.Medium, HelpText = "Flipbook water texture resolution [Medium (128px), High (256px)]. Higher is sharper but ~4x the file size.")]
-			public WaterResolution WaterResolution { get; set; }
+			[Option("animbudget", Required = false, Default = 16.0f, HelpText = "Target max size (MB) of each baked animated VTF. The master quality knob: resolution adapts down as the seamless loop needs more frames so total size stays near this (mips add ~33% on top). Higher = sharper/longer loops but larger files.")]
+			public float AnimBudgetMB { get; set; }
 
-			[Option("wateraccuracy", Required = false, Default = WaterPlaybackAccuracy.Medium, HelpText = "Flipbook water playback accuracy [Low, Medium, High, Ultra]. Higher settings are smoother and scroll closer to Quake 3's slow speed but produce larger files; lower settings scroll noticeably faster to stay smooth with fewer frames.")]
-			public WaterPlaybackAccuracy WaterPlaybackAccuracy { get; set; }
+			[Option("animmaxres", Required = false, Default = 512, HelpText = "Sharpness ceiling (px) for baked animated textures. The bake never exceeds this resolution even when the size budget would allow it.")]
+			public int AnimMaxRes { get; set; }
 
-			[Option("wateralpha", Required = false, Default = 1.0f, HelpText = "Flipbook water translucency [0-1]. 1 (default) derives per-texel translucency from each texture's alpha/luminance; any value below 1 uses a flat constant alpha (DXT1-friendly, lower = more see-through).")]
-			public float WaterAlpha { get; set; }
+			[Option("animfps", Required = false, Default = 16, HelpText = "Playback fps (smoothness) of baked animated textures. When the seamless loop needs more than --animmaxframes at this fps, the animation is sped up to fit rather than dropped below this fps.")]
+			public int AnimFps { get; set; }
 
-			[Option("animmapres", Required = false, Default = 256, HelpText = "Max resolution (px) for baking complex layered animMap shaders - multi-blend effects (e.g. a decal with overlaid animated rings) composited into a looping texture. These can reach hundreds of frames, so a large source is downsampled to this to bound file size. 0 uses the source resolution. Simple single-stage animMaps always bake at their native resolution.")]
-			public int AnimMapMaxResolution { get; set; }
+			[Option("animmaxframes", Required = false, Default = 512, HelpText = "Hard cap on baked frame count. When the loop's true length exceeds this at --animfps, the animation is compressed (plays faster) while staying seamless.")]
+			public int AnimMaxFrames { get; set; }
+
+			[Option("animalpha", Required = false, Default = 1.0f, HelpText = "Translucency [0-1] for baked liquids. 1 (default) derives per-texel translucency from each texture's alpha/luminance; below 1 uses a flat constant alpha (lower = more see-through).")]
+			public float AnimAlpha { get; set; }
 
 			[Option("prefix", Required = false, Default = "df_", HelpText = "Prefix for the converted BSP's file name.")]
 			public string Prefix { get; set; }
@@ -110,18 +107,6 @@ namespace BSPConvert.Cmd
 			if (options.OutputDirectory == null)
 				options.OutputDirectory = Path.GetDirectoryName(options.InputFiles.First());
 
-			// Map the friendly water presets onto the converter's numeric knobs. Accuracy controls the frame
-			// budget and the fps smoothness floor: more frames let the scroll play closer to Q3's true (slow)
-			// speed, so lower accuracy = fewer frames = faster-than-original scroll (see help text).
-			(int frames, int minFps) = options.WaterPlaybackAccuracy switch
-			{
-				WaterPlaybackAccuracy.Low => (120, 10),
-				WaterPlaybackAccuracy.High => (360, 15),
-				WaterPlaybackAccuracy.Ultra => (600, 18),
-				_ => (240, 12) // Medium
-			};
-			var waterResolution = options.WaterResolution == WaterResolution.High ? 256 : 128;
-
 			foreach (var inputEntry in options.InputFiles)
 			{
 				var converterOptions = new BSPConverterOptions()
@@ -145,13 +130,13 @@ namespace BSPConvert.Cmd
 					clampOverbright = options.ClampOverbright,
 					flipbook = new FlipbookOptions()
 					{
-						enabled = !options.NoWater,
-						resolution = waterResolution,
-						frames = frames,
-						minFps = minFps,
-						alpha = options.WaterAlpha,
-						autoAlpha = options.WaterAlpha >= 1f,
-						layeredResolution = options.AnimMapMaxResolution
+						enabled = !options.NoAnim,
+						byteBudget = (long)(options.AnimBudgetMB * 1024 * 1024),
+						maxResolution = options.AnimMaxRes,
+						fps = options.AnimFps,
+						maxFrames = options.AnimMaxFrames,
+						alpha = options.AnimAlpha,
+						autoAlpha = options.AnimAlpha >= 1f
 					}
 				};
 				var converter = new BSPConverter(converterOptions, new ConsoleLogger());
