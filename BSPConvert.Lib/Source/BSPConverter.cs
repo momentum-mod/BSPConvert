@@ -854,7 +854,7 @@ namespace BSPConvert.Lib
 				if (modelNumber <= 0 || modelNumber >= sourceBsp.Models.Count)
 					continue;
 
-				if (!string.IsNullOrEmpty(door["targetname"]) || (!float.TryParse(door["health"], out var health) && health > 0)) // create trigger only if it isn't being targeted or can't be shot open
+				if (!string.IsNullOrEmpty(door["targetname"]) || (float.TryParse(door["health"], out var health) && health > 0)) // create trigger only if it isn't being targeted or can't be shot open
 					continue;
 
 				var model = sourceBsp.Models[modelNumber];
