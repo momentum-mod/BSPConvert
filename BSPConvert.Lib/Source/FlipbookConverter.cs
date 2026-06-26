@@ -10,6 +10,7 @@ using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
 using sourcepp.vtfpp;
+using static BSPConvert.Lib.ShaderStageUtils;
 
 namespace BSPConvert.Lib
 {
@@ -53,14 +54,6 @@ namespace BSPConvert.Lib
 	{
 		private const int MinResolution = 16;
 
-		// How the composited stack is written out, decided by the blend stack (see ClassifyOutputMode).
-		private enum OutputMode
-		{
-			Opaque,    // has an opaque base -> self-contained opaque surface (ordered real-blendFunc replay)
-			Additive,  // all additive, no base -> $additive glow (replay from black, black = transparent)
-			Brighten   // all dst-color, no base (Q3 liquids) -> screen-composited translucent surface
-		}
-
 		private readonly string pk3Dir;
 		private readonly FlipbookOptions options;
 		private readonly Func<string, string?> resolveImagePath;
@@ -103,77 +96,18 @@ namespace BSPConvert.Lib
 				return ConvertAnimMap(textureName, shader);
 
 			// Any other multi-pass animated surface - scrolling liquids, scrolling/rotating/pulsing overlays on an
-			// opaque base, stacked additive glows - is composited stage by stage into a looping flipbook.
+			// opaque base, stacked additive glows - is composited stage by stage into a looping flipbook. (Scroll-only
+			// liquids are handled live by DetailMaterialConverter, which runs ahead of this in MaterialConverter.)
 			if (IsAnimatedStackShader(shader, out var stages, out var mode))
 				return BakeAnimatedStack(textureName, shader, stages, mode);
 
 			return false;
 		}
 
-		private static List<ShaderStage> GetTextureStages(Shader shader)
-		{
-			return shader.GetImageStages()
-				.Where(s => s.bundles[0].tcGen != TexCoordGen.TCGEN_ENVIRONMENT_MAPPED &&
-					s.bundles[0].tcGen != TexCoordGen.TCGEN_LIGHTMAP)
-				.ToList();
-		}
-
 		// Matches shaders with an animMap stage - an explicit frame sequence (Q3 "animMap <fps> f1 f2 ...").
 		private bool IsAnimMapShader(Shader shader)
 		{
 			return GetTextureStages(shader).Any(s => s.bundles[0].numImageAnimations > 1);
-		}
-
-		// Matches a multi-pass animated surface the unified compositor can bake, and reports which output mode it
-		// needs. Requires >= 2 visible stages (a single animated stage is better served live by MaterialConverter's
-		// texture-transform proxies) and at least one reproducibly animated stage. Mixed translucent stacks with no
-		// opaque base (neither all-additive nor all-brighten) are left for the normal path.
-		private bool IsAnimatedStackShader(Shader shader, out List<ShaderStage> stages, out OutputMode mode)
-		{
-			stages = GetTextureStages(shader);
-			mode = OutputMode.Opaque;
-			if (stages.Count < 2 || !AnimatesReproducibly(stages))
-				return false;
-
-			if (stages.Any(IsOpaqueBlend))
-			{
-				mode = OutputMode.Opaque;
-				return true;
-			}
-			if (stages.All(IsAdditiveBlend))
-			{
-				mode = OutputMode.Additive;
-				return true;
-			}
-			if (stages.All(IsBrightenBlend))
-			{
-				mode = OutputMode.Brighten;
-				return true;
-			}
-			return false;
-		}
-
-		// True when at least one stage animates in a way the compositor reproduces: scroll, rotate, stretch, an
-		// rgb/alpha waveform, or an animMap sequence. (Transform/turbulent shear isn't replayed.)
-		private static bool AnimatesReproducibly(List<ShaderStage> stages)
-		{
-			return stages.Any(s =>
-				s.bundles[0].numImageAnimations > 1 ||
-				(s.rgbGen == ColorGen.CGEN_WAVEFORM && s.rgbWave.frequency > 0f) ||
-				(s.alphaGen == AlphaGen.AGEN_WAVEFORM && s.alphaWave.frequency > 0f) ||
-				s.bundles[0].texMods.Any(t =>
-					t.type == TexMod.TMOD_SCROLL ||
-					t.type == TexMod.TMOD_ROTATE ||
-					(t.type == TexMod.TMOD_STRETCH && t.wave.frequency > 0f)));
-		}
-
-		private static OutputMode ClassifyOutputMode(List<ShaderStage> stages)
-		{
-			if (stages.Any(IsOpaqueBlend))
-				return OutputMode.Opaque;
-			if (stages.All(IsAdditiveBlend))
-				return OutputMode.Additive;
-			return OutputMode.Brighten;
 		}
 
 		// Bakes a Q3 animMap (explicit frame sequence, e.g. a fire effect) into a flipbook VTF - one VTF frame per
@@ -733,21 +667,6 @@ namespace BSPConvert.Lib
 			return c;
 		}
 
-		// gcd of two non-negative values via the Euclidean algorithm with a tolerance, so floats that are
-		// near-multiples of a common base collapse to it (e.g. 0.04 and 0.03 -> 0.01) instead of a tiny residual.
-		private static float RateGcd(float a, float b)
-		{
-			a = MathF.Abs(a);
-			b = MathF.Abs(b);
-			while (b > 1e-4f)
-			{
-				var rem = a - b * MathF.Floor(a / b);
-				a = b;
-				b = rem;
-			}
-			return a;
-		}
-
 		// Q3 texcoord modifiers applied in order, evaluated at time t. Reproduces scale/scroll/stretch/rotate
 		// (transform/turbulent shear aren't reproduced). Stretch and rotate are what animate these effect layers.
 		private static Vector2 TransformTexcoord(Vector2 st, List<TexModInfo> texMods, float t)
@@ -904,56 +823,6 @@ namespace BSPConvert.Lib
 		}
 
 		private static float WrapOrClampCoord(float v, bool clamp) => clamp ? Math.Clamp(v, 0f, 1f) : v - MathF.Floor(v);
-
-		// An opaque base stage writes solid color to the framebuffer ("GL_one GL_zero" or no blendFunc).
-		private static bool IsOpaqueBlend(ShaderStage stage) => IsOpaqueBlendFlags(stage.flags);
-
-		private static bool IsOpaqueBlendFlags(ShaderStageFlags flags)
-		{
-			var srcBlend = flags & ShaderStageFlags.GLS_SRCBLEND_BITS;
-			var dstBlend = flags & ShaderStageFlags.GLS_DSTBLEND_BITS;
-			var noBlend = srcBlend == 0 && dstBlend == 0;
-			var isOneZero = srcBlend == ShaderStageFlags.GLS_SRCBLEND_ONE && dstBlend == ShaderStageFlags.GLS_DSTBLEND_ZERO;
-			return noBlend || isOneZero;
-		}
-
-		private static bool IsAdditiveBlend(ShaderStage stage)
-		{
-			var srcBlend = stage.flags & ShaderStageFlags.GLS_SRCBLEND_BITS;
-			var dstBlend = stage.flags & ShaderStageFlags.GLS_DSTBLEND_BITS;
-			return dstBlend == ShaderStageFlags.GLS_DSTBLEND_ONE &&
-				(srcBlend == ShaderStageFlags.GLS_SRCBLEND_ONE || srcBlend == ShaderStageFlags.GLS_SRCBLEND_SRC_ALPHA);
-		}
-
-		// A "GL_dst_color ..." brightening blend - the Q3 layered-liquid signature, where each pass multiplies and
-		// brightens the live framebuffer. Can't be baked against a fixed base, so these use the screen composite.
-		private static bool IsBrightenBlend(ShaderStage stage)
-		{
-			return (stage.flags & ShaderStageFlags.GLS_SRCBLEND_BITS) == ShaderStageFlags.GLS_SRCBLEND_DST_COLOR;
-		}
-
-		// A transparent overlay blend - additive ("GL_one GL_one") or alpha ("GL_src_alpha GL_one_minus_src_alpha").
-		// A stage that's neither is an opaque base (e.g. a plain map, or a "GL_dst_color" lightmap multiply).
-		private static bool IsOverlayBlend(ShaderStage stage)
-		{
-			var srcBlend = stage.flags & ShaderStageFlags.GLS_SRCBLEND_BITS;
-			var dstBlend = stage.flags & ShaderStageFlags.GLS_DSTBLEND_BITS;
-			var isAlphaBlend = srcBlend == ShaderStageFlags.GLS_SRCBLEND_SRC_ALPHA &&
-				dstBlend == ShaderStageFlags.GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA;
-			return IsAdditiveBlend(stage) || isAlphaBlend;
-		}
-
-		// Combined tcmod scale magnitude across a stage's texMods (sign/flip dropped - it only mirrors the pattern).
-		private static Vector2 GetScaleFromTexMods(List<TexModInfo> texMods)
-		{
-			var scale = Vector2.One;
-			foreach (var texMod in texMods)
-			{
-				if (texMod.type == TexMod.TMOD_SCALE)
-					scale *= new Vector2(texMod.scale[0], texMod.scale[1]);
-			}
-			return new Vector2(MathF.Abs(scale.X), MathF.Abs(scale.Y));
-		}
 
 		// Writes the AnimatedTexture VMT for a baked stack. The output mode drives translucency: Opaque emits a
 		// plain lit/unlit surface, Additive emits $additive (black = transparent), Brighten emits $translucent.

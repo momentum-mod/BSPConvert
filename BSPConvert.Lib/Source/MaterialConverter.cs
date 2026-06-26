@@ -16,6 +16,7 @@ namespace BSPConvert.Lib
 		private Dictionary<string, string> customImageDict;
 		private bool noEnvMap;
 		private FlipbookConverter flipbookConverter;
+		private DetailMaterialConverter detailMaterialConverter;
 		private CloudSkyboxBaker cloudSkyboxBaker;
 
 		private string[] skySuffixes =
@@ -36,7 +37,9 @@ namespace BSPConvert.Lib
 			pk3ImageDict = GetImageLookupDictionary(pk3Dir);
 			q3ImageDict = GetImageLookupDictionary(ContentManager.GetQ3ContentDir());
 			customImageDict = GetImageLookupDictionary(ContentManager.GetCustomContentDir());
-			flipbookConverter = new FlipbookConverter(pk3Dir, flipbookOptions ?? new FlipbookOptions(), ResolveImagePath);
+			var resolvedFlipbookOptions = flipbookOptions ?? new FlipbookOptions();
+			flipbookConverter = new FlipbookConverter(pk3Dir, resolvedFlipbookOptions, ResolveImagePath);
+			detailMaterialConverter = new DetailMaterialConverter(pk3Dir, resolvedFlipbookOptions, ResolveImagePath, noEnvMap, TryCopyQ3Content);
 			cloudSkyboxBaker = new CloudSkyboxBaker(pk3Dir, ResolveImagePath);
 		}
 
@@ -92,7 +95,9 @@ namespace BSPConvert.Lib
 		{
 			/*if (shader.fogParms != null)
 				CreateFogVMT(texture, shader);
-			else */if (flipbookConverter.TryConvert(texture, shader))
+			else */if (detailMaterialConverter.TryConvert(texture, shader))
+				return; // scroll-only liquid converted to a live $basetexture+$detail material
+			else if (flipbookConverter.TryConvert(texture, shader))
 				return; // multi-pass scrolling shader baked into an animated flipbook VTF + VMT
 			else if (shader.skyParms != null && shader.skyParms.HasImageBox)
 				CreateSkyboxVMT(shader);
