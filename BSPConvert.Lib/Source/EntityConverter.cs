@@ -779,7 +779,7 @@ namespace BSPConvert.Lib
 				delay = delay,
 				fireOnce = -1
 			};
-			entity.connections.Add(connection);
+			TryAddConnection(entity, connection);
 
 			if (targetRelay.ClassName != "logic_relay")
 			{
@@ -820,7 +820,7 @@ namespace BSPConvert.Lib
 						fireOnce = -1
 					};
 
-					logicCase.connections.Add(connection);
+					TryAddConnection(logicCase, connection);
 				}
 				caseEntityNum++;
 			}
@@ -1665,17 +1665,26 @@ namespace BSPConvert.Lib
 			foreach (var entity in gamemodEntities)
 			{
 				if (entity["notcpm"] == "1")
+				{
 					entity["gamemode"] = "vq3";
-				else if
-					(entity["notvq3"] == "1")
+					//entity.Name = "vq3";
+				}
+				else if (entity["notvq3"] == "1")
+				{
 					entity["gamemode"] = "cpm";
+					//entity.Name = "cpm";
+				}
 				else
 				{
 					var newEntity = new Entity(); // split the entity into 2, have one entity handle cpm only outputs and the other vq3 only
-					CopyEntityData(entity, newEntity);
+					foreach (var kv in entity)
+						newEntity[kv.Key] = kv.Value;
 					newEntity["gamemode"] = "vq3";
+					//newEntity.Name = "vq3";
 					entity["gamemode"] = "cpm";
+					//entity.Name = "cpm";
 					q3Entities.Add(newEntity);
+					entityDict[newEntity.Name].Add(newEntity);
 				}
 			}
 		}
@@ -1694,7 +1703,7 @@ namespace BSPConvert.Lib
 
 				var targetingEntities = q3Entities.Where(x => x.TryGetValue("target", out var target) && target == currentEntity.Name).ToList();  // find all entities that target the current entity
 
-				if (targetingEntities.Count == 0)
+				if (targetingEntities.Count == 0 || currentEntity.ClassName == "target_relay" || currentEntity.ClassName == "target_fragsFilter")
 				{
 					initialEntities.Add(currentEntity);
 				}
@@ -1712,18 +1721,14 @@ namespace BSPConvert.Lib
 			return initialEntities;
 		}
 
-		private void CopyEntityData(Entity originalEntity, Entity newEntity)
+		private void TryAddConnection(Entity entity, Entity.EntityConnection newConnection)
 		{
-			foreach (var kv in originalEntity)
+			foreach (var existingConnection in entity.connections)
 			{
-				newEntity[kv.Key] = kv.Value;
+				if (newConnection.ToString() == existingConnection.ToString())
+					return;
 			}
-
-			foreach (var connection in originalEntity.connections)
-			{
-				newEntity.connections.Add(connection);
-			}
+			entity.connections.Add(newConnection);
 		}
-
 	}
 }
