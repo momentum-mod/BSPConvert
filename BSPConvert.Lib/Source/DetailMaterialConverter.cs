@@ -12,11 +12,12 @@ using static BSPConvert.Lib.ShaderStageUtils;
 
 namespace BSPConvert.Lib
 {
-	// Converts scroll-only Q3 liquid shaders into a live two-layer Source material ($basetexture + $detail) driven by
-	// texture-transform proxies, instead of baking a looping flipbook. The continuous scroll has no loop, so it avoids
-	// the flipbook's frame-budget collapse (slow, incommensurate scroll rates compressing into a near-static cycle).
-	// Tried before the flipbook baker; returns false to defer a shader it can't carry (animMaps, rotates/waveforms,
-	// opaque non-scrolling bases, missing images) back to the baker.
+	// Converts Q3 liquid/effect shaders whose layers animate only by affine texture transforms - scrolling and/or
+	// center-pivoted rotation, plus static scaling - into a live two-layer Source material ($basetexture + $detail)
+	// driven by texture-transform proxies, instead of baking a looping flipbook. The continuous scroll/rotation has no
+	// loop, so it avoids the flipbook's frame-budget collapse (slow, incommensurate rates compressing into a near-
+	// static cycle). Tried before the flipbook baker; returns false to defer a shader it can't carry (animMaps,
+	// stretch/waveforms, opaque non-animating bases, missing images) back to the baker.
 	public class DetailMaterialConverter
 	{
 		private readonly string pk3Dir;
@@ -34,24 +35,23 @@ namespace BSPConvert.Lib
 			this.copyExternalContent = copyExternalContent;
 		}
 
-		// Converts the shader to a live base/detail material if it's a scroll-only liquid we can carry. Returns false
-		// (deferring to the flipbook baker / normal material path) otherwise.
+		// Converts the shader to a live base/detail material if it's a transform-animated (scroll/rotate) shader we can
+		// carry. Returns false (deferring to the flipbook baker / normal material path) otherwise.
 		public bool TryConvert(string textureName, Shader shader)
 		{
 			if (!options.enabled)
 				return false;
 
-			// Both lit and unlit liquids are carried here as UnlitGeneric: only UnlitGeneric gives the detail layer its
-			// own $detailtexturetransform, so the two layers scroll independently (LightmappedGeneric ties detail to the
-			// base transform, collapsing them into one scroll). Lit liquids lose their lightmap as a result - an
-			// accepted tradeoff for correct dual-layer scroll plus the env_cubemap reflection sheen.
+			// Both lit and unlit shaders are carried here. Lit surfaces emit LightmappedGeneric (keeping their
+			// lightmap), unlit ones UnlitGeneric - both drive the detail layer's own $detailtexturetransform so the
+			// two layers animate independently.
 
-			// Animated multi-pass stacks: a scroll-only liquid converts to a live surface for every 2-layer scroll
-			// stack, plus larger stacks whose flipbook loop would collapse. Anything else (rotates, waveforms,
-			// animMaps, short well-behaved loops) is left to the flipbook baker.
+			// Animated multi-pass stacks: a transform-animated shader converts to a live surface for every 2-layer
+			// scroll/rotate stack, plus larger stacks whose flipbook loop would collapse. Anything else (stretch
+			// pulses, waveforms, animMaps, short well-behaved loops) is left to the flipbook baker.
 			if (IsAnimatedStackShader(shader, out var stages, out var mode))
 			{
-				if (IsScrollOnlyStack(stages) && (stages.Count == 2 || WouldBakedLoopCollapse(stages)))
+				if (IsCarryableStack(stages) && (stages.Count == 2 || WouldBakedLoopCollapse(stages)))
 					return TryConvertDetailMaterial(textureName, shader, stages, mode);
 
 				return false;
@@ -67,19 +67,19 @@ namespace BSPConvert.Lib
 			return false;
 		}
 
-		// True when every stage's reproducible animation is scrolling (or static scaling): no animMap sequence,
-		// rotate, stretch pulse, or rgb/alpha waveform. These are the stacks the live $detail surface can carry,
-		// since Source's detail texturing only offers a scrolling/scaling second layer (turb shear is ignored,
-		// exactly as the flipbook baker already ignores it).
-		private static bool IsScrollOnlyStack(List<ShaderStage> stages)
+		// True when every stage's reproducible animation is an affine texture transform the live surface can carry -
+		// scrolling, center-pivoted rotation, or static scaling - with no animMap sequence, stretch pulse, or rgb/alpha
+		// waveform. Source's texture-transform proxies drive each layer's own $basetexturetransform/$detailtexturetransform
+		// (scroll via translate, rotation via rotate); turb shear has no affine equivalent and is ignored, exactly as the
+		// flipbook baker already ignores it.
+		private static bool IsCarryableStack(List<ShaderStage> stages)
 		{
 			return stages.All(s =>
 				s.bundles[0].numImageAnimations <= 1 &&
 				!(s.rgbGen == ColorGen.CGEN_WAVEFORM && s.rgbWave.frequency > 0f) &&
 				!(s.alphaGen == AlphaGen.AGEN_WAVEFORM && s.alphaWave.frequency > 0f) &&
 				!s.bundles[0].texMods.Any(t =>
-					t.type == TexMod.TMOD_ROTATE ||
-					(t.type == TexMod.TMOD_STRETCH && t.wave.frequency > 0f)));
+					t.type == TexMod.TMOD_STRETCH && t.wave.frequency > 0f));
 		}
 
 		// Whether the flipbook bake of this stack would have to compress its loop into the frame budget (its true
@@ -143,13 +143,13 @@ namespace BSPConvert.Lib
 				&& !stages.Any(IsOpaqueBlend)
 				&& stages.All(s => IsBrightenBlend(s) || IsMultiplyBlend(s) || IsAdditiveBlend(s) || IsAlphaBlend(s))
 				&& AnimatesReproducibly(stages)
-				&& IsScrollOnlyStack(stages);
+				&& IsCarryableStack(stages);
 		}
 
-		// Converts a scroll-only stack into a live two-layer material: the most surface-like stage becomes
+		// Converts a transform-animated stack into a live two-layer material: the most surface-like stage becomes
 		// $basetexture, the next becomes $detail, composited by the engine's detail texturing every frame. The detail
-		// rides its own $detailtexturetransform (UnlitGeneric, gated in TryConvert), so both layers scroll
-		// independently at their true Q3 rates. The continuous scroll has no loop, sidestepping the flipbook's
+		// rides its own $detailtexturetransform (UnlitGeneric, gated in TryConvert), so both layers scroll and rotate
+		// independently at their true Q3 rates. The continuous scroll/rotation has no loop, sidestepping the flipbook's
 		// frame-budget collapse. Returns false (leaving the stack to the flipbook baker) when no usable base/detail
 		// pair can be formed or an image is missing.
 		private bool TryConvertDetailMaterial(string textureName, Shader shader, List<ShaderStage> stages, OutputMode mode)
@@ -175,7 +175,7 @@ namespace BSPConvert.Lib
 
 		// Picks which stage drives the surface ($basetexture) and which rides on it as $detail. The base is the most
 		// surface-like stage (opaque > multiplicative/alpha tint > brightening > additive glow); the detail scrolls
-		// on its own transform, so the base need not scroll so long as one of the two layers moves.
+		// and/or rotates on its own transform, so the base need not move so long as one of the two layers does.
 		private bool ChooseDetailLayers(List<ShaderStage> stages, OutputMode mode, out ShaderStage baseStage, out ShaderStage detailStage)
 		{
 			baseStage = null!;
@@ -195,39 +195,48 @@ namespace BSPConvert.Lib
 					return false;
 			}
 
-			// Detail = the most prominent remaining stage (prefer one that scrolls, then the strongest scroll).
+			// Detail = the most prominent remaining stage (prefer one that moves, then the strongest scroll).
 			var chosenBase = baseStage;
 			detailStage = usable
 				.Where(s => s != chosenBase)
-				.OrderByDescending(HasScroll)
+				.OrderByDescending(s => HasScroll(s) || HasRotate(s))
 				.ThenByDescending(ScrollMagnitude)
 				.FirstOrDefault()!;
 			if (detailStage == null)
 				return false;
 
-			return HasScroll(baseStage) || HasScroll(detailStage); // need at least one moving layer to be worthwhile
+			// need at least one moving (scrolling or rotating) layer to be worthwhile
+			return HasScroll(baseStage) || HasScroll(detailStage) || HasRotate(baseStage) || HasRotate(detailStage);
 		}
 
-		// Writes the live two-layer VMT, always UnlitGeneric (the only path with an independent $detailtexturetransform;
-		// lit liquids are carried here too, forgoing their lightmap - see TryConvert).
-		// $basetexture is scrolled by a TextureTransform proxy ($scale = its tcmod scale, $translate driven by per-axis
-		// LinearRamps). The $detail layer rides its own $detailtexturetransform on $translate2, scrolling at its true
-		// Q3 rate pre-divided by $detailscale (which the engine multiplies back in); $detailscale carries the detail's
-		// signed Q3 tiling. The combine mode is mapped from the detail's Q3 blendFunc. Brighten/liquid surfaces render
-		// translucent via $alpha.
+		// Writes the live two-layer VMT. Lit surfaces use LightmappedGeneric (keeping the BSP lightmap), unlit ones
+		// UnlitGeneric; both expose an independent $detailtexturetransform. $basetexture is animated by a
+		// TextureTransform proxy ($scale = its tcmod scale, $translate driven by per-axis LinearRamps, and - when the
+		// stage spins - $rotate driven by a LinearRamp at its tcMod rotate degrees/sec). The $detail layer rides its own
+		// $detailtexturetransform on $translate2/$rotate2, scrolling at its true Q3 rate pre-divided by $detailscale
+		// (which the engine multiplies back in); $detailscale carries the detail's signed Q3 tiling. Rotation needs no
+		// such pre-divide - a uniform $detailscale only scales the rotation matrix, leaving its angle (and so its
+		// degrees/sec) unchanged. The combine mode is mapped from the detail's Q3 blendFunc. Brighten/liquid surfaces
+		// render translucent via $alpha.
 		private void WriteDetailMaterialVmt(string textureName, Shader shader, ShaderStage baseStage, ShaderStage detailStage, string baseImg, string detailImg, OutputMode mode)
 		{
 			var baseScale = GetSignedScale(baseStage);
 			var baseScroll = GetScrollVec(baseStage);
 			var detailScroll = GetScrollVec(detailStage);
+			var baseRotate = GetRotateSpeed(baseStage);
+			var detailRotate = GetRotateSpeed(detailStage);
 
 			// $detailscale is the detail's true (signed) Q3 tiling; the engine scales the detail translate by it, so
 			// pre-divide the scroll rate to land on the true Q3 speed.
 			var detailScaleParam = SignedScalar(GetSignedScale(detailStage));
 			var detailTranslateRate = detailScroll / detailScaleParam;
 
+			// Lit surfaces keep their lightmap via LightmappedGeneric; unlit ones use UnlitGeneric. Both honor the
+			// independent $detailtexturetransform the detail proxy drives.
+			var shaderType = shader.surfaceFlags.HasFlag(Q3SurfaceFlags.SURF_NOLIGHTMAP) ? "UnlitGeneric" : "LightmappedGeneric";
+
 			var sb = new StringBuilder();
-			sb.AppendLine("UnlitGeneric");
+			sb.AppendLine(shaderType);
 			sb.AppendLine("{");
 			sb.AppendLine(CultureInfo.InvariantCulture, $"\t$basetexture \"{baseImg}\"");
 			sb.AppendLine(CultureInfo.InvariantCulture, $"\t$detail \"{detailImg}\"");
@@ -263,8 +272,12 @@ namespace BSPConvert.Lib
 			sb.AppendLine(CultureInfo.InvariantCulture, $"\t$scale \"[{baseScale.X} {baseScale.Y}]\"");
 			sb.AppendLine("\t$translate \"[0.0 0.0]\"");
 			sb.AppendLine("\t$translate2 \"[0.0 0.0]\"");
+			if (baseRotate != 0f)
+				sb.AppendLine("\t$rotate 0.0");
+			if (detailRotate != 0f)
+				sb.AppendLine("\t$rotate2 0.0");
 
-			AppendLiquidProxies(sb, baseScroll, detailTranslateRate);
+			AppendLiquidProxies(sb, baseScroll, detailTranslateRate, baseRotate, detailRotate);
 
 			sb.AppendLine("}");
 
@@ -273,9 +286,10 @@ namespace BSPConvert.Lib
 			File.WriteAllText(vmtPath, sb.ToString());
 		}
 
-		// Emits the proxy block scrolling both layers: per-axis LinearRamps feed $translate (folded with $scale into
-		// $basetexturetransform) and $translate2 (into the detail's own $detailtexturetransform).
-		private static void AppendLiquidProxies(StringBuilder sb, Vector2 baseScroll, Vector2 detailScroll)
+		// Emits the proxy block animating both layers: per-axis LinearRamps feed $translate (folded with $scale into
+		// $basetexturetransform) and $translate2 (into the detail's own $detailtexturetransform); when a layer spins, a
+		// further LinearRamp feeds its $rotate/$rotate2 angle into the same transform.
+		private static void AppendLiquidProxies(StringBuilder sb, Vector2 baseScroll, Vector2 detailScroll, float baseRotate, float detailRotate)
 		{
 			sb.AppendLine("\tProxies");
 			sb.AppendLine("\t{");
@@ -283,8 +297,13 @@ namespace BSPConvert.Lib
 			AppendScrollRamp(sb, "$translate", baseScroll);
 			AppendScrollRamp(sb, "$translate2", detailScroll);
 
-			AppendTransformProxy(sb, "$scale", "$translate", "$basetexturetransform");
-			AppendTransformProxy(sb, null, "$translate2", "$detailtexturetransform");
+			if (baseRotate != 0f)
+				AppendRotateRamp(sb, "$rotate", baseRotate);
+			if (detailRotate != 0f)
+				AppendRotateRamp(sb, "$rotate2", detailRotate);
+
+			AppendTransformProxy(sb, "$scale", baseRotate != 0f ? "$rotate" : null, "$translate", "$basetexturetransform");
+			AppendTransformProxy(sb, null, detailRotate != 0f ? "$rotate2" : null, "$translate2", "$detailtexturetransform");
 
 			sb.AppendLine("\t}");
 		}
@@ -303,13 +322,28 @@ namespace BSPConvert.Lib
 			}
 		}
 
-		// A TextureTransform proxy folding an optional scale var and a translate var into a result transform matrix.
-		private static void AppendTransformProxy(StringBuilder sb, string? scaleVar, string translateVar, string resultVar)
+		// A LinearRamp driving a rotation angle var at the given rate in degrees per second (Q3's tcMod rotate speed);
+		// the engine's RotateZ matrix takes degrees, so the ramp feeds the angle straight in.
+		private static void AppendRotateRamp(StringBuilder sb, string rotateVar, float degreesPerSecond)
+		{
+			sb.AppendLine("\t\tLinearRamp");
+			sb.AppendLine("\t\t{");
+			sb.AppendLine(CultureInfo.InvariantCulture, $"\t\t\trate {degreesPerSecond}");
+			sb.AppendLine("\t\t\tinitialValue 0.0");
+			sb.AppendLine(CultureInfo.InvariantCulture, $"\t\t\tresultVar \"{rotateVar}\"");
+			sb.AppendLine("\t\t}");
+		}
+
+		// A TextureTransform proxy folding optional scale and rotate vars and a translate var into a result transform
+		// matrix (the proxy applies them about the texture's center: scale, then rotate, then translate).
+		private static void AppendTransformProxy(StringBuilder sb, string? scaleVar, string? rotateVar, string translateVar, string resultVar)
 		{
 			sb.AppendLine("\t\tTextureTransform");
 			sb.AppendLine("\t\t{");
 			if (scaleVar != null)
 				sb.AppendLine(CultureInfo.InvariantCulture, $"\t\t\tscaleVar {scaleVar}");
+			if (rotateVar != null)
+				sb.AppendLine(CultureInfo.InvariantCulture, $"\t\t\trotateVar {rotateVar}");
 			sb.AppendLine(CultureInfo.InvariantCulture, $"\t\t\ttranslateVar {translateVar}");
 			sb.AppendLine("\t\t\tinitialValue 0");
 			sb.AppendLine(CultureInfo.InvariantCulture, $"\t\t\tresultVar {resultVar}");
@@ -389,6 +423,21 @@ namespace BSPConvert.Lib
 		}
 
 		private static bool HasScroll(ShaderStage stage) => ScrollMagnitude(stage) > 1e-4f;
+
+		private static bool HasRotate(ShaderStage stage) => MathF.Abs(GetRotateSpeed(stage)) > 1e-4f;
+
+		// Net rotation rate of a stage in degrees per second (summing any rotate tcmods). Q3's tcMod rotate spins the
+		// texture about its center, which the TextureTransform proxy's rotateVar reproduces as a center-pivoted RotateZ.
+		private static float GetRotateSpeed(ShaderStage stage)
+		{
+			var speed = 0f;
+			foreach (var texMod in stage.bundles[0].texMods)
+			{
+				if (texMod.type == TexMod.TMOD_ROTATE)
+					speed += texMod.rotateSpeed;
+			}
+			return speed;
+		}
 
 		private static float ScrollMagnitude(ShaderStage stage) => GetScrollVec(stage).Length();
 
