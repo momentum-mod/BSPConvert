@@ -78,6 +78,7 @@ namespace BSPConvert.Lib
 		// Optional filter to convert only specific BSP(s) from a multi-BSP pk3. Matched against each
 		// BSP's map name (without extension), case-insensitively. Null/empty converts every BSP.
 		public string[] mapFilter;
+		public string defaultEntityState;
 		// Lightmap black-point lift in [0,1): remaps the rendered [0,1] tonal range to [min,1], raising the
 		// darkest luxels off pure black to smooth out harsh/banded shadow gradients (at the cost of shadow
 		// depth); 0 = no change. See ColorUtil.ConvertQ3LightmapToColorRGBExp32.
@@ -340,7 +341,7 @@ namespace BSPConvert.Lib
 
 		private void ConvertEntities()
 		{
-			var converter = new EntityConverter(quakeBsp.Models, quakeBsp.Entities, sourceBsp.Entities, GetSkyName(), options.minDamageToRespawnPlayer, options.ignoreZones);
+			var converter = new EntityConverter(quakeBsp.Models, quakeBsp.Entities, sourceBsp.Entities, GetSkyName(), options.minDamageToRespawnPlayer, options.ignoreZones, options.defaultEntityState);
 			converter.Convert();
 		}
 

@@ -108,11 +108,31 @@ namespace BSPConvert.Lib
 			Match = 16
 		}
 
+		[Flags]
+		private enum GamemodeFlags
+		{
+			Surf = 1,
+			Bhop = 2,
+			BhopHL = 4,
+			ClimbMom = 8,
+			ClimbKZT = 16,
+			Climb16 = 32,
+			RJ = 64,
+			SJ = 128,
+			Ahop = 256,
+			Conc = 512,
+			DefragCPM = 1024,
+			DefragVQ3 = 2048,
+			DefragVTG = 4096,
+			All = GamemodeFlags.Surf | GamemodeFlags.Bhop | GamemodeFlags.BhopHL | GamemodeFlags.ClimbMom | GamemodeFlags.ClimbKZT | GamemodeFlags.Climb16 | GamemodeFlags.RJ | GamemodeFlags.SJ | GamemodeFlags.Ahop | GamemodeFlags.Conc | GamemodeFlags.DefragCPM | GamemodeFlags.DefragVQ3 | GamemodeFlags.DefragVTG,
+		}
+
 		private Entities q3Entities;
 		private Entities sourceEntities;
 		private string skyName;
 		private int minDamageToRespawnPlayer;
 		private bool ignoreZones;
+		private string defaultEntityState;
 		private Dictionary<string, List<Entity>> entityDict = new Dictionary<string, List<Entity>>();
 		private List<Entity> removeEntities = new List<Entity>(); // Entities to remove after conversion (ex: remove weapons after converting a trigger_multiple that references target_give). TODO: It might be better to convert entities by priority, such as trigger_multiples first so that target_give weapons can be ignored after
 		private int currentCheckpointIndex = 2;
@@ -122,7 +142,7 @@ namespace BSPConvert.Lib
 		private const string MOMENTUM_MATH_COUNTER = "_momentum_math_counter_";
 		private const int q3LipMod = 2; // Quake adds 2 units to button/door lip for some reason
 
-		public EntityConverter(Lump<Model> q3Models, Entities q3Entities, Entities sourceEntities, string skyName, int minDamageToRespawnPlayer, bool ignoreZones)
+		public EntityConverter(Lump<Model> q3Models, Entities q3Entities, Entities sourceEntities, string skyName, int minDamageToRespawnPlayer, bool ignoreZones, string defaultEntityState)
 		{
 			this.q3Entities = q3Entities;
 			this.sourceEntities = sourceEntities;
@@ -130,6 +150,7 @@ namespace BSPConvert.Lib
 			this.minDamageToRespawnPlayer = minDamageToRespawnPlayer;
 			this.ignoreZones = ignoreZones;
 			this.q3Models = q3Models;
+			this.defaultEntityState = defaultEntityState;
 
 			foreach (var entity in q3Entities)
 			{
@@ -614,10 +635,10 @@ namespace BSPConvert.Lib
 
 			if (notcpm || notvq3)
 			{
-				var requiredGamemode = notcpm ? "vq3" : "cpm";
-				var entityGamemode = entity["gamemode"];
+				var requiredGamemode = notcpm ? GamemodeFlags.DefragVQ3 : GamemodeFlags.DefragCPM;
+				var entityGamemodes = int.TryParse(entity["gamemodes"], out var gamemodes) ? (GamemodeFlags)gamemodes : 0;
 
-				if (entityGamemode != requiredGamemode)
+				if (!entityGamemodes.HasFlag(requiredGamemode))
 					return false;
 			}
 			return true;
@@ -1652,6 +1673,9 @@ namespace BSPConvert.Lib
 
 			foreach (var entity in q3Entities)
 			{
+				if (entity.ClassName == "worldspawn")
+					continue;
+
 				if (entity["notcpm"] == "1" || entity["notvq3"] == "1")
 				{
 					var initialEntities = GetInitialEntitiesInChain(entity); // we can't disable specific outputs in a chain like in q3, need to find the initial entity and filter that instead
@@ -1665,28 +1689,31 @@ namespace BSPConvert.Lib
 			foreach (var entity in gamemodEntities)
 			{
 				if (entity["notcpm"] == "1")
-				{
-					entity["gamemode"] = "vq3";
-					//entity.Name = "vq3";
-				}
+					entity["gamemodes"] = GetGamemodeFlags("vq3");
 				else if (entity["notvq3"] == "1")
-				{
-					entity["gamemode"] = "cpm";
-					//entity.Name = "cpm";
-				}
+					entity["gamemodes"] = GetGamemodeFlags("cpm");
 				else
 				{
 					var newEntity = new Entity(); // split the entity into 2, have one entity handle cpm only outputs and the other vq3 only
 					foreach (var kv in entity)
 						newEntity[kv.Key] = kv.Value;
-					newEntity["gamemode"] = "vq3";
-					//newEntity.Name = "vq3";
-					entity["gamemode"] = "cpm";
-					//entity.Name = "cpm";
+					newEntity["gamemodes"] = GetGamemodeFlags("vq3");
+					entity["gamemodes"] = GetGamemodeFlags("cpm");
 					q3Entities.Add(newEntity);
 					entityDict[newEntity.Name].Add(newEntity);
 				}
 			}
+		}
+
+		private string GetGamemodeFlags(string gamemode)
+		{
+			var enabledFlag = gamemode == "cpm" ? (uint)GamemodeFlags.DefragCPM : (uint)GamemodeFlags.DefragVQ3;
+			var disabledFlag = gamemode == "cpm" ? (uint)GamemodeFlags.DefragVQ3 : (uint)GamemodeFlags.DefragCPM;
+
+			if (defaultEntityState == gamemode)
+				return ((uint)GamemodeFlags.All - disabledFlag).ToString(CultureInfo.InvariantCulture);	
+			else
+				return enabledFlag.ToString(CultureInfo.InvariantCulture);
 		}
 
 		private HashSet<Entity> GetInitialEntitiesInChain(Entity startEntity)
