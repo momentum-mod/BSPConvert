@@ -74,7 +74,7 @@ namespace BSPConvert.Cmd
 			[Option("maps", Required = false, Separator = ',', HelpText = "Convert only the named BSP(s) from a pk3 instead of every BSP it contains. Comma-separated map names without extension (e.g. --maps pgrocket,pgplasma). Case-insensitive.")]
 			public IEnumerable<string> Maps { get; set; }
 
-			[Option("entitystate", Required = false, Default = "cpm", HelpText = "For maps with different cpm/vq3 entities, choose which entities to use when played in non-defrag modes (e.g --defaultentitystate vq3).")]
+			[Option("entitystate", Required = false, Default = "cpm", HelpText = "For maps with different cpm/vq3 entities, choose which entities to use when played in non-defrag modes (e.g --entitystate vq3).")]
 			public string DefaultEntityState { get; set; }
 
 			[Value(0, MetaName = "input files", Required = true, HelpText = "Input Quake 3 BSP/PK3 file(s) to be converted.")]
