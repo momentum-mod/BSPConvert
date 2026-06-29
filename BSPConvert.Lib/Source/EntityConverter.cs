@@ -1678,7 +1678,7 @@ namespace BSPConvert.Lib
 
 				if (entity["notcpm"] == "1" || entity["notvq3"] == "1")
 				{
-					var initialEntities = GetInitialEntitiesInChain(entity); // we can't disable specific outputs in a chain like in q3, need to find the initial entity and filter that instead
+					var initialEntities = GetInitialEntitiesInChain(entity); // we can't disable specific outputs in a chain like in q3, need to find the initial entity firing outputs and filter that instead
 					foreach (var initialEntity in initialEntities)
 					{
 						gamemodEntities.Add(initialEntity);
@@ -1707,13 +1707,13 @@ namespace BSPConvert.Lib
 
 		private string GetGamemodeFlags(string gamemode)
 		{
-			var enabledFlag = gamemode == "cpm" ? (uint)GamemodeFlags.DefragCPM : (uint)GamemodeFlags.DefragVQ3;
-			var disabledFlag = gamemode == "cpm" ? (uint)GamemodeFlags.DefragVQ3 : (uint)GamemodeFlags.DefragCPM;
+			var enabledGamemodeFlag = gamemode == "cpm" ? (uint)GamemodeFlags.DefragCPM : (uint)GamemodeFlags.DefragVQ3;
+			var disabledGamemodeFlag = gamemode == "cpm" ? (uint)GamemodeFlags.DefragVQ3 : (uint)GamemodeFlags.DefragCPM;
 
-			if (defaultEntityState == gamemode)
-				return ((uint)GamemodeFlags.All - disabledFlag).ToString(CultureInfo.InvariantCulture);	
+			if (defaultEntityState == gamemode) // Enable all gamemodes except for the disabled one for offmode compatability
+				return ((uint)GamemodeFlags.All - disabledGamemodeFlag).ToString(CultureInfo.InvariantCulture);	
 			else
-				return enabledFlag.ToString(CultureInfo.InvariantCulture);
+				return enabledGamemodeFlag.ToString(CultureInfo.InvariantCulture);
 		}
 
 		private HashSet<Entity> GetInitialEntitiesInChain(Entity startEntity)
@@ -1730,7 +1730,7 @@ namespace BSPConvert.Lib
 
 				var targetingEntities = q3Entities.Where(x => x.TryGetValue("target", out var target) && target == currentEntity.Name).ToList();  // find all entities that target the current entity
 
-				if (targetingEntities.Count == 0 || currentEntity.ClassName == "target_relay" || currentEntity.ClassName == "target_fragsFilter")
+				if (targetingEntities.Count == 0 || currentEntity.ClassName == "target_relay" || currentEntity.ClassName == "target_fragsFilter") // target_relay and target_fragsFilter fire their own outputs, no need to step back further
 				{
 					initialEntities.Add(currentEntity);
 				}
@@ -1748,6 +1748,7 @@ namespace BSPConvert.Lib
 			return initialEntities;
 		}
 
+		// Because gamemode specific entities are being split into 2, it's possible duplicate connections exist in some cases. Check for duplicates where needed.
 		private void TryAddConnection(Entity entity, Entity.EntityConnection newConnection)
 		{
 			foreach (var existingConnection in entity.connections)
