@@ -1721,7 +1721,12 @@ namespace BSPConvert.Lib
 			var initialEntities = new HashSet<Entity>();
 			var visited = new HashSet<Entity>();
 
-			void GetTargettingEntity(Entity currentEntity)
+			GetTargetingEntitiesRecursive(startEntity, visited, initialEntities);
+
+			return initialEntities;
+		}
+
+		private void GetTargetingEntitiesRecursive(Entity currentEntity, HashSet<Entity> visited, HashSet<Entity> initialEntities)
 			{
 				if (visited.Contains(currentEntity))
 					return;
@@ -1738,7 +1743,7 @@ namespace BSPConvert.Lib
 				{
 					foreach (var entity in targetingEntities)
 					{
-						GetTargettingEntity(entity);
+					GetTargetingEntitiesRecursive(entity, visited, initialEntities);
 					}
 				}
 			}
