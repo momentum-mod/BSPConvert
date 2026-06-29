@@ -111,20 +111,20 @@ namespace BSPConvert.Lib
 		[Flags]
 		private enum GamemodeFlags
 		{
-			Surf = 1,
-			Bhop = 2,
-			BhopHL = 4,
-			ClimbMom = 8,
-			ClimbKZT = 16,
-			Climb16 = 32,
-			RJ = 64,
-			SJ = 128,
-			Ahop = 256,
-			Conc = 512,
-			DefragCPM = 1024,
-			DefragVQ3 = 2048,
-			DefragVTG = 4096,
-			All = GamemodeFlags.Surf | GamemodeFlags.Bhop | GamemodeFlags.BhopHL | GamemodeFlags.ClimbMom | GamemodeFlags.ClimbKZT | GamemodeFlags.Climb16 | GamemodeFlags.RJ | GamemodeFlags.SJ | GamemodeFlags.Ahop | GamemodeFlags.Conc | GamemodeFlags.DefragCPM | GamemodeFlags.DefragVQ3 | GamemodeFlags.DefragVTG,
+			Surf = 1 << 0,
+			Bhop = 1 << 1,
+			BhopHL = 1 << 2,
+			ClimbMom = 1 << 3,
+			ClimbKZT = 1 << 4,
+			Climb16 = 1 << 5,
+			RJ = 1 << 6,
+			SJ = 1 << 7,
+			Ahop = 1 << 8,
+			Conc = 1 << 9,
+			DefragCPM = 1 << 10,
+			DefragVQ3 = 1 << 11,
+			DefragVTG = 1 << 12,
+			All = Surf | Bhop | BhopHL | ClimbMom | ClimbKZT | Climb16 | RJ | SJ | Ahop | Conc | DefragCPM | DefragVQ3 | DefragVTG
 		}
 
 		private Entities q3Entities;
