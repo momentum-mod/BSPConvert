@@ -34,12 +34,16 @@ namespace BSPConvert.Lib
 		// Duplicate Quake 3 lava brushes (CONTENTS_LAVA) into trigger_hurt volumes so players are
 		// killed/respawned on contact. See BSPConverter.ConvertLavaTriggers.
 		public bool lavaTriggers;
-		// Convert Quake 3 fog brushes into volumetric fog (obb_volumefog) entities. Off by default: thin
-		// fog volumes can flicker as the camera pans, which may look worse than no fog on some maps.
-		// See BSPConverter.ConvertFogVolumes.
-		public bool convertFog;
+		// Quake 3 fog brushes are converted by default: the default path (useObbFog = false) tags each fog brush
+		// CONTENTS_FOG and drops its faces (nodraw). The engine composites a depth-clipped fog overlay for the
+		// volume, reading the appearance from the brush's Fog material. See BSPConverter.ConvertPolygon / ConvertBrushes.
+		// Use the legacy obb_volumefog entity path instead of the Fog shader. obb_volumefog is a froxel
+		// volumetric that handles arbitrary brush shapes but flickers on thin volumes; kept behind this
+		// flag for now. See BSPConverter.ConvertFogVolumes.
+		public bool useObbFog;
 		// Minimum vertical (Z) height, in units, for converted fog volumes. Thin fog layers are expanded
-		// downward to this height so they span enough view froxels to reduce flickering. See ConvertFogVolumes.
+		// downward to this height so they span enough view froxels to reduce flickering. obb-fog only.
+		// See ConvertFogVolumes.
 		public float fogMinHeight;
 		public bool ignoreZones;
 		public bool noEnvMap;
@@ -80,6 +84,7 @@ namespace BSPConvert.Lib
 		private Dictionary<string, int> textureDataLookup = new Dictionary<string, int>();
 		private Dictionary<int, int> invisibleDispTexDataByFlags = new Dictionary<int, int>(); // Maps a physics surface-flag set to its invisible-displacement texdata variant
 		private Dictionary<int, int[]> splitFaceDict = new Dictionary<int, int[]>(); // Maps the original face index to the new face indices split by triangles
+		private Dictionary<int, Texture> fogBrushSideTexture = new Dictionary<int, Texture>(); // Maps a fog brush's side index to the brush's fog texture, so every side carries the fog material
 		private Dictionary<(Vector3, float), int> planeDict = new Dictionary<(Vector3, float), int>();
 		private HashSet<int> triggerPatchFaces = new HashSet<int>(); // Q3 patch faces that belong to trigger entities; converted without collision (see MarkTriggerPatchFaces)
 
@@ -159,8 +164,8 @@ namespace BSPConvert.Lib
 				ConvertModels();
 				ConvertBrushes();
 				ConvertBrushSides();
-				if (options.convertFog)
-					ConvertFogVolumes();
+				if (options.useObbFog)
+					ConvertObbFog();
 				ConvertFuncDoorTriggers();
 				if (options.lavaTriggers)
 					ConvertLavaTriggers();
@@ -184,6 +189,7 @@ namespace BSPConvert.Lib
 			textureInfoLookup.Clear();
 			textureDataLookup.Clear();
 			splitFaceDict.Clear();
+			fogBrushSideTexture.Clear();
 			planeDict.Clear();
 			invisibleDispTexDataByFlags.Clear();
 			triggerPatchFaces.Clear();
@@ -240,7 +246,11 @@ namespace BSPConvert.Lib
 
 		private void ConvertMaterials()
 		{
-			var materialConverter = new MaterialConverter(contentManager.ContentDir, shaderDict, options.noEnvMap, options.flipbook);
+			// The default (non-obb) fog path emits Q3 fog shaders as Fog VMTs. The fog brush faces are nodraw, so
+			// these aren't drawn as surfaces; the engine reads the material off the CONTENTS_FOG brush for the
+			// overlay's fog appearance ($fogcolor / $fogdepthforopaque).
+			var generateFogMaterials = !options.useObbFog;
+			var materialConverter = new MaterialConverter(contentManager.ContentDir, shaderDict, options.noEnvMap, options.flipbook, generateFogMaterials);
 			foreach (var texture in quakeBsp.Textures)
 				materialConverter.Convert(texture.Name);
 		}
@@ -774,19 +784,24 @@ namespace BSPConvert.Lib
 				sModel.Origin = new Vector3(0f, 0f, 0f);
 				if (qModel.FirstFaceIndex < splitFaceDict.Count)
 				{
-					sModel.FirstFaceIndex = splitFaceDict[qModel.FirstFaceIndex][0];
-
-					// Conversion expands faces (patches split into sub-patches, each emitting a visible
-					// primitive face plus a collision face; meshes triangulated), so the Source face count
-					// differs from the Quake model's. Sum the expanded counts so the model's face range
-					// covers every face it owns; otherwise per-model surface passes in the engine (e.g.
-					// Mod_ComputeBrushModelFlags) skip the extra faces.
+					// Conversion expands or drops faces (patches split into sub-patches, each emitting a visible
+					// primitive face plus a collision face; meshes triangulated; fog faces dropped to nodraw), so
+					// the Source face count differs from the Quake model's. Walk the model's face range to find the
+					// first emitted Source face and sum the expanded counts, skipping faces that emitted nothing (a
+					// dropped face has an empty split, so indexing [0] would throw); otherwise per-model surface
+					// passes in the engine (e.g. Mod_ComputeBrushModelFlags) skip faces or index a dropped range.
+					var firstFace = -1;
 					var numFaces = 0;
 					for (var f = 0; f < qModel.NumFaces; f++)
 					{
-						if (splitFaceDict.TryGetValue(qModel.FirstFaceIndex + f, out var splitFaces))
+						if (splitFaceDict.TryGetValue(qModel.FirstFaceIndex + f, out var splitFaces) && splitFaces.Length > 0)
+						{
+							if (firstFace < 0)
+								firstFace = splitFaces[0];
 							numFaces += splitFaces.Length;
+						}
 					}
+					sModel.FirstFaceIndex = firstFace < 0 ? 0 : firstFace;
 					sModel.NumFaces = numFaces;
 				}
 				else
@@ -964,7 +979,7 @@ namespace BSPConvert.Lib
 		// sized to its axis-aligned bounds. Q3 fog is an absorption model (flat color + opaque
 		// distance); Strata's is a scattering volumetric, so the color maps to emissive_color and the opaque
 		// distance is converted to an approximate density.
-		private void ConvertFogVolumes()
+		private void ConvertObbFog()
 		{
 			// Quake brushes map 1:1 onto the leading source brushes (same index, shared brush side range).
 			var brushCount = Math.Min(quakeBsp.Brushes.Count, sourceBsp.Brushes.Count);
@@ -1228,6 +1243,23 @@ namespace BSPConvert.Lib
 				sBrush.NumSides = qBrush.NumSides;
 				sBrush.Contents = GetBrushContents(qBrush.Texture);
 
+				// Tag fog brushes as CONTENTS_FOG (non-solid) so the engine picks them up as bounds-based fog
+				// volumes (the %compileFog equivalent). The Fog surface still renders the outside view.
+				if (IsFogBrush(qBrush, out _))
+				{
+					sBrush.Contents &= ~(int)SourceContentsFlags.CONTENTS_SOLID;
+					sBrush.Contents |= (int)SourceContentsFlags.CONTENTS_FOG;
+
+					// Point every side at the brush's fog texture. The engine reads a fog volume's appearance
+					// ($fogcolor / $fogdepthforopaque) off the material of one of the brush's sides
+					// (see the engine's LoadFogVolumes), but a Q3 fog brush defines the fog at the brush level -
+					// R_LoadFogs takes the shader from the FOGS lump by brushNum, independent of the side textures -
+					// so its sides can be noshader/caulk. Overriding all sides to the fog material (the sides are
+					// nodraw, so this has no visual effect) guarantees the engine always finds the fog appearance.
+					for (var j = 0; j < qBrush.NumSides; j++)
+						fogBrushSideTexture[qBrush.FirstSideIndex + j] = qBrush.Texture;
+				}
+
 				sourceBsp.Brushes.Add(sBrush);
 			}
 		}
@@ -1264,13 +1296,18 @@ namespace BSPConvert.Lib
 			if (!options.oldBSP)
 				SetLumpVersionNumber(BrushSide.GetIndexForLump(sourceBsp.MapType), 1);
 
-			foreach (var qBrushSide in quakeBsp.BrushSides)
+			for (var i = 0; i < quakeBsp.BrushSides.Count; i++)
 			{
+				var qBrushSide = quakeBsp.BrushSides[i];
 				var data = new byte[BrushSide.GetStructLength(sourceBsp.MapType)];
 				var sBrushSide = new BrushSide(data, sourceBsp.BrushSides);
 
+				// Fog brush sides all use the brush's fog texture so the engine reads $fogcolor off whichever side
+				// it picks (see ConvertBrushes); every other side keeps its own texture.
+				var texture = fogBrushSideTexture.TryGetValue(i, out var fogTexture) ? fogTexture : qBrushSide.Texture;
+
 				sBrushSide.PlaneIndex = qBrushSide.PlaneIndex;
-				sBrushSide.TextureIndex = GetBrushSideTextureInfoIndex(qBrushSide);
+				sBrushSide.TextureIndex = GetBrushSideTextureInfoIndex(qBrushSide, texture);
 				sBrushSide.DisplacementIndex = 0;
 				sBrushSide.IsBevel = false;
 
@@ -1278,15 +1315,16 @@ namespace BSPConvert.Lib
 			}
 		}
 
-		// Lookup texture info index using brush side's texture name. If it doesn't exist, create a new texture info.
-		private int GetBrushSideTextureInfoIndex(BrushSide qBrushSide)
+		// Lookup texture info index using the given texture's name. If it doesn't exist, create a new texture info
+		// (using the brush side's plane for the UV axes).
+		private int GetBrushSideTextureInfoIndex(BrushSide qBrushSide, Texture texture)
 		{
-			var textureIndex = LookupTextureInfoIndex(qBrushSide.Texture.Name);
+			var textureIndex = LookupTextureInfoIndex(texture.Name);
 			if (textureIndex > -1)
 				return textureIndex;
 
 			(var uAxis, var vAxis) = GetTextureVectorsWithNormal(qBrushSide.Plane.Normal);
-			return CreateTextureInfo(qBrushSide.Texture, uAxis, vAxis);
+			return CreateTextureInfo(texture, uAxis, vAxis);
 		}
 
 		private void ConvertFaces()
@@ -1344,9 +1382,15 @@ namespace BSPConvert.Lib
 		{
 			var qFace = quakeBsp.Faces[faceIndex];
 
-			// HACK: Create empty face to avoid drawing fog brushes until we figure out how to get fog rendering to work
 			if (IsFogFace(qFace))
 			{
+				// Fog brush faces are not drawn. The engine tracks the brush as a bounds-based fog volume
+				// (CONTENTS_FOG) and composites a depth-clipped fog overlay for it, giving a single unified fog
+				// that reads correctly from inside or outside the volume. A drawn translucent face would fog
+				// everything behind it and double up with the overlay. The brush stays tagged CONTENTS_FOG and its
+				// brush sides keep the fog material, so the engine still reads the fog appearance ($fogcolor /
+				// $fogdepthforopaque). (obb fog mode also drops the face, building froxel volume
+				// entities instead.)
 				splitFaceDict[faceIndex] = Array.Empty<int>();
 				return;
 			}

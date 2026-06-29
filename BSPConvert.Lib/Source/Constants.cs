@@ -99,6 +99,8 @@ namespace BSPConvert.Lib
 		CONTENTS_CURRENT_270	=	0x200000,
 		CONTENTS_CURRENT_UP		=	0x400000,
 		CONTENTS_CURRENT_DOWN	=	0x800000,
+
+		CONTENTS_FOG			=	0x200000,
 		
 		CONTENTS_ORIGIN			=	0x1000000,	// removed before bsping an entity
 		

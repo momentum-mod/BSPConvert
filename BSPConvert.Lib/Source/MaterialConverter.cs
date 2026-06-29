@@ -21,6 +21,10 @@ namespace BSPConvert.Lib
 		private bool noEnvMap;
 		private bool invisibleBaseTextureCreated;
 		private ReverseAlphaChromeTextures reverseAlphaChrome;
+		// When true (the default, non-obb fog path), Q3 fog shaders are emitted as Fog VMTs carrying the fog
+		// appearance ($fogcolor/$fogdepthforopaque), which the engine reads off the CONTENTS_FOG
+		// brush to composite the fog-volume overlay. Left off for the obb_volumefog path, which renders fog via entities.
+		private bool generateFogMaterials;
 		private FlipbookConverter flipbookConverter;
 		private DetailMaterialConverter detailMaterialConverter;
 		private CloudSkyboxBaker cloudSkyboxBaker;
@@ -35,11 +39,12 @@ namespace BSPConvert.Lib
 			"up"
 		};
 
-		public MaterialConverter(string pk3Dir, Dictionary<string, Shader> shaderDict, bool noEnvMap = false, FlipbookOptions? flipbookOptions = null)
+		public MaterialConverter(string pk3Dir, Dictionary<string, Shader> shaderDict, bool noEnvMap = false, FlipbookOptions? flipbookOptions = null, bool generateFogMaterials = false)
 		{
 			this.pk3Dir = pk3Dir;
 			this.shaderDict = shaderDict;
 			this.noEnvMap = noEnvMap;
+			this.generateFogMaterials = generateFogMaterials;
 			pk3ImageDict = GetImageLookupDictionary(pk3Dir);
 			q3ImageDict = GetImageLookupDictionary(ContentManager.GetQ3ContentDir());
 			customImageDict = GetImageLookupDictionary(ContentManager.GetCustomContentDir());
@@ -100,9 +105,9 @@ namespace BSPConvert.Lib
 
 		private void CreateShaderVMT(string texture, Shader shader)
 		{
-			/*if (shader.fogParms != null)
-				CreateFogVMT(texture, shader);
-			else */if (detailMaterialConverter.TryConvert(texture, shader))
+			if (shader.fogParms != null && generateFogMaterials)
+				CreateFogVMT(texture, shader); // Fog appearance material for the CONTENTS_FOG overlay
+			else if (detailMaterialConverter.TryConvert(texture, shader))
 				return; // scroll-only liquid converted to a live $basetexture+$detail material
 			else if (flipbookConverter.TryConvert(texture, shader))
 				return; // multi-pass scrolling shader baked into an animated flipbook VTF + VMT
@@ -123,34 +128,14 @@ namespace BSPConvert.Lib
 		private string GenerateFogVMT(Shader shader)
 		{
 			var fogParms = shader.fogParms;
-			var fogColor = $"{fogParms.color.X * 255} {fogParms.color.Y * 255} {fogParms.color.Z * 255}";
+			var fogColor = $"[{fogParms.color.X} {fogParms.color.Y} {fogParms.color.Z}]";
 
 			return $$"""
-					Water
+					Fog
 					{
-						$forceexpensive 1
-
-						%tooltexture "dev/water_normal"
-
-						$refracttexture "_rt_WaterRefraction"
-						$refractamount 0
-
-						$scale "[1 1]"
-
-						$bottommaterial "dev/dev_water3_beneath"
-
-						$normalmap "dev/bump_normal"
-
-						%compilewater 1
-						$surfaceprop "water"
-
-						$fogenable 1
+						%compileFog 1
 						$fogcolor "{{fogColor}}"
-
-						$fogstart 0
-						$fogend {{fogParms.depthForOpaque}}
-
-						$abovewater 1
+						$fogdepthforopaque {{fogParms.depthForOpaque}}
 					}
 					""";
 		}
