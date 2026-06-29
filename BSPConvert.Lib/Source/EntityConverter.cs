@@ -132,7 +132,7 @@ namespace BSPConvert.Lib
 		private string skyName;
 		private int minDamageToRespawnPlayer;
 		private bool ignoreZones;
-		private string defaultEntityState;
+		private string offModeEntityFallback;
 		private Dictionary<string, List<Entity>> entityDict = new Dictionary<string, List<Entity>>();
 		private List<Entity> removeEntities = new List<Entity>(); // Entities to remove after conversion (ex: remove weapons after converting a trigger_multiple that references target_give). TODO: It might be better to convert entities by priority, such as trigger_multiples first so that target_give weapons can be ignored after
 		private int currentCheckpointIndex = 2;
@@ -142,7 +142,7 @@ namespace BSPConvert.Lib
 		private const string MOMENTUM_MATH_COUNTER = "_momentum_math_counter_";
 		private const int q3LipMod = 2; // Quake adds 2 units to button/door lip for some reason
 
-		public EntityConverter(Lump<Model> q3Models, Entities q3Entities, Entities sourceEntities, string skyName, int minDamageToRespawnPlayer, bool ignoreZones, string defaultEntityState)
+		public EntityConverter(Lump<Model> q3Models, Entities q3Entities, Entities sourceEntities, string skyName, int minDamageToRespawnPlayer, bool ignoreZones, string offModeEntityFallback)
 		{
 			this.q3Entities = q3Entities;
 			this.sourceEntities = sourceEntities;
@@ -150,7 +150,7 @@ namespace BSPConvert.Lib
 			this.minDamageToRespawnPlayer = minDamageToRespawnPlayer;
 			this.ignoreZones = ignoreZones;
 			this.q3Models = q3Models;
-			this.defaultEntityState = defaultEntityState;
+			this.offModeEntityFallback = offModeEntityFallback;
 
 			foreach (var entity in q3Entities)
 			{
@@ -1710,7 +1710,7 @@ namespace BSPConvert.Lib
 			var enabledGamemodeFlag = gamemode == "cpm" ? (uint)GamemodeFlags.DefragCPM : (uint)GamemodeFlags.DefragVQ3;
 			var disabledGamemodeFlag = gamemode == "cpm" ? (uint)GamemodeFlags.DefragVQ3 : (uint)GamemodeFlags.DefragCPM;
 
-			if (defaultEntityState == gamemode) // Enable all gamemodes except for the disabled one for offmode compatability
+			if (offModeEntityFallback == gamemode) // Enable all gamemodes except for the disabled one for offmode compatability
 				return ((uint)GamemodeFlags.All - disabledGamemodeFlag).ToString(CultureInfo.InvariantCulture);	
 			else
 				return enabledGamemodeFlag.ToString(CultureInfo.InvariantCulture);

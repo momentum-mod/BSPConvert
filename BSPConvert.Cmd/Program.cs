@@ -74,8 +74,8 @@ namespace BSPConvert.Cmd
 			[Option("maps", Required = false, Separator = ',', HelpText = "Convert only the named BSP(s) from a pk3 instead of every BSP it contains. Comma-separated map names without extension (e.g. --maps pgrocket,pgplasma). Case-insensitive.")]
 			public IEnumerable<string> Maps { get; set; }
 
-			[Option("entitystate", Required = false, Default = "cpm", HelpText = "For maps with different cpm/vq3 entities, choose which entities to use when played in non-defrag modes (e.g --entitystate vq3).")]
-			public string DefaultEntityState { get; set; }
+			[Option("offmodeents", Required = false, Default = "cpm", HelpText = "For maps with different cpm/vq3 entities, choose which entities to use when played in non-defrag modes (e.g. --offmodeents vq3).")]
+			public string OffModeEntityFallback { get; set; }
 
 			[Value(0, MetaName = "input files", Required = true, HelpText = "Input Quake 3 BSP/PK3 file(s) to be converted.")]
 			public IEnumerable<string> InputFiles { get; set; }
@@ -110,7 +110,7 @@ namespace BSPConvert.Cmd
 			if (options.OutputDirectory == null)
 				options.OutputDirectory = Path.GetDirectoryName(options.InputFiles.First());
 
-			if (options.DefaultEntityState != "cpm" && options.DefaultEntityState != "vq3")
+			if (options.OffModeEntityFallback != "cpm" && options.OffModeEntityFallback != "vq3")
 				throw new ArgumentOutOfRangeException("Default entity state must be either 'cpm' or 'vq3'.");
 
 			foreach (var inputEntry in options.InputFiles)
@@ -132,7 +132,7 @@ namespace BSPConvert.Cmd
 					inputFile = inputEntry,
 					outputDir = options.OutputDirectory,
 					mapFilter = options.Maps?.ToArray(),
-					defaultEntityState = options.DefaultEntityState,
+					offModeEntityFallback = options.OffModeEntityFallback,
 					lightmapMinBrightness = options.LightmapMinBrightness,
 					clampOverbright = options.ClampOverbright,
 					flipbook = new FlipbookOptions()
