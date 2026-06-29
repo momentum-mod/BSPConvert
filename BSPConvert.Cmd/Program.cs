@@ -37,9 +37,6 @@ namespace BSPConvert.Cmd
 
 			[Option("noenvmap", Required = false, HelpText = "Disable envmap (specular cubemap) shader conversion. Useful for maps where Source's cubemap poorly emulates Quake 3's spheremap effect.")]
 			public bool NoEnvMap { get; set; }
-			
-			[Option("lightmapmin", Required = false, Default = 0.05f, HelpText = "Lightmap black-point lift in [0,1): remaps the [0,1] tonal range to [min,1], raising the darkest luxels off pure black to smooth out harsh/banded shadows (at the cost of shadow depth).")]
-			public float LightmapMinBrightness { get; set; }
 
 			[Option("clampoverbright", Required = false, HelpText = "Apply Quake 3's hue-preserving overbright clamp to lightmaps, flattening over-bright highlights toward white instead of letting the engine's 4x overbright blow past white.")]
 			public bool ClampOverbright { get; set; }
@@ -133,7 +130,6 @@ namespace BSPConvert.Cmd
 					outputDir = options.OutputDirectory,
 					mapFilter = options.Maps?.ToArray(),
 					offModeEntityFallback = options.OffModeEntityFallback,
-					lightmapMinBrightness = options.LightmapMinBrightness,
 					clampOverbright = options.ClampOverbright,
 					flipbook = new FlipbookOptions()
 					{
