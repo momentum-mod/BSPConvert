@@ -108,11 +108,31 @@ namespace BSPConvert.Lib
 			Match = 16
 		}
 
+		[Flags]
+		private enum GamemodeFlags
+		{
+			Surf = 1 << 0,
+			Bhop = 1 << 1,
+			BhopHL = 1 << 2,
+			ClimbMom = 1 << 3,
+			ClimbKZT = 1 << 4,
+			Climb16 = 1 << 5,
+			RJ = 1 << 6,
+			SJ = 1 << 7,
+			Ahop = 1 << 8,
+			Conc = 1 << 9,
+			DefragCPM = 1 << 10,
+			DefragVQ3 = 1 << 11,
+			DefragVTG = 1 << 12,
+			All = Surf | Bhop | BhopHL | ClimbMom | ClimbKZT | Climb16 | RJ | SJ | Ahop | Conc | DefragCPM | DefragVQ3 | DefragVTG
+		}
+
 		private Entities q3Entities;
 		private Entities sourceEntities;
 		private string skyName;
 		private int minDamageToRespawnPlayer;
 		private bool ignoreZones;
+		private string offModeEntityFallback;
 		private Dictionary<string, List<Entity>> entityDict = new Dictionary<string, List<Entity>>();
 		private List<Entity> removeEntities = new List<Entity>(); // Entities to remove after conversion (ex: remove weapons after converting a trigger_multiple that references target_give). TODO: It might be better to convert entities by priority, such as trigger_multiples first so that target_give weapons can be ignored after
 		private int currentCheckpointIndex = 2;
@@ -122,7 +142,7 @@ namespace BSPConvert.Lib
 		private const string MOMENTUM_MATH_COUNTER = "_momentum_math_counter_";
 		private const int q3LipMod = 2; // Quake adds 2 units to button/door lip for some reason
 
-		public EntityConverter(Lump<Model> q3Models, Entities q3Entities, Entities sourceEntities, string skyName, int minDamageToRespawnPlayer, bool ignoreZones)
+		public EntityConverter(Lump<Model> q3Models, Entities q3Entities, Entities sourceEntities, string skyName, int minDamageToRespawnPlayer, bool ignoreZones, string offModeEntityFallback)
 		{
 			this.q3Entities = q3Entities;
 			this.sourceEntities = sourceEntities;
@@ -130,6 +150,7 @@ namespace BSPConvert.Lib
 			this.minDamageToRespawnPlayer = minDamageToRespawnPlayer;
 			this.ignoreZones = ignoreZones;
 			this.q3Models = q3Models;
+			this.offModeEntityFallback = offModeEntityFallback;
 
 			foreach (var entity in q3Entities)
 			{
@@ -143,6 +164,7 @@ namespace BSPConvert.Lib
 		public void Convert()
 		{
 			var giveTargets = GetGiveTargets();
+			HandleGamemodeSpecificEntities();
 
 			foreach (var entity in q3Entities)
 			{
@@ -253,9 +275,6 @@ namespace BSPConvert.Lib
 
 		private void ConvertFuncStatic(Entity funcStatic)
 		{
-			if (funcStatic["notcpm"] == "1") // TODO: Figure out how to handle gamemode specific entities more robustly
-				return;
-
 			funcStatic.ClassName = "func_brush";
 		}
 
@@ -536,6 +555,10 @@ namespace BSPConvert.Lib
 				if (visited.Contains(target) || targetEntity == target)
 					continue;
 
+				var compatibleGamemode = CheckGamemodeCompatability(target, entity);
+				if (!compatibleGamemode)
+					continue;
+
 				switch (target.ClassName)
 				{
 					case "target_startTimer":
@@ -605,11 +628,31 @@ namespace BSPConvert.Lib
 			}
 		}
 
+		private bool CheckGamemodeCompatability(Entity target, Entity entity)
+		{
+			var notcpm = target["notcpm"] == "1";
+			var notvq3 = target["notvq3"] == "1";
+
+			if (notcpm || notvq3)
+			{
+				var requiredGamemode = notcpm ? GamemodeFlags.DefragVQ3 : GamemodeFlags.DefragCPM;
+				var entityGamemodes = int.TryParse(entity["gamemodes"], out var gamemodes) ? (GamemodeFlags)gamemodes : 0;
+
+				if (!entityGamemodes.HasFlag(requiredGamemode))
+					return false;
+			}
+			return true;
+		}
+
 		private void FireTargetTeleporterOnOutput(Entity entity, Entity targetTeleporter, string output, float delay)
 		{
 			var targets = GetTargetEntities(targetTeleporter);
 			foreach (var target in targets)
 			{
+				var compatibleGamemode = CheckGamemodeCompatability(target, entity);
+				if (!compatibleGamemode)
+					continue;
+
 				if (target.ClassName != "point_teleport")
 				{
 					if (target.ClassName != "info_teleport_destination") //if already a teleport_destination, origin has been fixed elsewhere
@@ -757,7 +800,7 @@ namespace BSPConvert.Lib
 				delay = delay,
 				fireOnce = -1
 			};
-			entity.connections.Add(connection);
+			TryAddConnection(entity, connection);
 
 			if (targetRelay.ClassName != "logic_relay")
 			{
@@ -798,7 +841,7 @@ namespace BSPConvert.Lib
 						fireOnce = -1
 					};
 
-					logicCase.connections.Add(connection);
+					TryAddConnection(logicCase, connection);
 				}
 				caseEntityNum++;
 			}
@@ -913,9 +956,6 @@ namespace BSPConvert.Lib
 
 		private void ConvertTargetSpeed(Entity targetSpeed)
 		{
-			if (targetSpeed["notcpm"] == "1") // TODO: Figure out how to handle gamemode specific entities more robustly
-				return;
-
 			targetSpeed.ClassName = "player_speed";
 
 			if (!targetSpeed.TryGetValue("speed", out var speed))
@@ -1118,6 +1158,10 @@ namespace BSPConvert.Lib
 			var targets = GetTargetEntities(targetGive);
 			foreach (var target in targets)
 			{
+				var compatibleGamemode = CheckGamemodeCompatability(target, entity);
+				if (!compatibleGamemode)
+					continue;
+
 				switch (target.ClassName)
 				{
 					case "item_haste":
@@ -1269,9 +1313,6 @@ namespace BSPConvert.Lib
 
 		private void GiveAmmoOnOutput(Entity entity, Entity ammoEnt, string output, float delay)
 		{
-			if (ammoEnt["notcpm"] == "1") // TODO: Figure out how to handle gamemode specific entities more robustly
-				return;
-
 			var ammoOutput = GetAmmoOutput(ammoEnt.ClassName);
 			if (string.IsNullOrEmpty(ammoOutput))
 				return;
@@ -1624,6 +1665,98 @@ namespace BSPConvert.Lib
 				return entityDict[target];
 
 			return new List<Entity>();
+		}
+
+		private void HandleGamemodeSpecificEntities()
+		{
+			var gamemodEntities = new HashSet<Entity>();
+
+			foreach (var entity in q3Entities)
+			{
+				if (entity.ClassName == "worldspawn")
+					continue;
+
+				if (entity["notcpm"] == "1" || entity["notvq3"] == "1")
+				{
+					var initialEntities = GetInitialEntitiesInChain(entity); // we can't disable specific outputs in a chain like in q3, need to find the initial entity firing outputs and filter that instead
+					foreach (var initialEntity in initialEntities)
+					{
+						gamemodEntities.Add(initialEntity);
+					}
+				}
+			}
+
+			foreach (var entity in gamemodEntities)
+			{
+				if (entity["notcpm"] == "1")
+					entity["gamemodes"] = GetGamemodeFlags("vq3");
+				else if (entity["notvq3"] == "1")
+					entity["gamemodes"] = GetGamemodeFlags("cpm");
+				else
+				{
+					var newEntity = new Entity(); // split the entity into 2, have one entity handle cpm only outputs and the other vq3 only
+					foreach (var kv in entity)
+						newEntity[kv.Key] = kv.Value;
+					newEntity["gamemodes"] = GetGamemodeFlags("vq3");
+					entity["gamemodes"] = GetGamemodeFlags("cpm");
+					q3Entities.Add(newEntity);
+					entityDict[newEntity.Name].Add(newEntity);
+				}
+			}
+		}
+
+		private string GetGamemodeFlags(string gamemode)
+		{
+			var enabledGamemodeFlag = gamemode == "cpm" ? (uint)GamemodeFlags.DefragCPM : (uint)GamemodeFlags.DefragVQ3;
+			var disabledGamemodeFlag = gamemode == "cpm" ? (uint)GamemodeFlags.DefragVQ3 : (uint)GamemodeFlags.DefragCPM;
+
+			if (offModeEntityFallback == gamemode) // Enable all gamemodes except for the disabled one for offmode compatability
+				return ((uint)GamemodeFlags.All - disabledGamemodeFlag).ToString(CultureInfo.InvariantCulture);	
+			else
+				return enabledGamemodeFlag.ToString(CultureInfo.InvariantCulture);
+		}
+
+		private HashSet<Entity> GetInitialEntitiesInChain(Entity startEntity)
+		{
+			var initialEntities = new HashSet<Entity>();
+			var visited = new HashSet<Entity>();
+
+			GetTargetingEntitiesRecursive(startEntity, visited, initialEntities);
+
+			return initialEntities;
+		}
+
+		private void GetTargetingEntitiesRecursive(Entity currentEntity, HashSet<Entity> visited, HashSet<Entity> initialEntities)
+		{
+			if (visited.Contains(currentEntity))
+				return;
+
+			visited.Add(currentEntity);
+
+			var targetingEntities = q3Entities.Where(x => x.TryGetValue("target", out var target) && target == currentEntity.Name).ToList();  // find all entities that target the current entity
+
+			if (targetingEntities.Count == 0 || currentEntity.ClassName == "target_relay" || currentEntity.ClassName == "target_fragsFilter") // target_relay and target_fragsFilter fire their own outputs, no need to step back further
+			{
+				initialEntities.Add(currentEntity);
+			}
+			else
+			{
+				foreach (var entity in targetingEntities)
+				{
+					GetTargetingEntitiesRecursive(entity, visited, initialEntities);
+				}
+			}
+		}
+
+		// Because gamemode specific entities are being split into 2, it's possible duplicate connections exist in some cases. Check for duplicates where needed.
+		private void TryAddConnection(Entity entity, Entity.EntityConnection newConnection)
+		{
+			foreach (var existingConnection in entity.connections)
+			{
+				if (newConnection.ToString() == existingConnection.ToString())
+					return;
+			}
+			entity.connections.Add(newConnection);
 		}
 	}
 }
