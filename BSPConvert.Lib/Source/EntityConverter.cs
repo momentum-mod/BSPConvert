@@ -1727,30 +1727,25 @@ namespace BSPConvert.Lib
 		}
 
 		private void GetTargetingEntitiesRecursive(Entity currentEntity, HashSet<Entity> visited, HashSet<Entity> initialEntities)
+		{
+			if (visited.Contains(currentEntity))
+				return;
+
+			visited.Add(currentEntity);
+
+			var targetingEntities = q3Entities.Where(x => x.TryGetValue("target", out var target) && target == currentEntity.Name).ToList();  // find all entities that target the current entity
+
+			if (targetingEntities.Count == 0 || currentEntity.ClassName == "target_relay" || currentEntity.ClassName == "target_fragsFilter") // target_relay and target_fragsFilter fire their own outputs, no need to step back further
 			{
-				if (visited.Contains(currentEntity))
-					return;
-
-				visited.Add(currentEntity);
-
-				var targetingEntities = q3Entities.Where(x => x.TryGetValue("target", out var target) && target == currentEntity.Name).ToList();  // find all entities that target the current entity
-
-				if (targetingEntities.Count == 0 || currentEntity.ClassName == "target_relay" || currentEntity.ClassName == "target_fragsFilter") // target_relay and target_fragsFilter fire their own outputs, no need to step back further
+				initialEntities.Add(currentEntity);
+			}
+			else
+			{
+				foreach (var entity in targetingEntities)
 				{
-					initialEntities.Add(currentEntity);
-				}
-				else
-				{
-					foreach (var entity in targetingEntities)
-					{
 					GetTargetingEntitiesRecursive(entity, visited, initialEntities);
-					}
 				}
 			}
-
-			GetTargettingEntity(startEntity);
-
-			return initialEntities;
 		}
 
 		// Because gamemode specific entities are being split into 2, it's possible duplicate connections exist in some cases. Check for duplicates where needed.
