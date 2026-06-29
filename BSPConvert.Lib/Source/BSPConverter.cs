@@ -55,10 +55,6 @@ namespace BSPConvert.Lib
 		// BSP's map name (without extension), case-insensitively. Null/empty converts every BSP.
 		public string[] mapFilter;
 		public string offModeEntityFallback;
-		// Lightmap black-point lift in [0,1): remaps the rendered [0,1] tonal range to [min,1], raising the
-		// darkest luxels off pure black to smooth out harsh/banded shadow gradients (at the cost of shadow
-		// depth); 0 = no change. See ColorUtil.ConvertQ3LightmapToColorRGBExp32.
-		public float lightmapMinBrightness;
 		// When set, applies Quake 3's hue-preserving overbright clamp to lightmap luxels (flattens
 		// over-bright highlights toward white). Off by default. See ColorUtil.ConvertQ3LightmapToColorRGBExp32.
 		public bool clampOverbright;
@@ -2543,7 +2539,6 @@ namespace BSPConvert.Lib
 							qLightmapData[q3LightmapOffset + index * 3 + 0],
 							qLightmapData[q3LightmapOffset + index * 3 + 1],
 							qLightmapData[q3LightmapOffset + index * 3 + 2],
-							options.lightmapMinBrightness,
 							options.clampOverbright);
 
 						lmColors.Add(color);
@@ -2625,7 +2620,6 @@ namespace BSPConvert.Lib
 							lmData.data[index * 3 + 0],
 							lmData.data[index * 3 + 1],
 							lmData.data[index * 3 + 2],
-							options.lightmapMinBrightness,
 							options.clampOverbright);
 
 						lmColors.Add(color);
