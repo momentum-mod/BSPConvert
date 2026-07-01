@@ -367,26 +367,6 @@ namespace BSPConvert.Lib
 			return 2; // TCOMBINE_DETAIL_OVER_BASE: lerp toward detail by its alpha
 		}
 
-		// A multiplicative (darkening) blend that tints whatever's behind it: "GL_zero GL_src_color" or its
-		// "GL_dst_color GL_zero" equivalent. Like a brighten layer it's framebuffer-dependent, but it reads as the
-		// surface tint, so it's preferred as the $basetexture.
-		private static bool IsMultiplyBlend(ShaderStage stage)
-		{
-			var srcBlend = stage.flags & ShaderStageFlags.GLS_SRCBLEND_BITS;
-			var dstBlend = stage.flags & ShaderStageFlags.GLS_DSTBLEND_BITS;
-			return (srcBlend == ShaderStageFlags.GLS_SRCBLEND_ZERO && dstBlend == ShaderStageFlags.GLS_DSTBLEND_SRC_COLOR) ||
-				(srcBlend == ShaderStageFlags.GLS_SRCBLEND_DST_COLOR && dstBlend == ShaderStageFlags.GLS_DSTBLEND_ZERO);
-		}
-
-		// A standard "GL_src_alpha GL_one_minus_src_alpha" alpha-blended overlay.
-		private static bool IsAlphaBlend(ShaderStage stage)
-		{
-			var srcBlend = stage.flags & ShaderStageFlags.GLS_SRCBLEND_BITS;
-			var dstBlend = stage.flags & ShaderStageFlags.GLS_DSTBLEND_BITS;
-			return srcBlend == ShaderStageFlags.GLS_SRCBLEND_SRC_ALPHA &&
-				dstBlend == ShaderStageFlags.GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA;
-		}
-
 		// How surface-like a stage is, for choosing $basetexture: an opaque base outranks a multiplicative/alpha
 		// tint, which outranks a brightening ripple, which outranks an additive glow (best left as the overlay).
 		private static int BasePriority(ShaderStage stage)

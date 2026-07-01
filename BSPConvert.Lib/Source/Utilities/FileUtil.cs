@@ -27,6 +27,23 @@ namespace BSPConvert.Lib
 		}
 
 		/// <summary>
+		/// Copies a bundled asset shipped under the app's Assets/materials folder to destDir, preserving its
+		/// relative path. Used to drop pre-made tools VMT/VTFs (invisible displacement, env-map placeholder) into
+		/// the output. Warns and does nothing if the asset is missing.
+		/// </summary>
+		public static void CopyBuiltinMaterialAsset(string relativePath, string destDir)
+		{
+			var sourcePath = Path.Combine(AppContext.BaseDirectory, "Assets", "materials", relativePath);
+			if (!File.Exists(sourcePath))
+			{
+				Console.WriteLine($"Missing bundled material asset: {sourcePath}");
+				return;
+			}
+
+			CopyFile(sourcePath, Path.Combine(destDir, relativePath));
+		}
+
+		/// <summary>
 		/// Deserializes a file using the specified deserialization function.
 		/// </summary>
 		public static T DeserializeFromFile<T>(string path, Func<BinaryReader, T> deserializeFunc)

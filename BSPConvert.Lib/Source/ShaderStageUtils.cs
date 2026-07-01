@@ -106,6 +106,25 @@ namespace BSPConvert.Lib
 			return (stage.flags & ShaderStageFlags.GLS_SRCBLEND_BITS) == ShaderStageFlags.GLS_SRCBLEND_DST_COLOR;
 		}
 
+		// A standard "GL_src_alpha GL_one_minus_src_alpha" alpha-blended overlay (a translucent detail/decal layer).
+		public static bool IsAlphaBlend(ShaderStage stage)
+		{
+			var srcBlend = stage.flags & ShaderStageFlags.GLS_SRCBLEND_BITS;
+			var dstBlend = stage.flags & ShaderStageFlags.GLS_DSTBLEND_BITS;
+			return srcBlend == ShaderStageFlags.GLS_SRCBLEND_SRC_ALPHA &&
+				dstBlend == ShaderStageFlags.GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA;
+		}
+
+		// A multiplicative (darkening) blend that tints whatever's behind it: "GL_zero GL_src_color" or its
+		// "GL_dst_color GL_zero" equivalent. Framebuffer-dependent like a brighten layer, but reads as a surface tint.
+		public static bool IsMultiplyBlend(ShaderStage stage)
+		{
+			var srcBlend = stage.flags & ShaderStageFlags.GLS_SRCBLEND_BITS;
+			var dstBlend = stage.flags & ShaderStageFlags.GLS_DSTBLEND_BITS;
+			return (srcBlend == ShaderStageFlags.GLS_SRCBLEND_ZERO && dstBlend == ShaderStageFlags.GLS_DSTBLEND_SRC_COLOR) ||
+				(srcBlend == ShaderStageFlags.GLS_SRCBLEND_DST_COLOR && dstBlend == ShaderStageFlags.GLS_DSTBLEND_ZERO);
+		}
+
 		// A reverse alpha blend ("GL_one_minus_src_alpha GL_src_alpha"). Drawn over an opaque reflection base, this
 		// reveals the underlying reflection where the stage's alpha is high (refl*alpha) rather than low - the Q3
 		// blue-metal chrome idiom whose diffuse alpha is authored inverted.

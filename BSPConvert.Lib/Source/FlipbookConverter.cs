@@ -57,13 +57,15 @@ namespace BSPConvert.Lib
 		private readonly string pk3Dir;
 		private readonly FlipbookOptions options;
 		private readonly Func<string, string?> resolveImagePath;
+		private readonly Action<string> copyExternalContent;
 		private readonly bool noEnvMap;
 
-		public FlipbookConverter(string pk3Dir, FlipbookOptions options, Func<string, string?> resolveImagePath, bool noEnvMap = false)
+		public FlipbookConverter(string pk3Dir, FlipbookOptions options, Func<string, string?> resolveImagePath, Action<string> copyExternalContent, bool noEnvMap = false)
 		{
 			this.pk3Dir = pk3Dir;
 			this.options = options;
 			this.resolveImagePath = resolveImagePath;
+			this.copyExternalContent = copyExternalContent;
 			this.noEnvMap = noEnvMap;
 		}
 
@@ -399,8 +401,8 @@ namespace BSPConvert.Lib
 			if (!BakeVtf(vtfPath, frames, bakeW, bakeH, format))
 				return false;
 
-			if (envStage != null)
-				CopyEnvImage(envStage); // ensure the reflection texture reaches a VTF for $spheremap
+			if (envStage != null) // ensure the reflection texture reaches a VTF for $spheremap
+				copyExternalContent(Path.ChangeExtension(envStage.bundles[0].images[0], null));
 
 			var applyScale = MathF.Abs(surfaceScale.X - 1f) > 0.01f || MathF.Abs(surfaceScale.Y - 1f) > 0.01f;
 			WriteStackVmt(textureName, shader, fps, mode, applyScale ? surfaceScale : null, envStage, maskLayer != null);
@@ -920,20 +922,6 @@ namespace BSPConvert.Lib
 			var vmtPath = Path.Combine(pk3Dir, textureName + ".vmt");
 			Directory.CreateDirectory(Path.GetDirectoryName(vmtPath)!);
 			File.WriteAllText(vmtPath, sb.ToString());
-		}
-
-		// Copies the reflection ("tcGen environment") source image into pk3Dir so TextureConverter bakes its
-		// VTF for $spheremap. The flipbook bakes only the diffuse/overlay stages, so this stage would otherwise
-		// never be emitted unless another (non-flipbook) shader happened to reference the same reflection image.
-		private void CopyEnvImage(ShaderStage envStage)
-		{
-			var relative = Path.ChangeExtension(envStage.bundles[0].images[0], null);
-			var source = resolveImagePath(relative);
-			if (source == null)
-				return;
-
-			var dest = Path.Combine(pk3Dir, relative.Replace('/', Path.DirectorySeparatorChar) + Path.GetExtension(source));
-			FileUtil.CopyFile(source, dest);
 		}
 
 		private static Vector4 ToVector(Rgba32 pixel) => new(pixel.R / 255f, pixel.G / 255f, pixel.B / 255f, pixel.A / 255f);

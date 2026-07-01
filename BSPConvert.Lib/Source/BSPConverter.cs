@@ -222,21 +222,8 @@ namespace BSPConvert.Lib
 			if (quakeBsp.Faces.Any(x => x.Type == FaceType.Patch && x.Texture.Name.StartsWith("tools/", StringComparison.OrdinalIgnoreCase)))
 			{
 				// Copy invisible displacement assets to content dir
-				Directory.CreateDirectory(Path.Combine(contentManager.ContentDir, "tools"));
-
-				var invisDisplacementVmt = Path.Combine("tools", "toolsinvisibledisplacement.vmt");
-				File.Copy
-                (
-                    Path.Combine(AppContext.BaseDirectory, "Assets", "materials", invisDisplacementVmt), 
-                    Path.Combine(contentManager.ContentDir, invisDisplacementVmt), true
-                );
-
-				var invisDisplacementVtf = Path.Combine("tools", "toolsinvisibledisplacement.vtf");
-				File.Copy
-                (
-                    Path.Combine(AppContext.BaseDirectory, "Assets", "materials", invisDisplacementVtf), 
-                    Path.Combine(contentManager.ContentDir, invisDisplacementVtf), true
-                );
+				FileUtil.CopyBuiltinMaterialAsset(Path.Combine("tools", "toolsinvisibledisplacement.vmt"), contentManager.ContentDir);
+				FileUtil.CopyBuiltinMaterialAsset(Path.Combine("tools", "toolsinvisibledisplacement.vtf"), contentManager.ContentDir);
 			}
 		}
 

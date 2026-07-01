@@ -50,7 +50,7 @@ namespace BSPConvert.Lib
             string[] supportedExtensions = [".png", ".jpg", ".jpeg", ".tga", ".bmp", ".webp", ".exr", ".hdr"];
 
             var clampedTextures = GetClampedTextures();
-            var alphaInvertedTextures = GetAlphaInvertedTextures();
+            var reverseAlphaChrome = ReverseAlphaChromeTextures.Analyze(shaderDict.Values);
 
             foreach (var inputPath in Directory.EnumerateFiles(pk3Dir, "*", SearchOption.AllDirectories))
             {
@@ -73,27 +73,37 @@ namespace BSPConvert.Lib
                 if (clampedTextures.Contains(relativeTexturePath) || IsSkyboxTexture(relativeTexturePath))
                     textureOptions.VTFFlags |= VTF.Flags.V0_CLAMP_S | VTF.Flags.V0_CLAMP_T;
 
-                bool success = VTF.Create(inputPath, outputPath, textureOptions);
+                // Reverse-alpha Q3 chrome diffuse textures (drawn "blendFunc GL_ONE_MINUS_SRC_ALPHA GL_SRC_ALPHA"
+                // over a reflection) reveal the reflection where alpha is high. Source's $basealphaenvmapmask only
+                // masks by (1 - alpha), so bake the alpha inverted - then (1 - invertedAlpha) == alpha gives the
+                // correct mask without a custom shader param. When the texture is used only as a chrome base the
+                // inversion goes in place (its own VTF, no orphan); when it's also used non-inverted elsewhere the
+                // normal VTF is kept and the inverted copy gets a distinct suffixed name.
+                bool success;
+                if (reverseAlphaChrome.NeedsInversion(relativeTexturePath))
+                {
+                    if (reverseAlphaChrome.IsSharedWithNormalUse(relativeTexturePath))
+                    {
+                        success = VTF.Create(inputPath, outputPath, textureOptions);
+                        var invertedOutputPath = Path.Combine
+                        (
+                            Path.GetDirectoryName(inputPath)!,
+                            Path.GetFileNameWithoutExtension(inputPath) + ReverseAlphaChromeTextures.InvertedAlphaSuffix + ".vtf"
+                        );
+                        success &= CreateAlphaInvertedVTF(inputPath, invertedOutputPath, textureOptions);
+                    }
+                    else
+                    {
+                        success = CreateAlphaInvertedVTF(inputPath, outputPath, textureOptions);
+                    }
+                }
+                else
+                {
+                    success = VTF.Create(inputPath, outputPath, textureOptions);
+                }
+
                 if (!success)
                     Console.WriteLine($"Failed to convert: {inputPath}");
-
-                // Reverse-alpha Q3 chrome diffuse textures (drawn "blendFunc GL_ONE_MINUS_SRC_ALPHA
-                // GL_SRC_ALPHA" over a reflection) reveal the reflection where alpha is high. Source's
-                // $basealphaenvmapmask only masks by (1 - alpha), so additionally bake a copy with the alpha
-                // inverted - then (1 - invertedAlpha) == alpha gives the correct mask without a custom shader
-                // param. The copy gets a distinct name (the material points $basetexture at it) so the normal
-                // VTF above is preserved for any other material that shares this image.
-                if (alphaInvertedTextures.Contains(relativeTexturePath))
-                {
-                    var invertedOutputPath = Path.Combine
-                    (
-                        Path.GetDirectoryName(inputPath)!,
-                        Path.GetFileNameWithoutExtension(inputPath) + MaterialConverter.InvertedAlphaSuffix + ".vtf"
-                    );
-
-                    if (!CreateAlphaInvertedVTF(inputPath, invertedOutputPath, textureOptions))
-                        Console.WriteLine($"Failed to convert (inverted alpha): {inputPath}");
-                }
             }
 
             OnFinishedConvertingTextures();
@@ -127,38 +137,6 @@ namespace BSPConvert.Lib
             }
 
             return clampedTextures;
-        }
-
-        // Collects the diffuse textures of Q3 reverse-alpha chrome shaders so their VTFs can be baked with
-        // an inverted alpha channel. The idiom is an opaque "tcGen environment" reflection base with a
-        // diffuse drawn over it via "blendFunc GL_ONE_MINUS_SRC_ALPHA GL_SRC_ALPHA" (reflection = refl*alpha).
-        // Inverting the alpha lets the stock $basetexture alpha envmap mask (which masks by 1 - alpha)
-        // reproduce the refl*alpha weighting. Mirrors MaterialConverter's chrome detection.
-        private HashSet<string> GetAlphaInvertedTextures()
-        {
-            var alphaInvertedTextures = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var shader in shaderDict.Values)
-            {
-                if (shader.stages == null)
-                    continue;
-
-                var hasOpaqueEnvStage = shader.stages.Any(s =>
-                    s.bundles[0].tcGen == TexCoordGen.TCGEN_ENVIRONMENT_MAPPED && ShaderStageUtils.IsOpaqueBlend(s));
-                if (!hasOpaqueEnvStage)
-                    continue;
-
-                foreach (var stage in shader.stages)
-                {
-                    if (!ShaderStageUtils.IsReverseAlphaBlend(stage))
-                        continue;
-
-                    var image = stage.bundles[0].images[0];
-                    if (!string.IsNullOrEmpty(image) && !image.StartsWith('$'))
-                        alphaInvertedTextures.Add(Path.ChangeExtension(image, null).Replace('\\', '/'));
-                }
-            }
-
-            return alphaInvertedTextures;
         }
 
         // Bakes a VTF from an image file with its alpha channel inverted. Decodes the source to raw pixels

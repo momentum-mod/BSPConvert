@@ -13,12 +13,6 @@ namespace BSPConvert.Lib
 		// Backed by the pre-made Assets/materials/tools/envmapinvisible.vtf (a transparent tools texture).
 		private const string InvisibleBaseTexture = "tools/envmapinvisible";
 
-		// Suffix for the alpha-inverted copy of a reverse-alpha Q3 chrome diffuse texture (drawn "blendFunc
-		// GL_ONE_MINUS_SRC_ALPHA GL_SRC_ALPHA"). TextureConverter bakes the inverted variant under this name
-		// and MaterialConverter points $basetexture at it, so the texture's normal VTF is never clobbered for
-		// other materials that share the same image. Kept here so both converters agree on the name.
-		internal const string InvertedAlphaSuffix = "_invalpha";
-
 		private string pk3Dir;
 		private Dictionary<string, Shader> shaderDict;
 		private Dictionary<string, string> pk3ImageDict;
@@ -26,6 +20,7 @@ namespace BSPConvert.Lib
 		private Dictionary<string, string> customImageDict;
 		private bool noEnvMap;
 		private bool invisibleBaseTextureCreated;
+		private ReverseAlphaChromeTextures reverseAlphaChrome;
 		private FlipbookConverter flipbookConverter;
 		private DetailMaterialConverter detailMaterialConverter;
 		private CloudSkyboxBaker cloudSkyboxBaker;
@@ -48,8 +43,9 @@ namespace BSPConvert.Lib
 			pk3ImageDict = GetImageLookupDictionary(pk3Dir);
 			q3ImageDict = GetImageLookupDictionary(ContentManager.GetQ3ContentDir());
 			customImageDict = GetImageLookupDictionary(ContentManager.GetCustomContentDir());
+			reverseAlphaChrome = ReverseAlphaChromeTextures.Analyze(shaderDict.Values);
 			var resolvedFlipbookOptions = flipbookOptions ?? new FlipbookOptions();
-			flipbookConverter = new FlipbookConverter(pk3Dir, resolvedFlipbookOptions, ResolveImagePath, noEnvMap);
+			flipbookConverter = new FlipbookConverter(pk3Dir, resolvedFlipbookOptions, ResolveImagePath, TryCopyQ3Content, noEnvMap);
 			detailMaterialConverter = new DetailMaterialConverter(pk3Dir, resolvedFlipbookOptions, ResolveImagePath, noEnvMap, TryCopyQ3Content);
 			cloudSkyboxBaker = new CloudSkyboxBaker(pk3Dir, ResolveImagePath);
 		}
@@ -295,24 +291,11 @@ namespace BSPConvert.Lib
 		}
 
 		// Copies the pre-made transparent placeholder VTF (Assets/materials/tools/envmapinvisible.vtf) into
-		// pk3Dir so an env-map-only material's $basetexture resolves. Mirrors BSPConverter.PrepareAssets.
+		// pk3Dir so an env-map-only material's $basetexture resolves.
 		private void CopyInvisibleBaseTexture()
 		{
 			var relativePath = InvisibleBaseTexture.Replace('/', Path.DirectorySeparatorChar) + ".vtf";
-			var sourcePath = Path.Combine(AppContext.BaseDirectory, "Assets", "materials", relativePath);
-			var destPath = Path.Combine(pk3Dir, relativePath);
-
-			if (File.Exists(destPath))
-				return;
-
-			if (!File.Exists(sourcePath))
-			{
-				Console.WriteLine($"Missing invisible base texture asset: {sourcePath}");
-				return;
-			}
-
-			Directory.CreateDirectory(Path.GetDirectoryName(destPath)!);
-			File.Copy(sourcePath, destPath, true);
+			FileUtil.CopyBuiltinMaterialAsset(relativePath, pk3Dir);
 		}
 
 		// Copies content from the Q3Content folder, falling back to the user-managed CustomContent
@@ -355,23 +338,14 @@ namespace BSPConvert.Lib
 			//  4. Looser fallbacks so $basetexture is always emitted.
 			// Alpha-blended stages are excluded from (2) because a static alpha layer is translucent detail
 			// sitting on a base, so the base (reached at 3) should win instead of the detail.
-			bool IsBaseCandidate(ShaderStage x) => IsTextureStage(x) && !IsDepthPrimingStage(x) && !IsOverlayBlend(x);
+			bool IsBaseCandidate(ShaderStage x) => IsTextureStage(x) && !IsDepthPrimingStage(x) && !ShaderStageUtils.IsOverlayBlend(x);
 			return stages.FirstOrDefault(x => IsBaseCandidate(x) && !IsAnimatedStage(x))
-				?? stages.FirstOrDefault(x => IsTextureStage(x) && !IsDepthPrimingStage(x) && !IsAnimatedStage(x) && !IsAlphaBlendStage(x))
+				?? stages.FirstOrDefault(x => IsTextureStage(x) && !IsDepthPrimingStage(x) && !IsAnimatedStage(x) && !ShaderStageUtils.IsAlphaBlend(x))
 				?? stages.FirstOrDefault(IsBaseCandidate)
 				?? stages.FirstOrDefault(x => IsTextureStage(x) && !IsDepthPrimingStage(x))
 				?? stages.FirstOrDefault(IsTextureStage)
 				?? stages.FirstOrDefault(x => !IsDepthPrimingStage(x))
 				?? stages.FirstOrDefault();
-		}
-
-		// Alpha-blended overlay ("GL_src_alpha GL_one_minus_src_alpha"), e.g. a translucent detail/decal layer.
-		private static bool IsAlphaBlendStage(ShaderStage stage)
-		{
-			var srcBlend = stage.flags & ShaderStageFlags.GLS_SRCBLEND_BITS;
-			var dstBlend = stage.flags & ShaderStageFlags.GLS_DSTBLEND_BITS;
-			return srcBlend == ShaderStageFlags.GLS_SRCBLEND_SRC_ALPHA &&
-				dstBlend == ShaderStageFlags.GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA;
 		}
 
 		// A stage that animates over time - a multi-frame animMap, texcoords that move
@@ -385,35 +359,6 @@ namespace BSPConvert.Lib
 					t.type == TexMod.TMOD_STRETCH || t.type == TexMod.TMOD_TURBULENT) ||
 				(stage.rgbGen == ColorGen.CGEN_WAVEFORM && stage.rgbWave.func != GenFunc.GF_NONE) ||
 				(stage.alphaGen == AlphaGen.AGEN_WAVEFORM && stage.alphaWave.func != GenFunc.GF_NONE);
-		}
-
-		// A transparent overlay blend - additive ("GL_one GL_one"/"GL_src_alpha GL_one") or alpha
-		// ("GL_src_alpha GL_one_minus_src_alpha") - as opposed to an opaque base ("GL_one GL_zero" or no blend).
-		private static bool IsOverlayBlend(ShaderStage stage)
-		{
-			var srcBlend = stage.flags & ShaderStageFlags.GLS_SRCBLEND_BITS;
-			var dstBlend = stage.flags & ShaderStageFlags.GLS_DSTBLEND_BITS;
-
-			var isAdditive = dstBlend == ShaderStageFlags.GLS_DSTBLEND_ONE &&
-				(srcBlend == ShaderStageFlags.GLS_SRCBLEND_ONE || srcBlend == ShaderStageFlags.GLS_SRCBLEND_SRC_ALPHA);
-			var isAlphaBlend = srcBlend == ShaderStageFlags.GLS_SRCBLEND_SRC_ALPHA &&
-				dstBlend == ShaderStageFlags.GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA;
-
-			return isAdditive || isAlphaBlend;
-		}
-
-		// An opaque stage writes solid color to the framebuffer ("GL_one GL_zero" or no blendFunc). Any shader
-		// containing one is opaque overall: later additive/alpha stages only lighten or tint that base, so the
-		// world behind the surface is never visible.
-		private static bool IsOpaqueStage(ShaderStage stage)
-		{
-			var srcBlend = stage.flags & ShaderStageFlags.GLS_SRCBLEND_BITS;
-			var dstBlend = stage.flags & ShaderStageFlags.GLS_DSTBLEND_BITS;
-
-			var noBlend = srcBlend == 0 && dstBlend == 0;
-			var isOneZero = srcBlend == ShaderStageFlags.GLS_SRCBLEND_ONE && dstBlend == ShaderStageFlags.GLS_DSTBLEND_ZERO;
-
-			return noBlend || isOneZero;
 		}
 
 		private void AppendShaderParameters(StringBuilder sb, Shader shader)
@@ -431,17 +376,18 @@ namespace BSPConvert.Lib
 
 			// Reverse-alpha Q3 chrome (diffuse drawn "blendFunc GL_ONE_MINUS_SRC_ALPHA GL_SRC_ALPHA" over an
 			// opaque reflection) needs the base texture's alpha inverted so $basealphaenvmapmask (which masks
-			// by 1 - alpha) yields the refl*alpha weighting. TextureConverter bakes that inverted copy under a
-			// distinct name, so reference the variant here to leave the shared texture's normal VTF intact.
+			// by 1 - alpha) yields the refl*alpha weighting. TextureConverter bakes the inverted alpha into this
+			// texture's VTF; ReverseAlphaChromeTextures.BaseTextureName gives the name to reference - the texture
+			// itself (inverted in place) unless it's also used non-inverted elsewhere, where it gets a suffixed copy.
 			var isReverseAlphaChrome = !noEnvMap && textureStage != null && !isEnvMapOnly &&
 				ShaderStageUtils.IsReverseAlphaBlend(textureStage) &&
-				stages.Any(s => s.bundles[0].tcGen == TexCoordGen.TCGEN_ENVIRONMENT_MAPPED && IsOpaqueStage(s));
+				stages.Any(s => s.bundles[0].tcGen == TexCoordGen.TCGEN_ENVIRONMENT_MAPPED && ShaderStageUtils.IsOpaqueBlend(s));
 
 			if (textureStage != null)
 			{
 				var texture = isEnvMapOnly ? GetInvisibleBaseTexture() : Path.ChangeExtension(textureStage.bundles[0].images[0], null);
 				if (isReverseAlphaChrome)
-					texture += InvertedAlphaSuffix;
+					texture = reverseAlphaChrome.BaseTextureName(texture);
 				sb.AppendLine(CultureInfo.InvariantCulture, $"\t$basetexture \"{texture}\"");
 
 				if (!isEnvMapOnly && textureStage.rgbGen.HasFlag(ColorGen.CGEN_CONST))
@@ -466,8 +412,8 @@ namespace BSPConvert.Lib
 				// masks how much reflection shows; $basealphaenvmapmask reproduces that when the env stage is
 				// the opaque base beneath a (forward or reverse) alpha-blended diffuse. Reverse-blend textures
 				// have their VTF alpha inverted by TextureConverter so the single (1-alpha) param still applies.
-				var hasBaseAlphaMask = textureStage != null && !isEnvMapOnly && IsOpaqueStage(envMapStage) &&
-					(IsAlphaBlendStage(textureStage) || ShaderStageUtils.IsReverseAlphaBlend(textureStage));
+				var hasBaseAlphaMask = textureStage != null && !isEnvMapOnly && ShaderStageUtils.IsOpaqueBlend(envMapStage) &&
+					(ShaderStageUtils.IsAlphaBlend(textureStage) || ShaderStageUtils.IsReverseAlphaBlend(textureStage));
 				AppendSpheremapParameters(sb, envMapStage, ShaderStageUtils.HasLightmapStage(shader), hasBaseAlphaMask);
 
 				if (envMapStage.alphaGen == AlphaGen.AGEN_CONST)
@@ -514,7 +460,7 @@ namespace BSPConvert.Lib
 			if (textureStage != null && (isAdditive || isAlphaBlend))
 			{
 				var droppedAnimatedLayer = !IsAnimatedStage(textureStage) && stages.Any(IsAnimatedStage);
-				var hasOpaqueBaseBeneath = stages.Any(s => s != textureStage && IsOpaqueStage(s) && !IsDepthPrimingStage(s));
+				var hasOpaqueBaseBeneath = stages.Any(s => s != textureStage && ShaderStageUtils.IsOpaqueBlend(s) && !IsDepthPrimingStage(s));
 				if (droppedAnimatedLayer || hasOpaqueBaseBeneath)
 				{
 					isAdditive = false;
