@@ -626,7 +626,7 @@ namespace BSPConvert.Lib
 				}
 
 				visited.Add(target);
-				if (target.ClassName != "logic_relay") // logic_relay moves the next target's inputs to a separate entity instead, break from the loop
+				if (target.ClassName != "logic_relay" && target.ClassName != "func_door") // these entities move the next target's inputs to themselves and are handled elsewhere, break from the loop
 					ConvertEntityTargetsRecursive(entity, target, output, delay, visited);
 			}
 		}
