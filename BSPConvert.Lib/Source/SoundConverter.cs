@@ -58,6 +58,10 @@ namespace BSPConvert.Lib.Source
 					case "ambient_generic":
 						soundHashSet.Add(entity["message"].Replace('/', Path.DirectorySeparatorChar));
 						break;
+					case "func_door":
+						soundHashSet.Add(entity["noise1"].Replace('/', Path.DirectorySeparatorChar));
+						soundHashSet.Add(entity["noise2"].Replace('/', Path.DirectorySeparatorChar));
+						break;
 				}
 			}
 

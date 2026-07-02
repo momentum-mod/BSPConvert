@@ -367,6 +367,9 @@ namespace BSPConvert.Lib
 			else
 				door["lip"] = $"{lip - q3LipMod}";
 
+			door["noise1"] = "movers/doors/dr1_strt.wav";
+			door["noise2"] = "movers/doors/dr1_end.wav";
+
 			var spawnflags = (FuncDoorFlags)door.Spawnflags;
 
 			if (spawnflags.HasFlag(FuncDoorFlags.StartOpen))
