@@ -1735,7 +1735,7 @@ namespace BSPConvert.Lib
 
 			var targetingEntities = q3Entities.Where(x => x.TryGetValue("target", out var target) && target == currentEntity.Name).ToList();  // find all entities that target the current entity
 
-			if (targetingEntities.Count == 0 || currentEntity.ClassName == "target_relay" || currentEntity.ClassName == "target_fragsFilter") // target_relay and target_fragsFilter fire their own outputs, no need to step back further
+			if (targetingEntities.Count == 0 || currentEntity.ClassName == "target_relay" || currentEntity.ClassName == "target_fragsFilter" || currentEntity.ClassName == "func_door") // these entities fire their own outputs, no need to step back further
 			{
 				initialEntities.Add(currentEntity);
 			}
