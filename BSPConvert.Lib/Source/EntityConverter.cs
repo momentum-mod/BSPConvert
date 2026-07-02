@@ -693,7 +693,7 @@ namespace BSPConvert.Lib
 		private void CreateLogicCase()
 		{
 			var maxFrags = GetHighestFrags(); // returns the highest frags value found on all target_fragsFilter entities
-			var logicCasesNeeded = (int)Math.Ceiling(maxFrags / 16f); // each logic_case only supports 16 outputs so create enough logic_cases to cover all frag counts
+			var logicCasesNeeded = (int)Math.Ceiling((maxFrags + 1) / 16f); // each logic_case only supports 16 outputs so create enough logic_cases to cover all frag counts
 
 			for (var i = 1; i <= logicCasesNeeded; i++)
 			{
@@ -707,7 +707,7 @@ namespace BSPConvert.Lib
 				for (var j = min; j <= max; j++)
 				{
 					var caseNum = $"case{j - min + 1:D2}";
-					logicCase[caseNum] = j.ToString(CultureInfo.InvariantCulture);
+					logicCase[caseNum] = (j-1).ToString(CultureInfo.InvariantCulture);
 				}
 
 				var connection = new Entity.EntityConnection()
@@ -821,7 +821,7 @@ namespace BSPConvert.Lib
 
 			foreach (var logicCase in logicCaseList)
 			{
-				var min = (caseEntityNum * 16) - 15;
+				var min = (caseEntityNum * 16) - 16;
 				var max = match ? frags : 16 * caseEntityNum; // Either force frags to match case number on true, else allow any cases over the frag count to trigger
 
 				for (var i = min; i <= max; i++)
@@ -829,7 +829,7 @@ namespace BSPConvert.Lib
 					if (i < frags)
 						continue;
 
-					var caseNum = $"case{i - (16 * (caseEntityNum - 1)):D2}";
+					var caseNum = $"case{(i - (16 * (caseEntityNum - 1))) + 1:D2}";
 
 					var connection = new Entity.EntityConnection()
 					{
