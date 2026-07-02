@@ -821,7 +821,7 @@ namespace BSPConvert.Lib
 
 			foreach (var logicCase in logicCaseList)
 			{
-				var min = frags + (caseEntityNum * 16) - 16;
+				var min = (caseEntityNum * 16) - 16;
 				var max = match ? frags : 16 * caseEntityNum; // Either force frags to match case number on true, else allow any cases over the frag count to trigger
 
 				for (var i = min; i <= max; i++)
