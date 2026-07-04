@@ -72,6 +72,9 @@ namespace BSPConvert.Lib
 						break;
 					case "surfaceparm":
 						{
+							if (split.Length < 2)
+								break;
+
 							var infoParm = ParseSurfaceParm(split[1]);
 							shader.surfaceFlags |= infoParm.surfaceFlags;
 							shader.contents |= infoParm.contents;
@@ -97,7 +100,8 @@ namespace BSPConvert.Lib
 					case "light":
 						break;
 					case "cull":
-						shader.cullType = ParseCullType(split[1]);
+						if (split.Length >= 2)
+							shader.cullType = ParseCullType(split[1]);
 						break;
 					case "sort":
 						break;
@@ -128,13 +132,17 @@ namespace BSPConvert.Lib
 				switch (split[0].ToLowerInvariant())
 				{
 					case "map":
-						stage.bundles[0].images[0] = split[1];
+						if (split.Length >= 2)
+							stage.bundles[0].images[0] = split[1];
 						break;
 					case "clampmap":
 						// Same as "map" but with clamped (non-repeating) texture coordinates. The clamp wrap
 						// mode is baked into the VTF via TEXTUREFLAGS_CLAMPS/T during texture conversion.
-						stage.bundles[0].images[0] = split[1];
-						stage.bundles[0].clamp = true;
+						if (split.Length >= 2)
+						{
+							stage.bundles[0].images[0] = split[1];
+							stage.bundles[0].clamp = true;
+						}
 						break;
 					case "animmap":
 						stage.bundles[0] = ParseAnimMap(split);
@@ -142,7 +150,8 @@ namespace BSPConvert.Lib
 					case "videomap":
 						break;
 					case "alphafunc":
-						stage.flags |= ParseAlphaFunc(split[1]);
+						if (split.Length >= 2)
+							stage.flags |= ParseAlphaFunc(split[1]);
 						break;
 					case "depthfunc":
 						break;
@@ -159,7 +168,8 @@ namespace BSPConvert.Lib
 						break;
 					case "texgen":
 					case "tcgen":
-						stage.bundles[0].tcGen = ParseTCGen(split[1]);
+						if (split.Length >= 2)
+							stage.bundles[0].tcGen = ParseTCGen(split[1]);
 						break;
 					case "tcmod":
 						stage.bundles[0].texMods.Add(ParseTCModInfo(split));
@@ -196,7 +206,8 @@ namespace BSPConvert.Lib
 				return bundle;
 			}
 
-			bundle.imageAnimationSpeed = float.Parse(split[1], CultureInfo.InvariantCulture);
+			float.TryParse(split[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var animationSpeed);
+			bundle.imageAnimationSpeed = animationSpeed;
 
 			for (var i = 2; i < split.Length; i++)
 			{
@@ -224,6 +235,12 @@ namespace BSPConvert.Lib
 		private Shader.FogParms ParseFogParms(string[] split)
 		{
 			var fogParms = new Shader.FogParms();
+
+			if (split.Length < 7)
+			{
+				Debug.WriteLine("Warning: Missing parms for 'fogParms' keyword in shader: " + shaderFile);
+				return null;
+			}
 
 			if (split[1] != "(")
 			{
@@ -256,6 +273,12 @@ namespace BSPConvert.Lib
 
 		private Shader.SkyParms ParseSkyParms(string[] split)
 		{
+			if (split.Length < 4)
+			{
+				Debug.WriteLine("Warning: Missing parms for 'skyParms' keyword in shader: " + shaderFile);
+				return null;
+			}
+
 			return new Shader.SkyParms()
 			{
 				outerBox = split[1],
@@ -299,6 +322,12 @@ namespace BSPConvert.Lib
 
 		private ShaderStageFlags ParseBlendFunc(string[] split)
 		{
+			if (split.Length < 2)
+			{
+				Debug.WriteLine("Warning: Missing blendFunc param in shader: " + shaderFile);
+				return 0;
+			}
+
 			switch (split[1].ToLowerInvariant())
 			{
 				case "add":
@@ -371,20 +400,27 @@ namespace BSPConvert.Lib
 
 		private void ParseRGBGen(ShaderStage stage, string[] split)
 		{
+			if (split.Length < 2)
+			{
+				Debug.WriteLine("Warning: Missing rgbGen param in shader: " + shaderFile);
+				stage.rgbGen = ColorGen.CGEN_IDENTITY;
+				return;
+			}
+
 			switch (split[1].ToLowerInvariant())
 			{
 				case "wave":
 					{
 						stage.rgbGen = ColorGen.CGEN_WAVEFORM;
 
-						stage.rgbWave = ParseWaveform(new ArraySegment<string>(split, 2, 5));
+						stage.rgbWave = ParseWaveform(split, 2);
 						break;
 					}
 				case "const":
 					{
 						stage.rgbGen = ColorGen.CGEN_CONST;
 
-						var color = ParseVector(new ArraySegment<string>(split, 2, 5));
+						var color = ParseVector(split, 2);
 						stage.constantColor[0] = (byte)(255 * color[0]);
 						stage.constantColor[1] = (byte)(255 * color[1]);
 						stage.constantColor[2] = (byte)(255 * color[2]);
@@ -422,49 +458,63 @@ namespace BSPConvert.Lib
 			}
 		}
 
-		private Vector3 ParseVector(ArraySegment<string> split)
+		private Vector3 ParseVector(string[] split, int offset)
 		{
-			if (split[0] != "(" || split[4] != ")")
+			if (offset + 4 >= split.Length || split[offset] != "(" || split[offset + 4] != ")")
 			{
 				Debug.WriteLine("Warning: Missing parenthesis in shader: " + shaderFile);
 				return Vector3.Zero;
 			}
 
-			return new Vector3(
-				float.Parse(split[1], CultureInfo.InvariantCulture),
-				float.Parse(split[2], CultureInfo.InvariantCulture),
-				float.Parse(split[3], CultureInfo.InvariantCulture));
+			Vector3 vector = default;
+			float.TryParse(split[offset + 1], NumberStyles.Float, CultureInfo.InvariantCulture, out vector.X);
+			float.TryParse(split[offset + 2], NumberStyles.Float, CultureInfo.InvariantCulture, out vector.Y);
+			float.TryParse(split[offset + 3], NumberStyles.Float, CultureInfo.InvariantCulture, out vector.Z);
+
+			return vector;
 		}
 
-		private WaveForm ParseWaveform(ArraySegment<string> split)
+		private WaveForm ParseWaveform(string[] split, int offset)
 		{
 			var wave = new WaveForm();
 
-			wave.func = NameToGenFunc(split[0]);
-			float.TryParse(split[1], out wave.base_);
-			float.TryParse(split[2], out wave.amplitude);
-			float.TryParse(split[3], out wave.phase);
-			float.TryParse(split[4], out wave.frequency);
+			if (offset < split.Length)
+				wave.func = NameToGenFunc(split[offset]);
+			if (offset + 1 < split.Length)
+				float.TryParse(split[offset + 1], out wave.base_);
+			if (offset + 2 < split.Length)
+				float.TryParse(split[offset + 2], out wave.amplitude);
+			if (offset + 3 < split.Length)
+				float.TryParse(split[offset + 3], out wave.phase);
+			if (offset + 4 < split.Length)
+				float.TryParse(split[offset + 4], out wave.frequency);
 
 			return wave;
 		}
 
 		private void ParseAlphaGen(ShaderStage stage, string[] split)
 		{
+			if (split.Length < 2)
+			{
+				Debug.WriteLine("Warning: Missing alphaGen param in shader: " + shaderFile);
+				stage.alphaGen = AlphaGen.AGEN_IDENTITY;
+				return;
+			}
+
 			switch (split[1].ToLowerInvariant())
 			{
 				case "wave":
 					{
 						stage.alphaGen = AlphaGen.AGEN_WAVEFORM;
 
-						stage.alphaWave = ParseWaveform(new ArraySegment<string>(split, 2, 5));
+						stage.alphaWave = ParseWaveform(split, 2);
 						break;
 					}
 				case "const":
 					{
 						stage.alphaGen = AlphaGen.AGEN_CONST;
 
-						if (float.TryParse(split[2], out var alpha))
+						if (split.Length > 2 && float.TryParse(split[2], out var alpha))
 							stage.constantColor[3] = (byte)(alpha * 255);
 						break;
 					}
@@ -521,6 +571,12 @@ namespace BSPConvert.Lib
 
 		private TexModInfo ParseTCModInfo(string[] tcMod)
 		{
+			if (tcMod.Length < 2)
+			{
+				Debug.WriteLine("Warning: Missing tcMod param in shader: " + shaderFile);
+				return new TexModInfo();
+			}
+
 			switch (tcMod[1].ToLowerInvariant())
 			{
 				case "turb":
@@ -646,7 +702,7 @@ namespace BSPConvert.Lib
 				return texModInfo;
 			}
 
-			texModInfo.rotateSpeed = float.Parse(tcMod[2], CultureInfo.InvariantCulture);
+			float.TryParse(tcMod[2], NumberStyles.Float, CultureInfo.InvariantCulture, out texModInfo.rotateSpeed);
 
 			texModInfo.type = TexMod.TMOD_ROTATE;
 
