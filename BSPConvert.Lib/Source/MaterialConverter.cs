@@ -361,6 +361,27 @@ namespace BSPConvert.Lib
 				(stage.alphaGen == AlphaGen.AGEN_WAVEFORM && stage.alphaWave.func != GenFunc.GF_NONE);
 		}
 
+		// Finds a static, unlit additive overlay ("blendfunc GL_ONE GL_ONE") sitting on an opaque base - the Q3 glow-
+		// map idiom (a self-illuminated overlay added over the lightmapped surface). Returns that overlay stage so it
+		// can be emitted as a post-lighting $detail (see AppendShaderParameters). Only fires when the chosen base is
+		// opaque and exactly one such overlay exists, since $detail has a single slot; animated glows are left to the
+		// flipbook baker.
+		private static ShaderStage? GetSelfIllumOverlayStage(IEnumerable<ShaderStage> stages, ShaderStage? baseStage)
+		{
+			if (baseStage == null || !ShaderStageUtils.IsOpaqueBlend(baseStage))
+				return null;
+
+			var overlays = stages
+				.Where(s => s != baseStage &&
+					s.bundles[0].tcGen != TexCoordGen.TCGEN_ENVIRONMENT_MAPPED &&
+					!string.IsNullOrEmpty(s.bundles[0].images[0]) &&
+					ShaderStageUtils.IsAdditiveBlend(s) &&
+					!IsAnimatedStage(s))
+				.ToList();
+
+			return overlays.Count == 1 ? overlays[0] : null;
+		}
+
 		private void AppendShaderParameters(StringBuilder sb, Shader shader)
 		{
 			var stages = shader.GetImageStages();
@@ -405,6 +426,23 @@ namespace BSPConvert.Lib
 			}
 
 			var envMapStage = noEnvMap ? null : stages.FirstOrDefault(x => x.bundles[0].tcGen == TexCoordGen.TCGEN_ENVIRONMENT_MAPPED);
+
+			// A Q3 lit surface with a static, unlit additive overlay - a glow map drawn "blendfunc GL_ONE GL_ONE"
+			// over the lightmapped base (e.g. xmetalfloor_wall_14b_ht3) - maps to a $detail layer combined post-
+			// lighting via $detailblendmode 5 (TCOMBINE_RGB_ADDITIVE_SELFILLUM): the engine adds the glow texel on
+			// top of the lit base color, exactly like Q3's additive pass. $detailscale 1 aligns the glow 1:1 with
+			// the base's texcoords (it shares the base UVs). Skipped when the shader also carries a spheremap
+			// reflection, since $detail there would collide with the env-map's own detail usage.
+			var selfIllumStage = envMapStage == null ? GetSelfIllumOverlayStage(stages, textureStage) : null;
+			if (selfIllumStage != null)
+			{
+				var detailTexture = Path.ChangeExtension(selfIllumStage.bundles[0].images[0], null);
+				sb.AppendLine(CultureInfo.InvariantCulture, $"\t$detail \"{detailTexture}\"");
+				sb.AppendLine("\t$detailscale 1");
+				sb.AppendLine("\t$detailblendmode 5");
+				sb.AppendLine("\t$detailblendfactor 1");
+			}
+
 			if (envMapStage != null)
 			{
 				// Emit $spheremap (+ scale, lightmap dimming, base-alpha reflection mask). Q3 chrome draws the
