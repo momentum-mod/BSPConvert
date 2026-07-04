@@ -2390,6 +2390,11 @@ namespace BSPConvert.Lib
 				if (lmIndex < 0)
 					continue;
 
+				// Unsupported face types (e.g. Billboard) are never added to splitFaceDict during face
+				// conversion. Skip them here so we don't append orphan luxels or throw on the lookup below.
+				if (!splitFaceDict.TryGetValue(faceIndex, out var splitFaces) || splitFaces.Length == 0)
+					continue;
+
 				(var lmStart, var lmEnd) = GetLightmapExtents(qFace.Vertices, Q3_LIGHTMAP_SIZE);
 				var lmSize = lmEnd - lmStart;
 
@@ -2439,7 +2444,7 @@ namespace BSPConvert.Lib
 				// Update face lightmap info. LightmapSize grows by 2*border to account for the guard band;
 				// ComputePrimLightmapCoord shifts prim vertices inward by the same border so they sample the
 				// real (interior) luxels.
-				foreach (var splitFaceIndex in splitFaceDict[faceIndex])
+				foreach (var splitFaceIndex in splitFaces)
 				{
 					var sFace = sourceBsp.Faces[splitFaceIndex];
 					sFace.Lightmap = sourceLightmapOffset;
@@ -2482,6 +2487,11 @@ namespace BSPConvert.Lib
 				if (!externalLightmaps.TryGetValue(lmImage, out var lmData))
 					continue;
 
+				// Unsupported face types (e.g. Billboard) are never added to splitFaceDict during face
+				// conversion. Skip them here so we don't append orphan luxels or throw on the lookup below.
+				if (!splitFaceDict.TryGetValue(faceIndex, out var splitFaces) || splitFaces.Length == 0)
+					continue;
+
 				(var lmStart, var lmEnd) = GetLightmapExtents(qFace.Vertices, lmData.size.X);
 				var lmSize = lmEnd - lmStart;
 
@@ -2513,7 +2523,7 @@ namespace BSPConvert.Lib
 					}
 				}
 
-				foreach (var splitFaceIndex in splitFaceDict[faceIndex])
+				foreach (var splitFaceIndex in splitFaces)
 				{
 					var sFace = sourceBsp.Faces[splitFaceIndex];
 					sFace.Lightmap = lightmapOffset;
