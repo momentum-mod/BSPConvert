@@ -28,6 +28,9 @@ namespace BSPConvert.Lib
 		private FlipbookConverter flipbookConverter;
 		private DetailMaterialConverter detailMaterialConverter;
 		private CloudSkyboxBaker cloudSkyboxBaker;
+		// Non-null only for multi-skybox maps: routes sky shaders to independent WindowImposter cubemap
+		// materials instead of the single global skyname/SURF_SKY path (see BSPConverter.UseSkyImposters).
+		private SkyImposterConverter skyImposterConverter;
 
 		private string[] skySuffixes =
 		{
@@ -39,7 +42,7 @@ namespace BSPConvert.Lib
 			"up"
 		};
 
-		public MaterialConverter(string pk3Dir, Dictionary<string, Shader> shaderDict, bool noEnvMap = false, FlipbookOptions? flipbookOptions = null, bool generateFogMaterials = false)
+		public MaterialConverter(string pk3Dir, Dictionary<string, Shader> shaderDict, bool noEnvMap = false, FlipbookOptions? flipbookOptions = null, bool generateFogMaterials = false, bool useSkyImposters = false)
 		{
 			this.pk3Dir = pk3Dir;
 			this.shaderDict = shaderDict;
@@ -53,6 +56,8 @@ namespace BSPConvert.Lib
 			flipbookConverter = new FlipbookConverter(pk3Dir, resolvedFlipbookOptions, ResolveImagePath, TryCopyQ3Content, noEnvMap);
 			detailMaterialConverter = new DetailMaterialConverter(pk3Dir, resolvedFlipbookOptions, ResolveImagePath, noEnvMap, TryCopyQ3Content);
 			cloudSkyboxBaker = new CloudSkyboxBaker(pk3Dir, ResolveImagePath);
+			if (useSkyImposters)
+				skyImposterConverter = new SkyImposterConverter(pk3Dir, ResolveImagePath, cloudSkyboxBaker);
 		}
 
 		// Resolves a shader-relative texture path (no extension) to a source image file on disk, searching
@@ -111,6 +116,8 @@ namespace BSPConvert.Lib
 				return; // scroll-only liquid converted to a live $basetexture+$detail material
 			else if (flipbookConverter.TryConvert(texture, shader))
 				return; // multi-pass scrolling shader baked into an animated flipbook VTF + VMT
+			else if (skyImposterConverter != null && SkyImposterConverter.IsSkyShader(shader) && skyImposterConverter.TryConvert(texture, shader))
+				return; // multi-skybox map: WindowImposter cubemap material instead of the global skybox
 			else if (shader.skyParms != null && shader.skyParms.HasImageBox)
 				CreateSkyboxVMT(shader);
 			else if (CloudSkyboxBaker.IsCloudSkyShader(shader) && cloudSkyboxBaker.TryConvert(texture, shader))

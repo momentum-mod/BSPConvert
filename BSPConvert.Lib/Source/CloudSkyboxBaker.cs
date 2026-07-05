@@ -111,6 +111,19 @@ namespace BSPConvert.Lib
 			("dn", 5),
 		};
 
+		// Creates a reusable world-direction -> RGB sampler reproducing this cloud sky's dome projection,
+		// or null if not a single cloud stage can be loaded. Shared with SkyImposterConverter so its cubemap
+		// faces are baked from the exact same projection as the 6-sided skybox path here.
+		internal Func<Vector3, Vector3>? TryCreateCloudSampler(Shader shader)
+		{
+			var layers = LoadLayers(shader);
+			if (layers.Count == 0)
+				return null;
+
+			var cloudHeight = ParseCloudHeight(shader.skyParms.cloudHeight);
+			return dir => CloudColor(dir, layers, cloudHeight);
+		}
+
 		private List<Layer> LoadLayers(Shader shader)
 		{
 			var layers = new List<Layer>();

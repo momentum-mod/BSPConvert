@@ -250,7 +250,7 @@ namespace BSPConvert.Lib
 			// these aren't drawn as surfaces; the engine reads the material off the CONTENTS_FOG brush for the
 			// overlay's fog appearance ($fogcolor / $fogdepthforopaque).
 			var generateFogMaterials = !options.useObbFog;
-			var materialConverter = new MaterialConverter(contentManager.ContentDir, shaderDict, options.noEnvMap, options.flipbook, generateFogMaterials);
+			var materialConverter = new MaterialConverter(contentManager.ContentDir, shaderDict, options.noEnvMap, options.flipbook, generateFogMaterials, UseSkyImposters());
 			foreach (var texture in quakeBsp.Textures)
 				materialConverter.Convert(texture.Name);
 		}
@@ -319,6 +319,11 @@ namespace BSPConvert.Lib
 		// the sky shader actually applied to brushes rather than from all parsed shaders.
 		private string GetSkyName()
 		{
+			// Multi-skybox maps use per-surface WindowImposter materials rather than the single global
+			// skybox, so leave skyname unset (matching a map with no traditional skybox).
+			if (UseSkyImposters())
+				return null;
+
 			string cloudSkyName = null;
 			foreach (var texture in quakeBsp.Textures)
 			{
@@ -338,6 +343,37 @@ namespace BSPConvert.Lib
 			}
 
 			return cloudSkyName;
+		}
+
+		private bool? useSkyImposters;
+
+		// True when the map applies 2+ distinct skyboxes to its brushes. Source supports only one global
+		// skybox, so in that case each sky shader is converted to an independent WindowImposter cubemap
+		// material (see SkyImposterConverter) instead of the shared skyname/SURF_SKY path, letting every
+		// sky show correctly. Keyed by sky appearance (outerbox name / baked cloud skyname), not texture
+		// name, so two aliases of the same sky aren't miscounted as multiple.
+		private bool UseSkyImposters()
+		{
+			if (useSkyImposters.HasValue)
+				return useSkyImposters.Value;
+
+			var skies = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+			foreach (var texture in quakeBsp.Textures)
+			{
+				if (!shaderDict.TryGetValue(texture.Name, out var shader))
+					continue;
+
+				if (shader.skyParms != null && shader.skyParms.HasImageBox)
+					skies.Add(shader.skyParms.outerBox);
+				else if (CloudSkyboxBaker.IsCloudSkyShader(shader))
+					skies.Add(CloudSkyboxBaker.GetSkyName(texture.Name));
+
+				if (skies.Count >= 2)
+					break;
+			}
+
+			useSkyImposters = skies.Count >= 2;
+			return useSkyImposters.Value;
 		}
 
 		// A "fake sky" is a sky surface whose shader has no skyParms at all - it just draws a flat texture on
@@ -360,6 +396,11 @@ namespace BSPConvert.Lib
 		// or they render as ordinary - here untextured, white - world walls instead of the skybox.
 		private bool IsSkySurface(Texture texture)
 		{
+			// Multi-skybox maps draw sky brushes as ordinary WindowImposter surfaces, so none get SURF_SKY
+			// (which would instead reveal Source's single global skybox).
+			if (UseSkyImposters())
+				return false;
+
 			if (((Q3SurfaceFlags)texture.Flags).HasFlag(Q3SurfaceFlags.SURF_SKY))
 				return !IsSingleTextureSky(texture.Name); // fake skies stay ordinary surfaces
 
