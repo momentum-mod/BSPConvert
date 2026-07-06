@@ -172,6 +172,10 @@ namespace BSPConvert.Lib
 				if (options.lavaTriggers)
 					ConvertLavaTriggers();
 				ConvertLightmaps();
+
+				// Must be called after all leaves have been created
+				ConvertLightGrid();
+				
 				ConvertVisData();
 				ConvertAreas();
 				ConvertAreaPortals();
@@ -2699,6 +2703,12 @@ namespace BSPConvert.Lib
 			}
 
 			return lightmapStart;
+		}
+
+		private void ConvertLightGrid()
+		{
+			var lightGridConverter = new LightGridConverter(quakeBsp, sourceBsp, options.clampOverbright);
+			lightGridConverter.Convert();
 		}
 
 		private void ConvertVisData()

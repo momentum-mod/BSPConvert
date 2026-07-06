@@ -16,11 +16,30 @@
 				(r, g, b) = ApplyOverbrightClamp(r, g, b);
 			(r, g, b) = ApplyMinBrightness(r, g, b, lightmapMin, ceiling);
 
-			var color = new ColorRGBExp32();
-
 			var rf = GammaToLinear(r) * 4f; // Multiply by 4 since Source expects lightmap values in 0-4 range
 			var gf = GammaToLinear(g) * 4f;
 			var bf = GammaToLinear(b) * 4f;
+
+			return PackColorRGBExp32(rf, gf, bf);
+		}
+
+		public static ColorRGBExp32 ConvertQ3LightGridColorToColorRGBExp32(float r, float g, float b, bool clampOverbright = false)
+		{
+			var ceiling = clampOverbright ? 255f / OVERBRIGHT : 255f;
+			r = Math.Min(r, ceiling);
+			g = Math.Min(g, ceiling);
+			b = Math.Min(b, ceiling);
+
+			var rf = GammaToLinear(r) * 4f * OVERBRIGHT / 255f;
+			var gf = GammaToLinear(g) * 4f * OVERBRIGHT / 255f;
+			var bf = GammaToLinear(b) * 4f * OVERBRIGHT / 255f;
+
+			return PackColorRGBExp32(rf, gf, bf);
+		}
+
+		private static ColorRGBExp32 PackColorRGBExp32(float rf, float gf, float bf)
+		{
+			var color = new ColorRGBExp32();
 
 			var max = Math.Max(rf, Math.Max(gf, bf));
 			var exp = CalcExponent(max);
@@ -44,7 +63,7 @@
 		// 255/OVERBRIGHT (= 63), above which the engine's x4 would blow past white. Bytes at or below the
 		// ceiling (most of the map, incl. midtones) pass through unchanged, so the look there is preserved;
 		// only the over-bright luxels Q3 discards get flattened, fixing the too-bright/blotchy highlights.
-		private static (byte r, byte g, byte b) ApplyOverbrightClamp(byte r, byte g, byte b)
+		public static (byte r, byte g, byte b) ApplyOverbrightClamp(byte r, byte g, byte b)
 		{
 			const int ceiling = 255 / OVERBRIGHT; // 63
 
@@ -75,7 +94,7 @@
 			return (Remap(r), Remap(g), Remap(b));
 		}
 
-		private static float GammaToLinear(byte gamma)
+		private static float GammaToLinear(float gamma)
 		{
 			return (float)(255.0 * Math.Pow(gamma / 255.0, 2.2));
 		}
