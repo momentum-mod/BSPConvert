@@ -87,6 +87,7 @@ namespace BSPConvert.Lib
 		private Dictionary<int, Texture> fogBrushSideTexture = new Dictionary<int, Texture>(); // Maps a fog brush's side index to the brush's fog texture, so every side carries the fog material
 		private Dictionary<(Vector3, float), int> planeDict = new Dictionary<(Vector3, float), int>();
 		private HashSet<int> triggerPatchFaces = new HashSet<int>(); // Q3 patch faces that belong to trigger entities; converted without collision (see MarkTriggerPatchFaces)
+		private SkyboxSwapPlan? skyboxSwapPlan; // Multi-skybox swap regions for the current map (see ConvertSkyboxSwappers)
 
 		// TODO: Replace weapon clip textures
 		private static readonly Dictionary<string, string> replacementTextures = new Dictionary<string, string>()
@@ -167,6 +168,7 @@ namespace BSPConvert.Lib
 				if (options.useObbFog)
 					ConvertObbFog();
 				ConvertFuncDoorTriggers();
+				ConvertSkyboxSwappers();
 				if (options.lavaTriggers)
 					ConvertLavaTriggers();
 				ConvertLightmaps();
@@ -310,8 +312,30 @@ namespace BSPConvert.Lib
 
 		private void ConvertEntities()
 		{
-			var converter = new EntityConverter(quakeBsp.Models, quakeBsp.Entities, sourceBsp.Entities, GetSkyName(), options.minDamageToRespawnPlayer, options.ignoreZones, options.offModeEntityFallback);
+			// Detect multiple skyboxes up front so the map spawns with the right one (worldspawn skyname) and
+			// ConvertSkyboxSwappers can emit the swap triggers later, once the Source brushes/models exist.
+			skyboxSwapPlan = new SkyboxSwapConverter(quakeBsp, ResolveSkyboxName, logger, GetSkyName()).Build();
+
+			var converter = new EntityConverter(quakeBsp.Models, quakeBsp.Entities, sourceBsp.Entities, skyboxSwapPlan.DefaultSkyName!, options.minDamageToRespawnPlayer, options.ignoreZones, options.offModeEntityFallback);
 			converter.Convert();
+		}
+
+		// The Source skyname a sky surface maps to (worldspawn skyname / sv_skyname value), or null if the
+		// texture isn't a real skybox. Mirrors GetSkyName's routing per texture: an image-box sky uses its
+		// outerBox, a baked cloud sky uses its shader basename. Fake single-texture skies (IsSkySurface
+		// false) and non-sky surfaces return null. Used by SkyboxSwapConverter to group sky faces by skybox.
+		private string? ResolveSkyboxName(Texture texture)
+		{
+			if (!IsSkySurface(texture) || !shaderDict.TryGetValue(texture.Name, out var shader))
+				return null;
+
+			if (shader.skyParms != null && shader.skyParms.HasImageBox)
+				return shader.skyParms.outerBox;
+
+			if (CloudSkyboxBaker.IsCloudSkyShader(shader))
+				return CloudSkyboxBaker.GetSkyName(texture.Name);
+
+			return null;
 		}
 
 		// Source uses a single global skybox (skyname), but Q3 sky brushes directly reference a sky
@@ -860,6 +884,73 @@ namespace BSPConvert.Lib
 			}
 		}
 
+		// Emits the multi-skybox swap setup detected in ConvertEntities. Source has a single global 2D skybox
+		// (sv_skyname); the map spawns with skyboxSwapPlan.DefaultSkyName (set on worldspawn) and each region
+		// gets a skybox_swapper point entity plus a trigger_multiple covering that skybox's visibility volume.
+		// Entering the trigger fires the swapper, which sets sv_skyname to that skybox. Regions are non-co-visible
+		// (SkyboxSwapConverter guarantees it) so only one skybox is ever needed at a time. No-op for single-sky maps.
+		private void ConvertSkyboxSwappers()
+		{
+			if (skyboxSwapPlan == null || skyboxSwapPlan.Regions.Count == 0)
+				return;
+
+			for (var i = 0; i < skyboxSwapPlan.Regions.Count; i++)
+			{
+				var region = skyboxSwapPlan.Regions[i];
+				if (region.Boxes.Count == 0)
+					continue;
+
+				var swapperName = $"_skybox_swap_{i}";
+
+				var swapper = new Entity();
+				swapper.ClassName = "skybox_swapper";
+				swapper["targetname"] = swapperName;
+				swapper["SkyboxName"] = region.SkyName;
+				// skybox_swapper is a point entity; place it at the first box center (position is irrelevant).
+				swapper.Origin = (region.Boxes[0].mins + region.Boxes[0].maxs) * 0.5f;
+				sourceBsp.Entities.Add(swapper);
+
+				var triggerModelIndex = CreateBoxTriggerModel(region.Boxes);
+
+				var trigger = new Entity();
+				trigger.ClassName = "trigger_multiple";
+				trigger["model"] = $"*{triggerModelIndex}";
+				trigger["spawnflags"] = "1"; // SF_TRIGGER_ALLOW_CLIENTS
+				trigger["wait"] = "0";
+				trigger.connections.Add(new Entity.EntityConnection()
+				{
+					name = "OnStartTouch",
+					target = swapperName,
+					action = "Trigger",
+					param = null,
+					delay = 0,
+					fireOnce = -1
+				});
+				sourceBsp.Entities.Add(trigger);
+			}
+
+			logger.Log($"Converted {skyboxSwapPlan.Regions.Count} skybox swap regions");
+		}
+
+		// Builds one brush model from several AABB boxes (a single leaf referencing all the box brushes), so a
+		// single trigger entity can cover a skybox region's whole visibility volume. Returns the model index.
+		private int CreateBoxTriggerModel(List<(Vector3 mins, Vector3 maxs)> boxes)
+		{
+			var firstLeafBrush = sourceBsp.LeafBrushes.Count;
+			var mins = new Vector3(float.MaxValue, float.MaxValue, float.MaxValue);
+			var maxs = new Vector3(float.MinValue, float.MinValue, float.MinValue);
+
+			foreach (var (boxMins, boxMaxs) in boxes)
+			{
+				var brushIndex = CreateBoxBrush(boxMins, boxMaxs);
+				sourceBsp.LeafBrushes.Add(brushIndex);
+				mins = Vector3.Min(mins, boxMins);
+				maxs = Vector3.Max(maxs, boxMaxs);
+			}
+
+			return CreateBrushModel(firstLeafBrush, boxes.Count, mins, maxs);
+		}
+
 		// Replicates Q3's Think_SpawnNewDoorTrigger bounds expansion: find the thinnest axis and expand it by 120 units each direction
 		private static void ExpandDoorTriggerBounds(ref Vector3 mins, ref Vector3 maxs)
 		{
@@ -891,6 +982,13 @@ namespace BSPConvert.Lib
 
 		// Creates an AABB brush entity (6 planes) with its own orphan leaf + head node, returns the new model index
 		private int CreateBoxTrigger(Vector3 mins, Vector3 maxs)
+		{
+			return CreateBrushModel(CreateBoxBrush(mins, maxs), mins, maxs);
+		}
+
+		// Creates a solid AABB brush (6 axis-aligned planes) and returns its brush index. The caller wraps it
+		// (or several of them) in a brush model. CONTENTS_SOLID is required for trigger touch traces to hit it.
+		private int CreateBoxBrush(Vector3 mins, Vector3 maxs)
 		{
 			var normals = new Vector3[]
 			{
@@ -927,7 +1025,7 @@ namespace BSPConvert.Lib
 			brush.Contents = (int)SourceContentsFlags.CONTENTS_SOLID;
 			sourceBsp.Brushes.Add(brush);
 
-			return CreateBrushModel(brushIndex, mins, maxs);
+			return brushIndex;
 		}
 
 		// Wraps a single brush in its own orphan leaf + degenerate head node + model, returning the new
@@ -937,12 +1035,19 @@ namespace BSPConvert.Lib
 			var leafBrushIndex = sourceBsp.LeafBrushes.Count;
 			sourceBsp.LeafBrushes.Add(brushIndex);
 
+			return CreateBrushModel(leafBrushIndex, 1, mins, maxs);
+		}
+
+		// Wraps a contiguous range of already-added leaf brushes in a single orphan leaf + degenerate head
+		// node + model. Lets one brush model (one trigger entity) span several disjoint boxes.
+		private int CreateBrushModel(int firstLeafBrush, int numLeafBrushes, Vector3 mins, Vector3 maxs)
+		{
 			var leafData = new byte[Leaf.GetStructLength(sourceBsp.MapType)];
 			var leaf = new Leaf(leafData, sourceBsp.Leaves);
 			leaf.Minimums = mins;
 			leaf.Maximums = maxs;
-			leaf.FirstMarkBrushIndex = leafBrushIndex;
-			leaf.NumMarkBrushIndices = 1;
+			leaf.FirstMarkBrushIndex = firstLeafBrush;
+			leaf.NumMarkBrushIndices = numLeafBrushes;
 			leaf.FirstMarkFaceIndex = 0;
 			leaf.NumMarkFaceIndices = 0;
 			leaf.LeafWaterDataID = -1;
