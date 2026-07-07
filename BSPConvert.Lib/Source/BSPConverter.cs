@@ -45,6 +45,9 @@ namespace BSPConvert.Lib
 		// downward to this height so they span enough view froxels to reduce flickering. obb-fog only.
 		// See ConvertFogVolumes.
 		public float fogMinHeight;
+		// Skip generating the fog overlay face for fog shaders with visible stages (e.g. the scrolling
+		// clouds on textures/sfx/hellfog); the fog brush face is just dropped instead. See TryCreateFogOverlayFace.
+		public bool noFogOverlay;
 		public bool ignoreZones;
 		public bool noEnvMap;
 		public bool oldBSP;
@@ -1512,7 +1515,14 @@ namespace BSPConvert.Lib
 
 			if (IsFogFace(qFace))
 			{
-				// Fog brush faces are not drawn. The engine tracks the brush as a bounds-based fog volume
+				// A fog shader that also carries visible stages (e.g. the scrolling clouds on textures/sfx/hellfog)
+				// draws those over the fog boundary in Q3. Reproduce that as a one-sided overlay surface; the fog
+				// volume itself is still the CONTENTS_FOG brush + Fog overlay. Skipped in obb fog mode (no overlay
+				// material is generated there) and when disabled via options.noFogOverlay.
+				if (!options.useObbFog && !options.noFogOverlay && TryCreateFogOverlayFace(faceIndex))
+					return;
+
+				// Otherwise fog brush faces are not drawn. The engine tracks the brush as a bounds-based fog volume
 				// (CONTENTS_FOG) and composites a depth-clipped fog overlay for it, giving a single unified fog
 				// that reads correctly from inside or outside the volume. A drawn translucent face would fog
 				// everything behind it and double up with the overlay. The brush stays tagged CONTENTS_FOG and its
@@ -1539,6 +1549,39 @@ namespace BSPConvert.Lib
 			sFace.NumPrimitives = 1;
 
 			splitFaceDict[faceIndex] = new int[] { sourceBsp.Faces.Count - 1 };
+		}
+
+		// Draws a fog brush face as the fog shader's visible overlay stages (e.g. the scrolling cloud layers on
+		// textures/sfx/hellfog) instead of dropping it. The overlay uses a sibling material (the fog texture name
+		// is reserved for the Fog appearance material) and is left one-sided: Q3 fog shaders default to front-face
+		// culling, so the overlay only shows on the boundary sides facing the viewer, never from inside the volume.
+		// Returns false when the fog shader has no visible stages, so the caller drops the face as before.
+		private bool TryCreateFogOverlayFace(int faceIndex)
+		{
+			var qFace = quakeBsp.Faces[faceIndex];
+			if (!shaderDict.TryGetValue(qFace.Texture.Name, out var shader) || !MaterialConverter.FogShaderHasOverlay(shader))
+				return false;
+
+			var overlayName = MaterialConverter.GetFogOverlayTextureName(qFace.Texture.Name);
+			if (!textureDataLookup.ContainsKey(overlayName))
+				CreateTextureData(overlayName);
+
+			var sFace = CreateFace();
+			sFace.PlaneIndex = CreatePlane(qFace);
+			sFace.TextureInfoIndex = CreateTextureInfo(qFace, qFace.FirstIndexIndex, overlayName);
+			sFace.DisplacementIndex = -1;
+
+			// Surface edges
+			(var surfEdgeIndex, var numEdges) = CreateSurfaceEdges(faceIndex);
+			sFace.FirstEdgeIndexIndex = surfEdgeIndex;
+			sFace.NumEdgeIndices = numEdges;
+
+			// Primitives
+			sFace.FirstPrimitive = CreatePrimitive(qFace.Vertices.ToArray(), qFace.Indices.ToArray(), qFace);
+			sFace.NumPrimitives = 1;
+
+			splitFaceDict[faceIndex] = new int[] { sourceBsp.Faces.Count - 1 };
+			return true;
 		}
 
 		private bool IsFogFace(Face qFace)
@@ -2318,14 +2361,19 @@ namespace BSPConvert.Lib
 			return sourceBsp.Vertices.Count - 1;
 		}
 
-		private int CreateTextureInfo(Face qFace, int firstIndex)
+		private int CreateTextureInfo(Face qFace, int firstIndex, string nameOverride = null)
 		{
 			(var uAxis, var vAxis) = GetTextureVectors(qFace, firstIndex);
-			return CreateTextureInfo(qFace.Texture, uAxis, vAxis);
+			return CreateTextureInfo(qFace.Texture, uAxis, vAxis, nameOverride);
 		}
 
-		private int CreateTextureInfo(Texture texture, Vector3 uAxis, Vector3 vAxis)
+		// nameOverride points the texinfo (and its name->index lookup) at a different material than the source
+		// texture's name, keeping the source texture's surface flags. Used for fog overlay faces, whose geometry
+		// comes from a fog brush face but whose material is the sibling overlay (see TryCreateFogOverlayFace).
+		private int CreateTextureInfo(Texture texture, Vector3 uAxis, Vector3 vAxis, string nameOverride = null)
 		{
+			var textureName = nameOverride ?? texture.Name;
+
 			var data = new byte[TextureInfo.GetStructLength(sourceBsp.MapType)];
 			var textureInfo = new TextureInfo(data, sourceBsp.TextureInfo);
 
@@ -2334,7 +2382,7 @@ namespace BSPConvert.Lib
 			textureInfo.VAxis = vAxis;
 			textureInfo.LightmapUAxis = uAxis / 32f;
 			textureInfo.LightmapVAxis = vAxis / 32f;
-			textureInfo.TextureIndex = LookupTextureDataIndex(texture.Name);
+			textureInfo.TextureIndex = LookupTextureDataIndex(textureName);
 
 			var q3Flags = (Q3SurfaceFlags)texture.Flags;
 			if (q3Flags.HasFlag(Q3SurfaceFlags.SURF_SLICK))
@@ -2363,8 +2411,8 @@ namespace BSPConvert.Lib
 			textureInfoIndex = sourceBsp.TextureInfo.Count - 1;
 			textureInfoDict.Add(key, textureInfoIndex);
 
-			if (!textureInfoLookup.ContainsKey(texture.Name))
-				textureInfoLookup.Add(texture.Name, textureInfoIndex);
+			if (!textureInfoLookup.ContainsKey(textureName))
+				textureInfoLookup.Add(textureName, textureInfoIndex);
 
 			return textureInfoIndex;
 		}
