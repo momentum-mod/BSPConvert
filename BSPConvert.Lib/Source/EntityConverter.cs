@@ -212,6 +212,14 @@ namespace BSPConvert.Lib
 					case "func_plat":
 						ConvertFuncPlat(entity);
 						break;
+					case "shooter_rocket":
+					case "shooter_grenade":
+					case "shooter_plasma":
+					case "shooter_rocket_targetplayer":
+					case "shooter_grenade_targetplayer":
+					case "shooter_plasma_targetplayer":
+						ConvertShooter(entity);
+						break;
 					// Ignore these entities since they have no use in Source engine
 					case "target_speaker": // converting this entity without a trigger input currently does nothing, convert during trigger_multiple conversion instead for now
 					case "target_startTimer":
@@ -276,6 +284,47 @@ namespace BSPConvert.Lib
 		private void ConvertFuncStatic(Entity funcStatic)
 		{
 			funcStatic.ClassName = "func_brush";
+		}
+
+		private void ConvertShooter(Entity shooter)
+		{
+			// TARGETPLAYER/PREDICT_XY/PREDICT_Z/QUAD spawnflags and the speed (XY lead) / count (Z lead)
+			// keys map 1:1 onto momentum_shooter, so they carry over untouched. Aiming via the "angles"
+			// key also passes through. Only the projectile type and the aim target need conversion.
+			shooter["projectiletype"] = GetShooterProjectileType(shooter.ClassName).ToString(CultureInfo.InvariantCulture);
+
+			// The aim target is a target_position/info_notnull in q3; convert it to a spawnable Source
+			// entity so momentum_shooter can resolve it at runtime (matches trigger_push handling).
+			var aimTarget = GetTargetEntities(shooter).FirstOrDefault();
+			if (aimTarget != null)
+				aimTarget.ClassName = "info_target";
+
+			shooter.ClassName = "momentum_shooter";
+		}
+
+		private static int GetShooterProjectileType(string className)
+		{
+			// Matches both the base shooters and the defrag *_targetplayer variants.
+			if (className.StartsWith("shooter_grenade", StringComparison.OrdinalIgnoreCase))
+				return 1; // SHOOTER_PROJECTILE_GRENADE
+			if (className.StartsWith("shooter_plasma", StringComparison.OrdinalIgnoreCase))
+				return 2; // SHOOTER_PROJECTILE_PLASMA
+
+			return 0; // SHOOTER_PROJECTILE_ROCKET
+		}
+
+		private static void FireShooterOnOutput(Entity entity, Entity shooter, string output, float delay)
+		{
+			var connection = new Entity.EntityConnection()
+			{
+				name = output,
+				target = shooter.Name,
+				action = "Shoot",
+				param = null,
+				delay = delay,
+				fireOnce = -1
+			};
+			entity.connections.Add(connection);
 		}
 
 		private void ConvertFuncPlat(Entity entity)
@@ -622,6 +671,17 @@ namespace BSPConvert.Lib
 						break;
 					case "target_score":
 						ConvertTargetScore(entity, target, output, delay);
+						break;
+					// Match both the q3 classnames and the converted classname since the shooter
+					// may or may not have been converted yet depending on entity iteration order.
+					case "shooter_rocket":
+					case "shooter_grenade":
+					case "shooter_plasma":
+					case "shooter_rocket_targetplayer":
+					case "shooter_grenade_targetplayer":
+					case "shooter_plasma_targetplayer":
+					case "momentum_shooter":
+						FireShooterOnOutput(entity, target, output, delay);
 						break;
 				}
 
