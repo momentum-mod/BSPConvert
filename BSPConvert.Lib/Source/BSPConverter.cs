@@ -721,7 +721,13 @@ namespace BSPConvert.Lib
 				leaf.FirstMarkFaceIndex = currentFaceIndex;
 				var numFaces = 0;
 				for (var i = 0; i < qLeaf.NumMarkFaceIndices; i++)
-					numFaces += splitFaceDict[(int)quakeBsp.LeafFaces[qLeaf.FirstMarkFaceIndex + i]].Length;
+				{
+					// Unsupported face types (e.g. Billboard) are never added to splitFaceDict during face
+					// conversion, so a leaf that marks one has no split faces for it. Treat it as zero faces
+					// instead of throwing on the lookup (matches ConvertLeafFaces_SplitFaces below).
+					if (splitFaceDict.TryGetValue((int)quakeBsp.LeafFaces[qLeaf.FirstMarkFaceIndex + i], out var splitFaces))
+						numFaces += splitFaces.Length;
+				}
 				leaf.NumMarkFaceIndices = numFaces;
 				currentFaceIndex += numFaces;
 
@@ -749,7 +755,11 @@ namespace BSPConvert.Lib
 
 			foreach (var qLeafFace in quakeBsp.LeafFaces)
 			{
-				var splitFaceIndices = splitFaceDict[(int)qLeafFace];
+				// Unsupported face types (e.g. Billboard) have no splitFaceDict entry; skip them so we emit the
+				// same leaf face count that ConvertLeaves_SplitFaces sized the leaves for (and don't throw here).
+				if (!splitFaceDict.TryGetValue((int)qLeafFace, out var splitFaceIndices))
+					continue;
+
 				for (var i = 0; i < splitFaceIndices.Length; i++)
 					sourceBsp.LeafFaces.Add(splitFaceIndices[i]);
 			}
