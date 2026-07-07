@@ -74,6 +74,7 @@ namespace BSPConvert.Lib
 		private ContentManager contentManager;
 
 		private Dictionary<string, Shader> shaderDict = new Dictionary<string, Shader>();
+		private IReadOnlySet<string> referencedTextures = new HashSet<string>(StringComparer.OrdinalIgnoreCase); // Texture paths the generated materials use, so unused pk3 images (lightmaps, levelshots) aren't converted/embedded
 		private Dictionary<string, LightmapData> externalLightmaps = new Dictionary<string, LightmapData>();
 		private Dictionary<TextureInfoKey, int> textureInfoDict = new Dictionary<TextureInfoKey, int>();
 		private Dictionary<string, int> textureInfoLookup = new Dictionary<string, int>();
@@ -255,6 +256,9 @@ namespace BSPConvert.Lib
 			var materialConverter = new MaterialConverter(contentManager.ContentDir, shaderDict, options.noEnvMap, options.flipbook, generateFogMaterials);
 			foreach (var texture in quakeBsp.Textures)
 				materialConverter.Convert(texture.Name);
+
+			// The texture pass only converts images these materials reference (see TextureConverter).
+			referencedTextures = materialConverter.ReferencedTextures;
 		}
 
 		private Dictionary<string, Shader> LoadShaderDictionary()
@@ -305,8 +309,8 @@ namespace BSPConvert.Lib
 		private void ConvertTextureFiles()
 		{
 			var converter = options.noPak ?
-				new TextureConverter(contentManager.ContentDir, options.outputDir, shaderDict) :
-				new TextureConverter(contentManager.ContentDir, sourceBsp, shaderDict);
+				new TextureConverter(contentManager.ContentDir, options.outputDir, shaderDict, referencedTextures) :
+				new TextureConverter(contentManager.ContentDir, sourceBsp, shaderDict, referencedTextures);
 			converter.Convert();
 		}
 

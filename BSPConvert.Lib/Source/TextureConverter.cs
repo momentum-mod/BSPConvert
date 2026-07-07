@@ -17,19 +17,25 @@ namespace BSPConvert.Lib
 		private BSP bsp;
 		private string outputDir;
 		private Dictionary<string, Shader> shaderDict;
+		// Relative texture paths (no extension, forward slashes) the generated materials reference. Only these
+		// images are converted to VTF, so unused pk3 content (lightmaps, levelshots, flipbook source frames)
+		// is neither converted nor embedded. Built by MaterialConverter.
+		private IReadOnlySet<string> referencedTextures;
 
-		public TextureConverter(string pk3Dir, BSP bsp, Dictionary<string, Shader> shaderDict)
+		public TextureConverter(string pk3Dir, BSP bsp, Dictionary<string, Shader> shaderDict, IReadOnlySet<string> referencedTextures)
 		{
 			this.pk3Dir = pk3Dir;
 			this.bsp = bsp;
 			this.shaderDict = shaderDict;
+			this.referencedTextures = referencedTextures;
 		}
 
-		public TextureConverter(string pk3Dir, string outputDir, Dictionary<string, Shader> shaderDict)
+		public TextureConverter(string pk3Dir, string outputDir, Dictionary<string, Shader> shaderDict, IReadOnlySet<string> referencedTextures)
 		{
 			this.pk3Dir = pk3Dir;
 			this.outputDir = outputDir;
 			this.shaderDict = shaderDict;
+			this.referencedTextures = referencedTextures;
 		}
 
 		public void Convert()
@@ -55,6 +61,12 @@ namespace BSPConvert.Lib
             foreach (var inputPath in Directory.EnumerateFiles(pk3Dir, "*", SearchOption.AllDirectories))
             {
                 if (!supportedExtensions.Contains(Path.GetExtension(inputPath), StringComparer.OrdinalIgnoreCase))
+                    continue;
+
+                // Skip images no generated material references (e.g. Q3 lightmaps - converted to Source
+                // lightmaps instead - levelshots, and source frames already baked into flipbook VTFs), so
+                // they aren't converted to VTF or embedded in the BSP.
+                if (!referencedTextures.Contains(GetRelativeTexturePath(inputPath)))
                     continue;
 
                 var outputPath = Path.Combine

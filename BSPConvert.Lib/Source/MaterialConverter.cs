@@ -28,6 +28,11 @@ namespace BSPConvert.Lib
 		private FlipbookConverter flipbookConverter;
 		private DetailMaterialConverter detailMaterialConverter;
 		private CloudSkyboxBaker cloudSkyboxBaker;
+		// Relative texture paths (no extension, forward slashes) that the generated materials actually
+		// reference. TextureConverter uses this to skip converting/embedding unused pk3 images - lightmaps
+		// (baked into Source lightmaps instead), levelshots, and source frames already baked into flipbooks.
+		// Case-insensitive so it matches on-disk filename casing.
+		private readonly HashSet<string> referencedTextures = new(StringComparer.OrdinalIgnoreCase);
 
 		private string[] skySuffixes =
 		{
@@ -95,6 +100,17 @@ namespace BSPConvert.Lib
 			return imageDict;
 		}
 
+		// Texture paths (no extension, forward slashes) referenced by the materials generated so far, so the
+		// texture pass only converts/embeds images the map actually uses. See referencedTextures.
+		public IReadOnlySet<string> ReferencedTextures => referencedTextures;
+
+		// Records a texture path (any casing/separators) as referenced by a generated material.
+		private void RecordReferencedTexture(string texturePath)
+		{
+			if (!string.IsNullOrEmpty(texturePath))
+				referencedTextures.Add(texturePath.Replace('\\', '/'));
+		}
+
 		public void Convert(string texture)
 		{
 			if (shaderDict.TryGetValue(texture, out var shader))
@@ -149,6 +165,7 @@ namespace BSPConvert.Lib
 					continue;
 
 				var baseTexture = $"skybox/{shader.skyParms.outerBox}{suffix}";
+				RecordReferencedTexture(baseTexture); // moved under skybox/, so not seen by TryCopyQ3Content
 				var skyboxVmt = GenerateSkyboxVMT(baseTexture);
 				WriteVMT(baseTexture, skyboxVmt);
 			}
@@ -190,7 +207,12 @@ namespace BSPConvert.Lib
 
 		private void CreateBaseShaderVMT(string texture, Shader shader)
 		{
-			var images = shader.GetImageStages().SelectMany(x => x.bundles[0].images);
+			// Skip external-lightmap stages ("tcGen lightmap" with a real image, e.g. maps/<map>/lm_0000): they're
+			// baked into the Source lightmap by ExternalLightmapLoader/ConvertLightmaps, never referenced as a VMT
+			// texture, so they must not be copied in or marked for VTF conversion.
+			var images = shader.GetImageStages()
+				.Where(x => x.bundles[0].tcGen != TexCoordGen.TCGEN_LIGHTMAP)
+				.SelectMany(x => x.bundles[0].images);
 			foreach (var image in images)
 			{
 				if (string.IsNullOrEmpty(image))
@@ -287,6 +309,12 @@ namespace BSPConvert.Lib
 		// folder for assets the map depends on but doesn't bundle.
 		private void TryCopyQ3Content(string texturePath)
 		{
+			// Every image routed through here is referenced by a material (shader base/detail/spheremap stages,
+			// default lit textures, live liquid/detail layers), so mark it needed for the texture pass. This is
+			// also the copyExternalContent callback the flipbook/detail converters use, so their live-referenced
+			// source images are captured too.
+			RecordReferencedTexture(texturePath);
+
 			// Q3 base content takes precedence (matches existing behavior).
 			if (TryCopyExternalImage(q3ImageDict, ContentManager.GetQ3ContentDir(), texturePath))
 				return;
