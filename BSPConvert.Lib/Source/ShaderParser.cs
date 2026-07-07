@@ -168,8 +168,7 @@ namespace BSPConvert.Lib
 						break;
 					case "texgen":
 					case "tcgen":
-						if (split.Length >= 2)
-							stage.bundles[0].tcGen = ParseTCGen(split[1]);
+						ParseTCGen(stage.bundles[0], split);
 						break;
 					case "tcmod":
 						stage.bundles[0].texMods.Add(ParseTCModInfo(split));
@@ -547,26 +546,53 @@ namespace BSPConvert.Lib
 			}
 		}
 
-		private TexCoordGen ParseTCGen(string tcGen)
+		private void ParseTCGen(TextureBundle bundle, string[] split)
 		{
-			switch (tcGen.ToLowerInvariant())
+			if (split.Length < 2)
+			{
+				Debug.WriteLine("Warning: Missing tcGen param in shader: " + shaderFile);
+				return;
+			}
+
+			switch (split[1].ToLowerInvariant())
 			{
 				case "environment":
-					return TexCoordGen.TCGEN_ENVIRONMENT_MAPPED;
+					bundle.tcGen = TexCoordGen.TCGEN_ENVIRONMENT_MAPPED;
+					break;
 				case "lightmap":
-					return TexCoordGen.TCGEN_LIGHTMAP;
+					bundle.tcGen = TexCoordGen.TCGEN_LIGHTMAP;
+					break;
 				case "texture":
 				case "base":
-					return TexCoordGen.TCGEN_TEXTURE;
+					bundle.tcGen = TexCoordGen.TCGEN_TEXTURE;
+					break;
 				case "vector":
-					// TODO: Handle vector parsing
+					// "tcGen vector ( <sx sy sz> ) ( <tx ty tz> )": S and T are the world position dotted with
+					// these two vectors. Store them so the world-space projection can be reproduced (e.g. baked
+					// fog gradients - see WorldFogGradientBaker).
+					bundle.tcGen = TexCoordGen.TCGEN_VECTOR;
+					ParseTCGenVectors(bundle, split);
 					break;
 				default:
 					Debug.WriteLine("Warning: Unknown texgen param in shader: " + shaderFile);
+					bundle.tcGen = TexCoordGen.TCGEN_TEXTURE;
 					break;
 			}
+		}
 
-			return TexCoordGen.TCGEN_TEXTURE;
+		// Parses the two parenthesized vectors of a "tcGen vector" directive into bundle.tcGenVectors. The line
+		// is already tokenized with parentheses as standalone tokens, so each "(" is followed by its 3 components.
+		private void ParseTCGenVectors(TextureBundle bundle, string[] split)
+		{
+			var vectorIndex = 0;
+			for (var i = 0; i < split.Length && vectorIndex < bundle.tcGenVectors.Length; i++)
+			{
+				if (split[i] == "(" && i + 3 < split.Length)
+				{
+					bundle.tcGenVectors[vectorIndex] = ParseVector(split, i);
+					vectorIndex++;
+				}
+			}
 		}
 
 		private TexModInfo ParseTCModInfo(string[] tcMod)

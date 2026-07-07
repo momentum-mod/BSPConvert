@@ -5,8 +5,9 @@
 		// Quake 3 applies a 4x overbright to lightmapped surfaces at display time (R_ColorShiftLightingBytes
 		// in tr_bsp.c, with the default r_mapOverBrightBits = 2, i.e. << 2). We bake that factor directly
 		// into the stored RGBExp32 luxels (below) so the lighting is display-ready and renders identically on
-		// world geometry and brush entities.
-		private const int OVERBRIGHT = 4;
+		// world geometry and brush entities. Public so effects composited into the lightmap in Q3's post-
+		// overbright framebuffer space (e.g. WorldFogGradientBaker) can match that same display scale.
+		public const int OVERBRIGHT = 4;
 
 		public static ColorRGBExp32 ConvertQ3LightmapToColorRGBExp32(byte r, byte g, byte b, bool clampOverbright = false)
 		{

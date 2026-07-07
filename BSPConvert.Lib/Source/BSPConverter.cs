@@ -2485,6 +2485,30 @@ namespace BSPConvert.Lib
 				ConvertExternalLightmaps();
 		}
 
+		// Builds the world-space fog gradient baker for this map, or null when no shader needs it (so the
+		// content-folder scan is skipped on the common case). Shared by the internal and external lightmap paths.
+		private WorldFogGradientBaker? CreateFogBaker()
+		{
+			return shaderDict.Values.Any(s => WorldFogGradientBaker.GetFogGradientStage(s) != null)
+				? new WorldFogGradientBaker(contentManager.ContentDir)
+				: null;
+		}
+
+		// The fog overlay + luxel->world map for a face, or (null, default) when the face isn't a world-space fog
+		// gradient surface. Such a shader (an alpha-blended "tcGen vector" overlay over the lightmapped base) has
+		// no Source material equivalent, so its gradient is baked per-luxel into the lightmap by the callers.
+		private (WorldFogGradientBaker.FogOverlay?, WorldFogGradientBaker.LuxelToWorld) GetFaceFog(WorldFogGradientBaker? baker, Face qFace)
+		{
+			if (baker != null && shaderDict.TryGetValue(qFace.Texture.Name, out var shader))
+			{
+				var overlay = baker.GetOverlay(qFace.Texture.Name, shader);
+				if (overlay != null)
+					return (overlay, WorldFogGradientBaker.BuildLuxelToWorld(qFace.Vertices));
+			}
+
+			return (null, default);
+		}
+
 		// True if the Q3 face was emitted as primitive mesh face(s) (lightCoords baked by the converter)
 		// rather than displacement(s) (lightCoords computed at runtime by the engine). A Q3 face's split
 		// faces are homogeneous in the cases that matter here: non-patch polygons -> prims; patches ->
@@ -2502,6 +2526,8 @@ namespace BSPConvert.Lib
 			var qLightmapData = quakeBsp.Lightmaps.Data;
 			var lmColors = new List<ColorRGBExp32>();
 
+			var fogBaker = CreateFogBaker();
+
 			for (var faceIndex = 0; faceIndex < quakeBsp.Faces.Count; faceIndex++)
 			{
 				var qFace = quakeBsp.Faces[faceIndex];
@@ -2513,6 +2539,8 @@ namespace BSPConvert.Lib
 				// conversion. Skip them here so we don't append orphan luxels or throw on the lookup below.
 				if (!splitFaceDict.TryGetValue(faceIndex, out var splitFaces) || splitFaces.Length == 0)
 					continue;
+
+				var (fogOverlay, fogMap) = GetFaceFog(fogBaker, qFace);
 
 				(var lmStart, var lmEnd) = GetLightmapExtents(qFace.Vertices, Q3_LIGHTMAP_SIZE);
 				var lmSize = lmEnd - lmStart;
@@ -2549,11 +2577,19 @@ namespace BSPConvert.Lib
 						var sx = Math.Clamp(Math.Clamp(x, (int)lmStart.X, (int)lmEnd.X), 0, Q3_LIGHTMAP_SIZE - 1);
 						var index = sx + (sy * Q3_LIGHTMAP_SIZE);
 
-						var color = ColorUtil.ConvertQ3LightmapToColorRGBExp32(
-							qLightmapData[q3LightmapOffset + index * 3 + 0],
-							qLightmapData[q3LightmapOffset + index * 3 + 1],
-							qLightmapData[q3LightmapOffset + index * 3 + 2],
-							options.clampOverbright);
+						var r = qLightmapData[q3LightmapOffset + index * 3 + 0];
+						var g = qLightmapData[q3LightmapOffset + index * 3 + 1];
+						var b = qLightmapData[q3LightmapOffset + index * 3 + 2];
+
+						if (fogOverlay != null)
+						{
+							// Sample the fog at the luxel's page-relative lightmap coords (its texel center).
+							var u = (sx + 0.5f) / Q3_LIGHTMAP_SIZE;
+							var v = (sy + 0.5f) / Q3_LIGHTMAP_SIZE;
+							(r, g, b) = fogBaker!.Blend(fogOverlay, fogMap, r, g, b, u, v);
+						}
+
+						var color = ColorUtil.ConvertQ3LightmapToColorRGBExp32(r, g, b, options.clampOverbright);
 
 						lmColors.Add(color);
 					}
@@ -2589,6 +2625,7 @@ namespace BSPConvert.Lib
 		private void ConvertExternalLightmaps()
 		{
 			var lmColors = new List<ColorRGBExp32>();
+			var fogBaker = CreateFogBaker();
 
 			for (var faceIndex = 0; faceIndex < quakeBsp.Faces.Count; faceIndex++)
 			{
@@ -2610,6 +2647,8 @@ namespace BSPConvert.Lib
 				if (!splitFaceDict.TryGetValue(faceIndex, out var splitFaces) || splitFaces.Length == 0)
 					continue;
 
+				var (fogOverlay, fogMap) = GetFaceFog(fogBaker, qFace);
+
 				(var lmStart, var lmEnd) = GetLightmapExtents(qFace.Vertices, lmData.size.X);
 				var lmSize = lmEnd - lmStart;
 
@@ -2630,11 +2669,19 @@ namespace BSPConvert.Lib
 						var sx = Math.Clamp(Math.Clamp(x, (int)lmStart.X, (int)lmEnd.X), 0, lmWidth - 1);
 						var index = sx + sy * lmWidth;
 
-						var color = ColorUtil.ConvertQ3LightmapToColorRGBExp32(
-							lmData.data[index * 3 + 0],
-							lmData.data[index * 3 + 1],
-							lmData.data[index * 3 + 2],
-							options.clampOverbright);
+						var r = lmData.data[index * 3 + 0];
+						var g = lmData.data[index * 3 + 1];
+						var b = lmData.data[index * 3 + 2];
+
+						if (fogOverlay != null)
+						{
+							// Sample the fog at the luxel's page-relative lightmap coords (its texel center).
+							var u = (sx + 0.5f) / lmWidth;
+							var v = (sy + 0.5f) / lmHeight;
+							(r, g, b) = fogBaker!.Blend(fogOverlay, fogMap, r, g, b, u, v);
+						}
+
+						var color = ColorUtil.ConvertQ3LightmapToColorRGBExp32(r, g, b, options.clampOverbright);
 
 						lmColors.Add(color);
 					}
