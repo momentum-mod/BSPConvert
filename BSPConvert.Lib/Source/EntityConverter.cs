@@ -1064,17 +1064,24 @@ namespace BSPConvert.Lib
 			if (!spawnflags.HasFlag(TargetInitFlags.KeepWeapons))
 			{
 				RemoveWeaponOnOutput(entity, "weapon_momentum_df_grenadelauncher", output, delay);
+				RemoveAmmoOnOutput(entity, "SetGrenades", output, delay);
 				RemoveWeaponOnOutput(entity, "weapon_momentum_df_rocketlauncher", output, delay);
+				RemoveAmmoOnOutput(entity, "SetRockets", output, delay);
 				RemoveWeaponOnOutput(entity, "weapon_momentum_df_plasmagun", output, delay);
+				RemoveAmmoOnOutput(entity, "SetCells", output, delay);
 				RemoveWeaponOnOutput(entity, "weapon_momentum_df_lightninggun", output, delay);
+				RemoveAmmoOnOutput(entity, "SetLightning", output, delay);
 				RemoveWeaponOnOutput(entity, "weapon_momentum_df_railgun", output, delay);
+				RemoveAmmoOnOutput(entity, "SetRails", output, delay);
 				RemoveWeaponOnOutput(entity, "weapon_momentum_df_bfg", output, delay);
+				RemoveAmmoOnOutput(entity, "SetBfgRockets", output, delay);
 				RemoveWeaponOnOutput(entity, "weapon_momentum_df_shotgun", output, delay);
-				RemoveAmmoOnOutput(entity, output, delay);
+				RemoveAmmoOnOutput(entity, "SetShells", output, delay);
 			}
 			if (spawnflags.HasFlag(TargetInitFlags.RemoveMachineGun))
 			{
 				RemoveWeaponOnOutput(entity, "weapon_momentum_df_machinegun", output, delay);
+				RemoveAmmoOnOutput(entity, "SetBullets", output, delay);
 			}
 		}
 
@@ -1091,13 +1098,13 @@ namespace BSPConvert.Lib
 			};
 			entity.connections.Add(connection);
 		}
-		private void RemoveAmmoOnOutput(Entity entity, string output, float delay)
+		private void RemoveAmmoOnOutput(Entity entity, string ammoName, string output, float delay)
 		{
 			var connection = new Entity.EntityConnection()
 			{
 				name = output,
 				target = "!player",
-				action = "SetAmmo",
+				action = ammoName,
 				param = "0",
 				delay = delay,
 				fireOnce = -1
