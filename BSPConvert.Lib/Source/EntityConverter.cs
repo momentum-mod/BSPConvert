@@ -1098,6 +1098,7 @@ namespace BSPConvert.Lib
 			};
 			entity.connections.Add(connection);
 		}
+
 		private void RemoveAmmoOnOutput(Entity entity, string ammoName, string output, float delay)
 		{
 			var connection = new Entity.EntityConnection()
