@@ -1070,6 +1070,7 @@ namespace BSPConvert.Lib
 				RemoveWeaponOnOutput(entity, "weapon_momentum_df_railgun", output, delay);
 				RemoveWeaponOnOutput(entity, "weapon_momentum_df_bfg", output, delay);
 				RemoveWeaponOnOutput(entity, "weapon_momentum_df_shotgun", output, delay);
+				RemoveAmmoOnOutput(entity, output, delay);
 			}
 			if (spawnflags.HasFlag(TargetInitFlags.RemoveMachineGun))
 			{
@@ -1085,6 +1086,19 @@ namespace BSPConvert.Lib
 				target = "!player",
 				action = "RemoveWeapon",
 				param = weaponName,
+				delay = delay,
+				fireOnce = -1
+			};
+			entity.connections.Add(connection);
+		}
+		private void RemoveAmmoOnOutput(Entity entity, string output, float delay)
+		{
+			var connection = new Entity.EntityConnection()
+			{
+				name = output,
+				target = "!player",
+				action = "SetAmmo",
+				param = "0",
 				delay = delay,
 				fireOnce = -1
 			};
