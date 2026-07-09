@@ -238,8 +238,47 @@ namespace BSPConvert.Lib
 				}
 			}
 
+			foreach (var entity in sourceEntities)
+				PrioritizeConnections(entity);
+
 			foreach (var entity in removeEntities)
 				sourceEntities.Remove(entity);
+		}
+
+		private static void PrioritizeConnections(Entity entity)
+		{
+			if (entity.connections.Count <= 1)
+				return;
+
+			var priorityFirst = new List<Entity.EntityConnection>();
+			var prioritySecond = new List<Entity.EntityConnection>();
+			var priorityLast = new List<Entity.EntityConnection>();
+
+			foreach (var connection in entity.connections)
+			{
+				var action = connection.action;
+				var param = connection.param;
+
+				var isRemoveWeapon = string.Equals(action, "RemoveWeapon", StringComparison.OrdinalIgnoreCase);
+				var isSetZero = action.StartsWith("Set", StringComparison.OrdinalIgnoreCase) && string.Equals(param, "0", StringComparison.OrdinalIgnoreCase);
+				var isSetNonZero = action.StartsWith("Set", StringComparison.OrdinalIgnoreCase) && !string.Equals(param, "0", StringComparison.OrdinalIgnoreCase);
+
+				if (isRemoveWeapon || isSetZero) // Remove old weapons/ammo/powerups first
+					priorityFirst.Add(connection);
+				else if (isSetNonZero) // Set new weapons/ammo/powerup values second
+					prioritySecond.Add(connection);
+				else
+					priorityLast.Add(connection); // Other connections e.g. "AddCells" last to add on top of the initially "Set" outputs
+			}
+
+			if (priorityFirst.Count == 0 && prioritySecond.Count == 0)
+				return;
+
+			// Clear connections and add them back in order of importance
+			entity.connections.Clear();
+			entity.connections.AddRange(priorityLast);
+			entity.connections.AddRange(prioritySecond);
+			entity.connections.AddRange(priorityFirst);
 		}
 
 		private void ConvertTeleportDestination(Entity entity)
@@ -1168,15 +1207,15 @@ namespace BSPConvert.Lib
 				switch (target.ClassName)
 				{
 					case "item_haste":
-						SetHasteOnOutput(entity, ConvertPowerupCount(target["count"]), output, delay + 0.008f); // Hack to make giving haste happen after target_init strip
+						SetHasteOnOutput(entity, ConvertPowerupCount(target["count"]), output, delay);
 						break;
 					case "item_enviro": // TODO: Not supported yet
 						break;
 					case "item_flight":
-						SetFlightOnOutput(entity, ConvertPowerupCount(target["count"]), output, delay + 0.008f); // Hack to make giving flight happen after target_init strip
+						SetFlightOnOutput(entity, ConvertPowerupCount(target["count"]), output, delay);
 						break;
 					case "item_quad":
-						SetQuadOnOutput(entity, ConvertPowerupCount(target["count"]), output, delay + 0.008f); // Hack to make giving quad happen after target_init strip
+						SetQuadOnOutput(entity, ConvertPowerupCount(target["count"]), output, delay);
 						break;
 					default:
 						if (target.ClassName.StartsWith("weapon_", StringComparison.OrdinalIgnoreCase))
@@ -1233,7 +1272,7 @@ namespace BSPConvert.Lib
 				target = "!player",
 				action = "GiveWeapon",
 				param = weaponName,
-				delay = delay + 0.008f, //hack to make giving weapon happen after target_init strip
+				delay = delay,
 				fireOnce = -1
 			};
 			entity.connections.Add(connection);
@@ -1330,7 +1369,7 @@ namespace BSPConvert.Lib
 				target = "!player",
 				action = ammoOutput,
 				param = count,
-				delay = delay + 0.008f, //hack to make adding ammo happen after setting ammo
+				delay = delay,
 				fireOnce = -1
 			};
 			entity.connections.Add(connection);
