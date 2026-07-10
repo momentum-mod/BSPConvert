@@ -105,6 +105,13 @@ namespace BSPConvert.Lib
 		// at a face's edge samples its own (duplicated) edge color instead of bleeding in the adjacent
 		// block packed next to it in the lightmap atlas page.
 		private const int LIGHTMAP_BORDER = 1;
+		// Maximum luxel extent, per axis, of a face's stored lightmap size (LightmapSize). The Source engine
+		// fatally errors ("Bad surface extents") if a face's stored lightmap extent exceeds
+		// MAX_BRUSH_LIGHTMAP_SIZE (1024), and the lightmap page it packs into is only 2048x1024 - the engine
+		// allocates (extent + 1) luxels, so the page height caps the stored extent at 1023. Maps compiled with
+		// large external lightmap atlases (e.g. 2048x2048) can give a single large surface a luxel block bigger
+		// than this, so GetFaceLightmapBlock downscales such blocks to fit.
+		private const int MAX_LIGHTMAP_EXTENT = 1023;
 		private const string invisibleDisplacementTexture = "tools/toolsinvisibledisplacement";
 
 		public BSPConverter(BSPConverterOptions options, ILogger logger)
@@ -2068,14 +2075,12 @@ namespace BSPConvert.Lib
 		{
 			var firstPrimVertex = sourceBsp.PrimitiveVertices.Count;
 
-			var lightmapSize = GetFaceLightmapSize(qFace);
-
 			// Normalize lightmap coords against the SAME rect that ConvertInternalLightmaps copies for
 			// this face: the whole patch's control-point lightmap UV extents. The engine feeds a
 			// primitive vertex's lightCoord straight to the lightmap sampler (it doesn't use the face's
 			// LightmapStart/vecs for prims), so [0,1] must span exactly that copied rect. Using the
 			// local tessellated sub-patch extents here instead shifts each sub-patch's lightmap sideways.
-			(var lmStart, var lmEnd) = GetLightmapExtents(qFace.Vertices, lightmapSize);
+			(var lmStart, var lmEnd, var lightmapSize) = GetFaceLightmapBlock(qFace);
 			var extents = lmEnd - lmStart;
 
 			for (var i = 0; i < positions.Length; i++)
@@ -2150,9 +2155,7 @@ namespace BSPConvert.Lib
 		{
 			var firstPrimVertex = sourceBsp.PrimitiveVertices.Count;
 
-			var lightmapSize = GetFaceLightmapSize(qFace);
-
-			(var lmStart, var lmEnd) = GetLightmapExtents(vertices, lightmapSize);
+			(var lmStart, var lmEnd, var lightmapSize) = GetFaceLightmapBlock(qFace);
 			var extents = lmEnd - lmStart;
 
 			foreach (var vertex in vertices)
@@ -2190,6 +2193,39 @@ namespace BSPConvert.Lib
 			return Q3_LIGHTMAP_SIZE;
 		}
 
+		// Computes a face's lightmap block in atlas luxel space: the start/end luxel coords and the atlas size
+		// used to derive them. If the block would exceed what the engine can store/pack (MAX_LIGHTMAP_EXTENT),
+		// it's downscaled uniformly to fit. Both the baked prim lightCoords (ComputePrimLightmapCoord) and the
+		// copied lightmap luxels (ConvertExternalLightmaps) MUST derive from these same values, or they won't
+		// line up. Lightmaps are low frequency, so the reduced resolution on an oversized surface isn't
+		// noticeable. Internal Q3 lightmaps (128x128 pages) never exceed the limit, so this is a no-op for them.
+		private (Vector2 lmStart, Vector2 lmEnd, float lightmapSize) GetFaceLightmapBlock(Face qFace)
+		{
+			float lightmapSize = GetFaceLightmapSize(qFace);
+			(var lmStart, var lmEnd) = GetLightmapExtents(qFace.Vertices, lightmapSize);
+			var extents = lmEnd - lmStart;
+
+			// The stored LightmapSize grows by 2*LIGHTMAP_BORDER for the guard band (see ConvertExternalLightmaps),
+			// so the raw block must leave room for it. Use the border unconditionally (prim faces); displacement
+			// faces use no border and so end up capped slightly more conservatively, which is harmless.
+			var maxContent = MAX_LIGHTMAP_EXTENT - 2 * LIGHTMAP_BORDER;
+			var maxAxis = Math.Max(extents.X, extents.Y);
+			if (maxAxis > maxContent)
+			{
+				lightmapSize *= maxContent / maxAxis;
+				(lmStart, lmEnd) = GetLightmapExtents(qFace.Vertices, lightmapSize);
+
+				// floor/ceil after scaling can round the block a luxel or two back over the target; hard-clamp
+				// the end so the padded stored size can never exceed the engine limit.
+				if (lmEnd.X - lmStart.X > maxContent)
+					lmEnd.X = lmStart.X + maxContent;
+				if (lmEnd.Y - lmStart.Y > maxContent)
+					lmEnd.Y = lmStart.Y + maxContent;
+			}
+
+			return (lmStart, lmEnd, lightmapSize);
+		}
+
 		// Maps a Quake 3 lightmap UV to the [0,1] lightCoord the engine expects for a prim-mesh vertex.
 		// The engine (GenerateTexCoordsForPrimVerts) computes the final atlas coord as
 		//   offset + lightCoord * (LightmapExtents / pageSize)
@@ -2203,7 +2239,7 @@ namespace BSPConvert.Lib
 		// coords from world position (grid-relative); adding it here too double-counts and pushes every
 		// vertex a full luxel toward the high edge, so the surface edge samples the q3map2 gutter/neighbour
 		// luxel left by ceil(maxSt) -> lightmap bleed. 'extents' is the original (lmEnd - lmStart).
-		private Vector2 ComputePrimLightmapCoord(Vector2 uv1, Vector2 lmStart, Vector2 extents, int lightmapSize)
+		private Vector2 ComputePrimLightmapCoord(Vector2 uv1, Vector2 lmStart, Vector2 extents, float lightmapSize)
 		{
 			var paddedX = extents.X + 2 * LIGHTMAP_BORDER;
 			var paddedY = extents.Y + 2 * LIGHTMAP_BORDER;
@@ -2610,7 +2646,9 @@ namespace BSPConvert.Lib
 				if (!splitFaceDict.TryGetValue(faceIndex, out var splitFaces) || splitFaces.Length == 0)
 					continue;
 
-				(var lmStart, var lmEnd) = GetLightmapExtents(qFace.Vertices, lmData.size.X);
+				// lmStart/lmEnd/lightmapSize are in the (possibly downscaled) atlas space GetFaceLightmapBlock
+				// caps to the engine's max lightmap extent; the same values feed the baked prim lightCoords.
+				(var lmStart, var lmEnd, var lightmapSize) = GetFaceLightmapBlock(qFace);
 				var lmSize = lmEnd - lmStart;
 
 				var lightmapOffset = lmColors.Count * 4;
@@ -2619,15 +2657,22 @@ namespace BSPConvert.Lib
 				var border = FaceOutputUsesPrimitives(faceIndex) ? LIGHTMAP_BORDER : 0;
 				var lmWidth = (int)lmData.size.X;
 				var lmHeight = (int)lmData.size.Y;
+				// When the block was downscaled, its luxel coords live in a smaller atlas (lightmapSize); map
+				// each back to the original image to read its color. Without scaling this ratio is 1.
+				var readScaleX = lmWidth / lightmapSize;
+				var readScaleY = lmHeight / lightmapSize;
 				for (var y = (int)lmStart.Y - border; y <= (int)lmEnd.Y + border; y++)
 				{
-					// Clamp to the face's rect, then to the image bounds: lmEnd = ceil(uvMax*size) can be one
-					// past the last valid luxel when a face's lightmap UV reaches the image edge, which would
-					// index past the end of the (single) external lightmap image -> IndexOutOfRange.
-					var sy = Math.Clamp(Math.Clamp(y, (int)lmStart.Y, (int)lmEnd.Y), 0, lmHeight - 1);
+					// Clamp to the face's rect (so the border duplicates the edge luxel), then map to the source
+					// image and clamp to its bounds: lmEnd = ceil(uvMax*size) can be one past the last valid luxel
+					// when a face's lightmap UV reaches the image edge, which would index past the end of the
+					// (single) external lightmap image -> IndexOutOfRange.
+					var cy = Math.Clamp(y, (int)lmStart.Y, (int)lmEnd.Y);
+					var sy = Math.Clamp((int)Math.Round(cy * readScaleY), 0, lmHeight - 1);
 					for (var x = (int)lmStart.X - border; x <= (int)lmEnd.X + border; x++)
 					{
-						var sx = Math.Clamp(Math.Clamp(x, (int)lmStart.X, (int)lmEnd.X), 0, lmWidth - 1);
+						var cx = Math.Clamp(x, (int)lmStart.X, (int)lmEnd.X);
+						var sx = Math.Clamp((int)Math.Round(cx * readScaleX), 0, lmWidth - 1);
 						var index = sx + sy * lmWidth;
 
 						var color = ColorUtil.ConvertQ3LightmapToColorRGBExp32(
