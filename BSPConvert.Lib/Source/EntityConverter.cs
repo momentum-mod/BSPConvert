@@ -258,17 +258,23 @@ namespace BSPConvert.Lib
 			{
 				var action = connection.action;
 				var param = connection.param;
+				var target = connection.target;
 
-				var isRemoveWeapon = string.Equals(action, "RemoveWeapon", StringComparison.OrdinalIgnoreCase);
-				var isSetZero = action.StartsWith("Set", StringComparison.OrdinalIgnoreCase) && string.Equals(param, "0", StringComparison.OrdinalIgnoreCase);
-				var isSetNonZero = action.StartsWith("Set", StringComparison.OrdinalIgnoreCase) && !string.Equals(param, "0", StringComparison.OrdinalIgnoreCase);
+				if (target == "!player")
+				{
+					var isRemoveWeapon = string.Equals(action, "RemoveWeapon", StringComparison.OrdinalIgnoreCase);
+					var isSetZero = action.StartsWith("Set", StringComparison.OrdinalIgnoreCase) && string.Equals(param, "0", StringComparison.OrdinalIgnoreCase);
+					var isSetNonZero = action.StartsWith("Set", StringComparison.OrdinalIgnoreCase) && !string.Equals(param, "0", StringComparison.OrdinalIgnoreCase);
 
-				if (isRemoveWeapon || isSetZero) // Remove old weapons/ammo/powerups first
-					priorityFirst.Add(connection);
-				else if (isSetNonZero) // Set new weapons/ammo/powerup values second
-					prioritySecond.Add(connection);
+					if (isRemoveWeapon || isSetZero) // Remove old weapons/ammo/powerups first
+						priorityFirst.Add(connection);
+					else if (isSetNonZero) // Set new weapons/ammo/powerup values second
+						prioritySecond.Add(connection);
+					else
+						priorityLast.Add(connection); // Other connections e.g. "AddCells" last to add on top of the initially "Set" outputs
+				}
 				else
-					priorityLast.Add(connection); // Other connections e.g. "AddCells" last to add on top of the initially "Set" outputs
+					priorityLast.Add(connection);
 			}
 
 			if (priorityFirst.Count == 0 && prioritySecond.Count == 0)
