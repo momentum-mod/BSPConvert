@@ -250,6 +250,9 @@ namespace BSPConvert.Lib
 			if (entity.connections.Count <= 1)
 				return;
 
+			if (!entity.connections.Any(x => x.target == "!player"))
+				return;
+
 			var priorityFirst = new List<Entity.EntityConnection>();
 			var prioritySecond = new List<Entity.EntityConnection>();
 			var priorityLast = new List<Entity.EntityConnection>();
