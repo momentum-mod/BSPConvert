@@ -2501,6 +2501,7 @@ namespace BSPConvert.Lib
 		{
 			var qLightmapData = quakeBsp.Lightmaps.Data;
 			var lmColors = new List<ColorRGBExp32>();
+			var internalLightmap = true;
 
 			for (var faceIndex = 0; faceIndex < quakeBsp.Faces.Count; faceIndex++)
 			{
@@ -2553,7 +2554,8 @@ namespace BSPConvert.Lib
 							qLightmapData[q3LightmapOffset + index * 3 + 0],
 							qLightmapData[q3LightmapOffset + index * 3 + 1],
 							qLightmapData[q3LightmapOffset + index * 3 + 2],
-							options.clampOverbright);
+							options.clampOverbright,
+							internalLightmap);
 
 						lmColors.Add(color);
 					}
@@ -2589,6 +2591,7 @@ namespace BSPConvert.Lib
 		private void ConvertExternalLightmaps()
 		{
 			var lmColors = new List<ColorRGBExp32>();
+			var internalLightmap = false;
 
 			for (var faceIndex = 0; faceIndex < quakeBsp.Faces.Count; faceIndex++)
 			{
@@ -2634,7 +2637,8 @@ namespace BSPConvert.Lib
 							lmData.data[index * 3 + 0],
 							lmData.data[index * 3 + 1],
 							lmData.data[index * 3 + 2],
-							options.clampOverbright);
+							options.clampOverbright,
+							internalLightmap);
 
 						lmColors.Add(color);
 					}
