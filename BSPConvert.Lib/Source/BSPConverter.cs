@@ -235,7 +235,9 @@ namespace BSPConvert.Lib
 
 		private void PrepareAssets()
 		{
-			if (quakeBsp.Faces.Any(x => x.Type == FaceType.Patch && x.Texture.Name.StartsWith("tools/", StringComparison.OrdinalIgnoreCase)))
+			// Patches converted to primitives use invisible displacements for collisions
+			if (quakeBsp.Faces.Any(x => x.Type == FaceType.Patch &&
+				(options.patchesAsPrimitives || x.Texture.Name.StartsWith("tools/", StringComparison.OrdinalIgnoreCase))))
 			{
 				// Copy invisible displacement assets to content dir
 				FileUtil.CopyBuiltinMaterialAsset(Path.Combine("tools", "toolsinvisibledisplacement.vmt"), contentManager.ContentDir);
