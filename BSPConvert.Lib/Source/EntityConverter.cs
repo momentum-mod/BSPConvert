@@ -1602,7 +1602,7 @@ namespace BSPConvert.Lib
 				case "item_flight":
 					return "momentum_powerup_flight";
 				case "item_quad":
-					return "momentum_powerup_damage_boost";
+					return "momentum_powerup_damageboost";
 				default:
 					return string.Empty;
 			}
@@ -1679,7 +1679,7 @@ namespace BSPConvert.Lib
 				case "momentum_powerup_flight":
 					itemEnt["flighttime"] = ConvertPowerupCount(itemEnt["count"]);
 					break;
-				case "momentum_powerup_damage_boost":
+				case "momentum_powerup_damageboost":
 					itemEnt["damageboosttime"] = ConvertPowerupCount(itemEnt["count"]);
 					break;
 			}
@@ -1710,7 +1710,7 @@ namespace BSPConvert.Lib
 				case "item_flight":
 					return "momentum_powerup_flight";
 				case "item_quad":
-					return "momentum_powerup_damage_boost";
+					return "momentum_powerup_damageboost";
 				default:
 					return q3ItemName; // Unsupported item, return original classname to avoid crash
 			}
