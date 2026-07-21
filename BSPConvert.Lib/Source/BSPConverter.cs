@@ -2679,7 +2679,8 @@ namespace BSPConvert.Lib
 							lmData.data[index * 3 + 0],
 							lmData.data[index * 3 + 1],
 							lmData.data[index * 3 + 2],
-							options.clampOverbright);
+							options.clampOverbright,
+							applyOverbright: false); // Don't apply overbright to external lightmaps
 
 						lmColors.Add(color);
 					}

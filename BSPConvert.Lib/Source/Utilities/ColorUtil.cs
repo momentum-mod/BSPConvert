@@ -8,7 +8,7 @@
 		// world geometry and brush entities.
 		private const int OVERBRIGHT = 4;
 
-		public static ColorRGBExp32 ConvertQ3LightmapToColorRGBExp32(byte r, byte g, byte b, bool clampOverbright = false)
+		public static ColorRGBExp32 ConvertQ3LightmapToColorRGBExp32(byte r, byte g, byte b, bool clampOverbright = false, bool applyOverbright = true)
 		{
 			// The white point (brightest surviving luxel) is 255/OVERBRIGHT when the overbright clamp is
 			// active, otherwise the full 8-bit range survives; the black-point lift remaps against it.
@@ -17,11 +17,13 @@
 			if (clampOverbright)
 				(r, g, b) = ApplyOverbrightClamp(r, g, b);
 
+			var overbright = applyOverbright ? OVERBRIGHT : 1; // External lightmaps don't need the 4x overbright, only apply to internal lightmaps.
+
 			// The * 4f maps into the 0-4 HDR range Source's lightmap format expects; the * OVERBRIGHT bakes
 			// in Quake 3's display overbright so the renderer needs no extra per-material scaling.
-			var rf = GammaToLinear(r) * 4f * OVERBRIGHT;
-			var gf = GammaToLinear(g) * 4f * OVERBRIGHT;
-			var bf = GammaToLinear(b) * 4f * OVERBRIGHT;
+			var rf = GammaToLinear(r) * 4f * overbright;
+			var gf = GammaToLinear(g) * 4f * overbright;
+			var bf = GammaToLinear(b) * 4f * overbright;
 
 			return PackColorRGBExp32(rf, gf, bf);
 		}
