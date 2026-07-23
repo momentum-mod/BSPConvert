@@ -1135,6 +1135,9 @@ namespace BSPConvert.Lib
 
 		private static void RemoveWeaponOnOutput(Entity entity, string weaponName, string output, float delay)
 		{
+			if (entity.connections.Any(c => c.action == "GiveWeapon" && c.param == weaponName))
+				return; // Don't remove weapon if it is also being given by the same entity
+
 			var connection = new Entity.EntityConnection()
 			{
 				name = output,
@@ -1307,6 +1310,7 @@ namespace BSPConvert.Lib
 				fireOnce = -1
 			};
 			entity.connections.Add(connection);
+			entity.connections.RemoveAll(c => c.action == "RemoveWeapon" && c.param == weaponName); // Remove any instances where the weapon being given is also being removed
 
 			GiveWeaponAmmoOnOutput(entity, weaponEnt, output, delay);
 		}
