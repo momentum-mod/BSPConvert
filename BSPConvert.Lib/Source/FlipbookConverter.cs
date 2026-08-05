@@ -151,7 +151,7 @@ namespace BSPConvert.Lib
 			// additive-sum below. That's a complex layered effect (e.g. masked ring animations over a decal) - hand
 			// it to the unified compositor, which replays each stage's real blendFunc, animMap, tcMod and waveforms.
 			if (stages.Skip(1).Any(s => !IsAdditiveBlend(s)))
-				return BakeAnimatedStack(textureName, shader, stages, ClassifyOutputMode(stages));
+				return BakeAnimatedStack(textureName, shader, stages, ClassifyOutputMode(shader, stages));
 
 			// The surface is additive (black = transparent) only when every stage is an additive/overlay glow.
 			// If there's an opaque base stage (e.g. a lit launchpad texture under additive arrow/dot overlays),
