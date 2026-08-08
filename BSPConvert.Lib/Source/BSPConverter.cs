@@ -675,8 +675,11 @@ namespace BSPConvert.Lib
 			var version = options.oldBSP ? 1 : 2;
 			SetLumpVersionNumber(Leaf.GetIndexForLump(sourceBsp.MapType), version);
 
-			foreach (var qLeaf in quakeBsp.Leaves)
+			var sky2DLeaves = ComputeSky2DLeaves();
+
+			for (var leafIndex = 0; leafIndex < quakeBsp.Leaves.Count; leafIndex++)
 			{
+				var qLeaf = quakeBsp.Leaves[leafIndex];
 				var data = new byte[Leaf.GetStructLength(sourceBsp.MapType)];
 				var leaf = new Leaf(data, sourceBsp.Leaves);
 
@@ -688,7 +691,7 @@ namespace BSPConvert.Lib
 				else
 				{
 					leaf.Contents = qLeaf.Area >= 0 ? 0 : 1; // Set to 0 when inside map, 1 when outside map or overlapping brush
-					leaf.Flags = qLeaf.Area >= 0 ? (int)(LeafFlags.RADIAL | LeafFlags.SKY2D) : 0; // TODO: Detect if the leaf has a leaf face that has a texinfo with the SURF_SKY or SURF_SKY2D flag
+					leaf.Flags = qLeaf.Area >= 0 ? (int)(LeafFlags.RADIAL | (sky2DLeaves.Contains(leafIndex) ? LeafFlags.SKY2D : 0)) : 0;
 				}
 				leaf.Visibility = qLeaf.Visibility;
 				leaf.Area = 0; // TODO: Convert Q3 areas?
@@ -704,12 +707,90 @@ namespace BSPConvert.Lib
 			}
 		}
 
+		// Which Q3 leaves should carry Source's LeafFlags.SKY2D ("this leaf has 2D sky in its PVS"): a leaf
+		// whose own mark faces include a surface that reveals Source's global skybox (see IsSkySurface), or
+		// any leaf that can see such a leaf through the PVS. Flagging every leaf regardless of the sky's
+		// actual reach would mean a map whose only real Q3 sky is a hidden/leak-sealing utility brush (never
+		// meant to be visible) still shows the global sky through gaps or translucent surfaces that
+		// shouldn't have one. Falls back to flagging every leaf when the map has no usable vis data, since
+		// visibility can't be reasoned about in that case.
+		private HashSet<int> ComputeSky2DLeaves()
+		{
+			var leavesWithSky = new HashSet<int>();
+			for (var i = 0; i < quakeBsp.Leaves.Count; i++)
+			{
+				foreach (var faceIndex in quakeBsp.Leaves[i].MarkFaces)
+				{
+					if (faceIndex < 0 || faceIndex >= quakeBsp.Faces.Count)
+						continue;
+
+					if (IsSkySurface(quakeBsp.Faces[faceIndex].Texture))
+					{
+						leavesWithSky.Add(i);
+						break;
+					}
+				}
+			}
+
+			var sky2DLeaves = new HashSet<int>();
+			if (leavesWithSky.Count == 0)
+				return sky2DLeaves; // No sky anywhere - no leaf should reveal one.
+
+			var vis = quakeBsp.Visibility;
+			var numClusters = vis?.NumClusters ?? 0;
+			var clusterSize = vis?.ClusterSize ?? 0;
+			if (vis?.Data == null || vis.Data.Length < 8 || numClusters <= 0 || clusterSize <= 0)
+			{
+				// Unvised map - can't reason about visibility, so conservatively keep the old blanket behavior.
+				for (var i = 0; i < quakeBsp.Leaves.Count; i++)
+					sky2DLeaves.Add(i);
+				return sky2DLeaves;
+			}
+
+			// The PVS bit vectors start after the two header ints; cluster A sees cluster B when bit B is set
+			// in A's vector. Q3 stores this uncompressed (unlike Quake 1/2), so it's a direct bit test.
+			bool CanSee(int from, int to)
+			{
+				if (from < 0 || to < 0)
+					return false;
+				var byteIndex = 8 + from * clusterSize + (to >> 3);
+				if (byteIndex < 0 || byteIndex >= vis.Data.Length)
+					return false;
+				return (vis.Data[byteIndex] & (1 << (to & 7))) != 0;
+			}
+
+			var skyClusters = new HashSet<int>();
+			foreach (var leafIndex in leavesWithSky)
+			{
+				var cluster = quakeBsp.Leaves[leafIndex].Visibility;
+				if (cluster >= 0)
+					skyClusters.Add(cluster);
+			}
+
+			for (var i = 0; i < quakeBsp.Leaves.Count; i++)
+			{
+				if (leavesWithSky.Contains(i))
+				{
+					sky2DLeaves.Add(i);
+					continue;
+				}
+
+				var cluster = quakeBsp.Leaves[i].Visibility;
+				if (cluster >= 0 && skyClusters.Any(skyCluster => CanSee(cluster, skyCluster)))
+					sky2DLeaves.Add(i);
+			}
+
+			return sky2DLeaves;
+		}
+
 		private void ConvertLeaves_SplitFaces()
 		{
 			var version = options.oldBSP ? 1 : 2;
 			SetLumpVersionNumber(Leaf.GetIndexForLump(sourceBsp.MapType), version);
 
 			var currentFaceIndex = 0;
+			var sky2DLeaves = ComputeSky2DLeaves();
+			var leafIndex = 0;
 
 			foreach (var qLeaf in quakeBsp.Leaves)
 			{
@@ -724,8 +805,9 @@ namespace BSPConvert.Lib
 				else
 				{
 					leaf.Contents = qLeaf.Area >= 0 ? 0 : 1; // Set to 0 when inside map, 1 when outside map or overlapping brush
-					leaf.Flags = qLeaf.Area >= 0 ? (int)(LeafFlags.RADIAL | LeafFlags.SKY2D) : 0; // TODO: Detect if the leaf has a leaf face that has a texinfo with the SURF_SKY or SURF_SKY2D flag
+					leaf.Flags = qLeaf.Area >= 0 ? (int)(LeafFlags.RADIAL | (sky2DLeaves.Contains(leafIndex) ? LeafFlags.SKY2D : 0)) : 0;
 				}
+				leafIndex++;
 				leaf.Visibility = qLeaf.Visibility;
 				leaf.Area = 0; // TODO: Convert Q3 areas?
 				leaf.Minimums = qLeaf.Minimums;
