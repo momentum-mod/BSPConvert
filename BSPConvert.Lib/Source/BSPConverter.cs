@@ -2382,24 +2382,14 @@ namespace BSPConvert.Lib
 			textureInfo.VAxis = vAxis;
 			textureInfo.LightmapUAxis = uAxis / 32f;
 			textureInfo.LightmapVAxis = vAxis / 32f;
-			textureInfo.TextureIndex = LookupTextureDataIndex(textureName);
+			textureInfo.Flags = GetSourceSurfaceFlags(texture);
 
-			var q3Flags = (Q3SurfaceFlags)texture.Flags;
-			if (q3Flags.HasFlag(Q3SurfaceFlags.SURF_SLICK))
-				textureInfo.Flags |= (int)SourceSurfaceFlags.SURF_SLICK;
-
-			if (q3Flags.HasFlag(Q3SurfaceFlags.SURF_NOLIGHTMAP))
-				textureInfo.Flags |= (int)SourceSurfaceFlags.SURF_NOLIGHT;
-
-			// Reveal Source's global skybox on real sky surfaces (see IsSkySurface).
-			if (IsSkySurface(texture))
-				textureInfo.Flags |= (int)(SourceSurfaceFlags.SURF_SKY | SourceSurfaceFlags.SURF_NOLIGHT | SourceSurfaceFlags.SURF_SKYNOEMIT);
-
-			if (q3Flags.HasFlag(Q3SurfaceFlags.SURF_NODRAW))
-				textureInfo.Flags |= (int)SourceSurfaceFlags.SURF_NODRAW;
-
-			if (q3Flags.HasFlag(Q3SurfaceFlags.SURF_NOIMPACT))
-				textureInfo.Flags |= (int)SourceSurfaceFlags.SURF_NOIMPACT;
+			// Tool-textured patches keep their surface flags after being rewritten onto the shared
+			// invisible displacement material, so they need its per-flag texdata variants too - see
+			// GetInvisibleDisplacementTextureDataIndex.
+			textureInfo.TextureIndex = textureName == invisibleDisplacementTexture ?
+				GetInvisibleDisplacementTextureDataIndex(textureInfo.Flags) :
+				LookupTextureDataIndex(textureName);
 
 			// Avoid adding duplicate texture info
 			var key = new TextureInfoKey(textureInfo);
@@ -2445,16 +2435,16 @@ namespace BSPConvert.Lib
 			return textureInfoIndex;
 		}
 
-		// The engine ORs surface flags per-texdata, not per-texinfo (see CMod_LoadTexinfo:
-		// "Copy this over for the whole material"). All invisible collision displacements share
-		// one material, so to stop SURF_SLICK from bleeding onto every patch we give each distinct
-		// physics-flag set its own texdata entry that still points at the invisible material.
-		private int GetInvisibleDisplacementTextureDataIndex(int physicsFlags)
+		// The engine ORs surface flags per-texdata, not per-texinfo, and displacements read their
+		// collision flags from there. Every patch shares the invisible material, so to stop one
+		// patch's SURF_SLICK/SURF_NOIMPACT from bleeding onto all of them we give each distinct
+		// flag set its own texdata entry.
+		private int GetInvisibleDisplacementTextureDataIndex(int surfaceFlags)
 		{
-			if (invisibleDispTexDataByFlags.TryGetValue(physicsFlags, out var index))
+			if (invisibleDispTexDataByFlags.TryGetValue(surfaceFlags, out var index))
 				return index;
 
-			if (physicsFlags == 0)
+			if (surfaceFlags == 0)
 			{
 				// Default variant: share the name-keyed texdata so other callers dedupe against it.
 				if (LookupTextureDataIndex(invisibleDisplacementTexture) < 0)
@@ -2468,8 +2458,33 @@ namespace BSPConvert.Lib
 				index = CreateTextureDataEntry(invisibleDisplacementTexture);
 			}
 
-			invisibleDispTexDataByFlags[physicsFlags] = index;
+			invisibleDispTexDataByFlags[surfaceFlags] = index;
 			return index;
+		}
+
+		// Source surface flags a Q3 texture contributes to its texinfo.
+		private int GetSourceSurfaceFlags(Texture texture)
+		{
+			var q3Flags = (Q3SurfaceFlags)texture.Flags;
+			var flags = 0;
+
+			if (q3Flags.HasFlag(Q3SurfaceFlags.SURF_SLICK))
+				flags |= (int)SourceSurfaceFlags.SURF_SLICK;
+
+			if (q3Flags.HasFlag(Q3SurfaceFlags.SURF_NOLIGHTMAP))
+				flags |= (int)SourceSurfaceFlags.SURF_NOLIGHT;
+
+			// Reveal Source's global skybox on real sky surfaces (see IsSkySurface).
+			if (IsSkySurface(texture))
+				flags |= (int)(SourceSurfaceFlags.SURF_SKY | SourceSurfaceFlags.SURF_NOLIGHT | SourceSurfaceFlags.SURF_SKYNOEMIT);
+
+			if (q3Flags.HasFlag(Q3SurfaceFlags.SURF_NODRAW))
+				flags |= (int)SourceSurfaceFlags.SURF_NODRAW;
+
+			if (q3Flags.HasFlag(Q3SurfaceFlags.SURF_NOIMPACT))
+				flags |= (int)SourceSurfaceFlags.SURF_NOIMPACT;
+
+			return flags;
 		}
 
 		// Surface flags that affect movement/physics and must be carried onto collision-only
