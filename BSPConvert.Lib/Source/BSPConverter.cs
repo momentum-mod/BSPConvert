@@ -45,6 +45,9 @@ namespace BSPConvert.Lib
 		// downward to this height so they span enough view froxels to reduce flickering. obb-fog only.
 		// See ConvertFogVolumes.
 		public float fogMinHeight;
+		// Skip generating the fog overlay face for fog shaders with visible stages (e.g. the scrolling
+		// clouds on textures/sfx/hellfog); the fog brush face is just dropped instead. See TryCreateFogOverlayFace.
+		public bool noFogOverlay;
 		public bool ignoreZones;
 		public bool noEnvMap;
 		public bool oldBSP;
@@ -105,6 +108,13 @@ namespace BSPConvert.Lib
 		// at a face's edge samples its own (duplicated) edge color instead of bleeding in the adjacent
 		// block packed next to it in the lightmap atlas page.
 		private const int LIGHTMAP_BORDER = 1;
+		// Maximum luxel extent, per axis, of a face's stored lightmap size (LightmapSize). The Source engine
+		// fatally errors ("Bad surface extents") if a face's stored lightmap extent exceeds
+		// MAX_BRUSH_LIGHTMAP_SIZE (1024), and the lightmap page it packs into is only 2048x1024 - the engine
+		// allocates (extent + 1) luxels, so the page height caps the stored extent at 1023. Maps compiled with
+		// large external lightmap atlases (e.g. 2048x2048) can give a single large surface a luxel block bigger
+		// than this, so GetFaceLightmapBlock downscales such blocks to fit.
+		private const int MAX_LIGHTMAP_EXTENT = 1023;
 		private const string invisibleDisplacementTexture = "tools/toolsinvisibledisplacement";
 
 		public BSPConverter(BSPConverterOptions options, ILogger logger)
@@ -228,7 +238,9 @@ namespace BSPConvert.Lib
 
 		private void PrepareAssets()
 		{
-			if (quakeBsp.Faces.Any(x => x.Type == FaceType.Patch && x.Texture.Name.StartsWith("tools/", StringComparison.OrdinalIgnoreCase)))
+			// Patches converted to primitives use invisible displacements for collisions
+			if (quakeBsp.Faces.Any(x => x.Type == FaceType.Patch &&
+				(options.patchesAsPrimitives || x.Texture.Name.StartsWith("tools/", StringComparison.OrdinalIgnoreCase))))
 			{
 				// Copy invisible displacement assets to content dir
 				FileUtil.CopyBuiltinMaterialAsset(Path.Combine("tools", "toolsinvisibledisplacement.vmt"), contentManager.ContentDir);
@@ -1503,7 +1515,14 @@ namespace BSPConvert.Lib
 
 			if (IsFogFace(qFace))
 			{
-				// Fog brush faces are not drawn. The engine tracks the brush as a bounds-based fog volume
+				// A fog shader that also carries visible stages (e.g. the scrolling clouds on textures/sfx/hellfog)
+				// draws those over the fog boundary in Q3. Reproduce that as a one-sided overlay surface; the fog
+				// volume itself is still the CONTENTS_FOG brush + Fog overlay. Skipped in obb fog mode (no overlay
+				// material is generated there) and when disabled via options.noFogOverlay.
+				if (!options.useObbFog && !options.noFogOverlay && TryCreateFogOverlayFace(faceIndex))
+					return;
+
+				// Otherwise fog brush faces are not drawn. The engine tracks the brush as a bounds-based fog volume
 				// (CONTENTS_FOG) and composites a depth-clipped fog overlay for it, giving a single unified fog
 				// that reads correctly from inside or outside the volume. A drawn translucent face would fog
 				// everything behind it and double up with the overlay. The brush stays tagged CONTENTS_FOG and its
@@ -1530,6 +1549,39 @@ namespace BSPConvert.Lib
 			sFace.NumPrimitives = 1;
 
 			splitFaceDict[faceIndex] = new int[] { sourceBsp.Faces.Count - 1 };
+		}
+
+		// Draws a fog brush face as the fog shader's visible overlay stages (e.g. the scrolling cloud layers on
+		// textures/sfx/hellfog) instead of dropping it. The overlay uses a sibling material (the fog texture name
+		// is reserved for the Fog appearance material) and is left one-sided: Q3 fog shaders default to front-face
+		// culling, so the overlay only shows on the boundary sides facing the viewer, never from inside the volume.
+		// Returns false when the fog shader has no visible stages, so the caller drops the face as before.
+		private bool TryCreateFogOverlayFace(int faceIndex)
+		{
+			var qFace = quakeBsp.Faces[faceIndex];
+			if (!shaderDict.TryGetValue(qFace.Texture.Name, out var shader) || !MaterialConverter.FogShaderHasOverlay(shader))
+				return false;
+
+			var overlayName = MaterialConverter.GetFogOverlayTextureName(qFace.Texture.Name);
+			if (!textureDataLookup.ContainsKey(overlayName))
+				CreateTextureData(overlayName);
+
+			var sFace = CreateFace();
+			sFace.PlaneIndex = CreatePlane(qFace);
+			sFace.TextureInfoIndex = CreateTextureInfo(qFace, qFace.FirstIndexIndex, overlayName);
+			sFace.DisplacementIndex = -1;
+
+			// Surface edges
+			(var surfEdgeIndex, var numEdges) = CreateSurfaceEdges(faceIndex);
+			sFace.FirstEdgeIndexIndex = surfEdgeIndex;
+			sFace.NumEdgeIndices = numEdges;
+
+			// Primitives
+			sFace.FirstPrimitive = CreatePrimitive(qFace.Vertices.ToArray(), qFace.Indices.ToArray(), qFace);
+			sFace.NumPrimitives = 1;
+
+			splitFaceDict[faceIndex] = new int[] { sourceBsp.Faces.Count - 1 };
+			return true;
 		}
 
 		private bool IsFogFace(Face qFace)
@@ -2068,14 +2120,12 @@ namespace BSPConvert.Lib
 		{
 			var firstPrimVertex = sourceBsp.PrimitiveVertices.Count;
 
-			var lightmapSize = GetFaceLightmapSize(qFace);
-
 			// Normalize lightmap coords against the SAME rect that ConvertInternalLightmaps copies for
 			// this face: the whole patch's control-point lightmap UV extents. The engine feeds a
 			// primitive vertex's lightCoord straight to the lightmap sampler (it doesn't use the face's
 			// LightmapStart/vecs for prims), so [0,1] must span exactly that copied rect. Using the
 			// local tessellated sub-patch extents here instead shifts each sub-patch's lightmap sideways.
-			(var lmStart, var lmEnd) = GetLightmapExtents(qFace.Vertices, lightmapSize);
+			(var lmStart, var lmEnd, var lightmapSize) = GetFaceLightmapBlock(qFace);
 			var extents = lmEnd - lmStart;
 
 			for (var i = 0; i < positions.Length; i++)
@@ -2150,9 +2200,7 @@ namespace BSPConvert.Lib
 		{
 			var firstPrimVertex = sourceBsp.PrimitiveVertices.Count;
 
-			var lightmapSize = GetFaceLightmapSize(qFace);
-
-			(var lmStart, var lmEnd) = GetLightmapExtents(vertices, lightmapSize);
+			(var lmStart, var lmEnd, var lightmapSize) = GetFaceLightmapBlock(qFace);
 			var extents = lmEnd - lmStart;
 
 			foreach (var vertex in vertices)
@@ -2190,6 +2238,39 @@ namespace BSPConvert.Lib
 			return Q3_LIGHTMAP_SIZE;
 		}
 
+		// Computes a face's lightmap block in atlas luxel space: the start/end luxel coords and the atlas size
+		// used to derive them. If the block would exceed what the engine can store/pack (MAX_LIGHTMAP_EXTENT),
+		// it's downscaled uniformly to fit. Both the baked prim lightCoords (ComputePrimLightmapCoord) and the
+		// copied lightmap luxels (ConvertExternalLightmaps) MUST derive from these same values, or they won't
+		// line up. Lightmaps are low frequency, so the reduced resolution on an oversized surface isn't
+		// noticeable. Internal Q3 lightmaps (128x128 pages) never exceed the limit, so this is a no-op for them.
+		private (Vector2 lmStart, Vector2 lmEnd, float lightmapSize) GetFaceLightmapBlock(Face qFace)
+		{
+			float lightmapSize = GetFaceLightmapSize(qFace);
+			(var lmStart, var lmEnd) = GetLightmapExtents(qFace.Vertices, lightmapSize);
+			var extents = lmEnd - lmStart;
+
+			// The stored LightmapSize grows by 2*LIGHTMAP_BORDER for the guard band (see ConvertExternalLightmaps),
+			// so the raw block must leave room for it. Use the border unconditionally (prim faces); displacement
+			// faces use no border and so end up capped slightly more conservatively, which is harmless.
+			var maxContent = MAX_LIGHTMAP_EXTENT - 2 * LIGHTMAP_BORDER;
+			var maxAxis = Math.Max(extents.X, extents.Y);
+			if (maxAxis > maxContent)
+			{
+				lightmapSize *= maxContent / maxAxis;
+				(lmStart, lmEnd) = GetLightmapExtents(qFace.Vertices, lightmapSize);
+
+				// floor/ceil after scaling can round the block a luxel or two back over the target; hard-clamp
+				// the end so the padded stored size can never exceed the engine limit.
+				if (lmEnd.X - lmStart.X > maxContent)
+					lmEnd.X = lmStart.X + maxContent;
+				if (lmEnd.Y - lmStart.Y > maxContent)
+					lmEnd.Y = lmStart.Y + maxContent;
+			}
+
+			return (lmStart, lmEnd, lightmapSize);
+		}
+
 		// Maps a Quake 3 lightmap UV to the [0,1] lightCoord the engine expects for a prim-mesh vertex.
 		// The engine (GenerateTexCoordsForPrimVerts) computes the final atlas coord as
 		//   offset + lightCoord * (LightmapExtents / pageSize)
@@ -2203,7 +2284,7 @@ namespace BSPConvert.Lib
 		// coords from world position (grid-relative); adding it here too double-counts and pushes every
 		// vertex a full luxel toward the high edge, so the surface edge samples the q3map2 gutter/neighbour
 		// luxel left by ceil(maxSt) -> lightmap bleed. 'extents' is the original (lmEnd - lmStart).
-		private Vector2 ComputePrimLightmapCoord(Vector2 uv1, Vector2 lmStart, Vector2 extents, int lightmapSize)
+		private Vector2 ComputePrimLightmapCoord(Vector2 uv1, Vector2 lmStart, Vector2 extents, float lightmapSize)
 		{
 			var paddedX = extents.X + 2 * LIGHTMAP_BORDER;
 			var paddedY = extents.Y + 2 * LIGHTMAP_BORDER;
@@ -2280,14 +2361,19 @@ namespace BSPConvert.Lib
 			return sourceBsp.Vertices.Count - 1;
 		}
 
-		private int CreateTextureInfo(Face qFace, int firstIndex)
+		private int CreateTextureInfo(Face qFace, int firstIndex, string nameOverride = null)
 		{
 			(var uAxis, var vAxis) = GetTextureVectors(qFace, firstIndex);
-			return CreateTextureInfo(qFace.Texture, uAxis, vAxis);
+			return CreateTextureInfo(qFace.Texture, uAxis, vAxis, nameOverride);
 		}
 
-		private int CreateTextureInfo(Texture texture, Vector3 uAxis, Vector3 vAxis)
+		// nameOverride points the texinfo (and its name->index lookup) at a different material than the source
+		// texture's name, keeping the source texture's surface flags. Used for fog overlay faces, whose geometry
+		// comes from a fog brush face but whose material is the sibling overlay (see TryCreateFogOverlayFace).
+		private int CreateTextureInfo(Texture texture, Vector3 uAxis, Vector3 vAxis, string nameOverride = null)
 		{
+			var textureName = nameOverride ?? texture.Name;
+
 			var data = new byte[TextureInfo.GetStructLength(sourceBsp.MapType)];
 			var textureInfo = new TextureInfo(data, sourceBsp.TextureInfo);
 
@@ -2296,24 +2382,14 @@ namespace BSPConvert.Lib
 			textureInfo.VAxis = vAxis;
 			textureInfo.LightmapUAxis = uAxis / 32f;
 			textureInfo.LightmapVAxis = vAxis / 32f;
-			textureInfo.TextureIndex = LookupTextureDataIndex(texture.Name);
+			textureInfo.Flags = GetSourceSurfaceFlags(texture);
 
-			var q3Flags = (Q3SurfaceFlags)texture.Flags;
-			if (q3Flags.HasFlag(Q3SurfaceFlags.SURF_SLICK))
-				textureInfo.Flags |= (int)SourceSurfaceFlags.SURF_SLICK;
-
-			if (q3Flags.HasFlag(Q3SurfaceFlags.SURF_NOLIGHTMAP))
-				textureInfo.Flags |= (int)SourceSurfaceFlags.SURF_NOLIGHT;
-
-			// Reveal Source's global skybox on real sky surfaces (see IsSkySurface).
-			if (IsSkySurface(texture))
-				textureInfo.Flags |= (int)(SourceSurfaceFlags.SURF_SKY | SourceSurfaceFlags.SURF_NOLIGHT | SourceSurfaceFlags.SURF_SKYNOEMIT);
-
-			if (q3Flags.HasFlag(Q3SurfaceFlags.SURF_NODRAW))
-				textureInfo.Flags |= (int)SourceSurfaceFlags.SURF_NODRAW;
-
-			if (q3Flags.HasFlag(Q3SurfaceFlags.SURF_NOIMPACT))
-				textureInfo.Flags |= (int)SourceSurfaceFlags.SURF_NOIMPACT;
+			// Tool-textured patches keep their surface flags after being rewritten onto the shared
+			// invisible displacement material, so they need its per-flag texdata variants too - see
+			// GetInvisibleDisplacementTextureDataIndex.
+			textureInfo.TextureIndex = textureName == invisibleDisplacementTexture ?
+				GetInvisibleDisplacementTextureDataIndex(textureInfo.Flags) :
+				LookupTextureDataIndex(textureName);
 
 			// Avoid adding duplicate texture info
 			var key = new TextureInfoKey(textureInfo);
@@ -2325,8 +2401,8 @@ namespace BSPConvert.Lib
 			textureInfoIndex = sourceBsp.TextureInfo.Count - 1;
 			textureInfoDict.Add(key, textureInfoIndex);
 
-			if (!textureInfoLookup.ContainsKey(texture.Name))
-				textureInfoLookup.Add(texture.Name, textureInfoIndex);
+			if (!textureInfoLookup.ContainsKey(textureName))
+				textureInfoLookup.Add(textureName, textureInfoIndex);
 
 			return textureInfoIndex;
 		}
@@ -2359,16 +2435,16 @@ namespace BSPConvert.Lib
 			return textureInfoIndex;
 		}
 
-		// The engine ORs surface flags per-texdata, not per-texinfo (see CMod_LoadTexinfo:
-		// "Copy this over for the whole material"). All invisible collision displacements share
-		// one material, so to stop SURF_SLICK from bleeding onto every patch we give each distinct
-		// physics-flag set its own texdata entry that still points at the invisible material.
-		private int GetInvisibleDisplacementTextureDataIndex(int physicsFlags)
+		// The engine ORs surface flags per-texdata, not per-texinfo, and displacements read their
+		// collision flags from there. Every patch shares the invisible material, so to stop one
+		// patch's SURF_SLICK/SURF_NOIMPACT from bleeding onto all of them we give each distinct
+		// flag set its own texdata entry.
+		private int GetInvisibleDisplacementTextureDataIndex(int surfaceFlags)
 		{
-			if (invisibleDispTexDataByFlags.TryGetValue(physicsFlags, out var index))
+			if (invisibleDispTexDataByFlags.TryGetValue(surfaceFlags, out var index))
 				return index;
 
-			if (physicsFlags == 0)
+			if (surfaceFlags == 0)
 			{
 				// Default variant: share the name-keyed texdata so other callers dedupe against it.
 				if (LookupTextureDataIndex(invisibleDisplacementTexture) < 0)
@@ -2382,8 +2458,33 @@ namespace BSPConvert.Lib
 				index = CreateTextureDataEntry(invisibleDisplacementTexture);
 			}
 
-			invisibleDispTexDataByFlags[physicsFlags] = index;
+			invisibleDispTexDataByFlags[surfaceFlags] = index;
 			return index;
+		}
+
+		// Source surface flags a Q3 texture contributes to its texinfo.
+		private int GetSourceSurfaceFlags(Texture texture)
+		{
+			var q3Flags = (Q3SurfaceFlags)texture.Flags;
+			var flags = 0;
+
+			if (q3Flags.HasFlag(Q3SurfaceFlags.SURF_SLICK))
+				flags |= (int)SourceSurfaceFlags.SURF_SLICK;
+
+			if (q3Flags.HasFlag(Q3SurfaceFlags.SURF_NOLIGHTMAP))
+				flags |= (int)SourceSurfaceFlags.SURF_NOLIGHT;
+
+			// Reveal Source's global skybox on real sky surfaces (see IsSkySurface).
+			if (IsSkySurface(texture))
+				flags |= (int)(SourceSurfaceFlags.SURF_SKY | SourceSurfaceFlags.SURF_NOLIGHT | SourceSurfaceFlags.SURF_SKYNOEMIT);
+
+			if (q3Flags.HasFlag(Q3SurfaceFlags.SURF_NODRAW))
+				flags |= (int)SourceSurfaceFlags.SURF_NODRAW;
+
+			if (q3Flags.HasFlag(Q3SurfaceFlags.SURF_NOIMPACT))
+				flags |= (int)SourceSurfaceFlags.SURF_NOIMPACT;
+
+			return flags;
 		}
 
 		// Surface flags that affect movement/physics and must be carried onto collision-only
@@ -2649,7 +2750,9 @@ namespace BSPConvert.Lib
 
 				var (fogOverlay, fogMap) = GetFaceFog(fogBaker, qFace);
 
-				(var lmStart, var lmEnd) = GetLightmapExtents(qFace.Vertices, lmData.size.X);
+				// lmStart/lmEnd/lightmapSize are in the (possibly downscaled) atlas space GetFaceLightmapBlock
+				// caps to the engine's max lightmap extent; the same values feed the baked prim lightCoords.
+				(var lmStart, var lmEnd, var lightmapSize) = GetFaceLightmapBlock(qFace);
 				var lmSize = lmEnd - lmStart;
 
 				var lightmapOffset = lmColors.Count * 4;
@@ -2658,15 +2761,22 @@ namespace BSPConvert.Lib
 				var border = FaceOutputUsesPrimitives(faceIndex) ? LIGHTMAP_BORDER : 0;
 				var lmWidth = (int)lmData.size.X;
 				var lmHeight = (int)lmData.size.Y;
+				// When the block was downscaled, its luxel coords live in a smaller atlas (lightmapSize); map
+				// each back to the original image to read its color. Without scaling this ratio is 1.
+				var readScaleX = lmWidth / lightmapSize;
+				var readScaleY = lmHeight / lightmapSize;
 				for (var y = (int)lmStart.Y - border; y <= (int)lmEnd.Y + border; y++)
 				{
-					// Clamp to the face's rect, then to the image bounds: lmEnd = ceil(uvMax*size) can be one
-					// past the last valid luxel when a face's lightmap UV reaches the image edge, which would
-					// index past the end of the (single) external lightmap image -> IndexOutOfRange.
-					var sy = Math.Clamp(Math.Clamp(y, (int)lmStart.Y, (int)lmEnd.Y), 0, lmHeight - 1);
+					// Clamp to the face's rect (so the border duplicates the edge luxel), then map to the source
+					// image and clamp to its bounds: lmEnd = ceil(uvMax*size) can be one past the last valid luxel
+					// when a face's lightmap UV reaches the image edge, which would index past the end of the
+					// (single) external lightmap image -> IndexOutOfRange.
+					var cy = Math.Clamp(y, (int)lmStart.Y, (int)lmEnd.Y);
+					var sy = Math.Clamp((int)Math.Round(cy * readScaleY), 0, lmHeight - 1);
 					for (var x = (int)lmStart.X - border; x <= (int)lmEnd.X + border; x++)
 					{
-						var sx = Math.Clamp(Math.Clamp(x, (int)lmStart.X, (int)lmEnd.X), 0, lmWidth - 1);
+						var cx = Math.Clamp(x, (int)lmStart.X, (int)lmEnd.X);
+						var sx = Math.Clamp((int)Math.Round(cx * readScaleX), 0, lmWidth - 1);
 						var index = sx + sy * lmWidth;
 
 						var r = lmData.data[index * 3 + 0];
@@ -2676,12 +2786,15 @@ namespace BSPConvert.Lib
 						if (fogOverlay != null)
 						{
 							// Sample the fog at the luxel's page-relative lightmap coords (its texel center).
+							// Overbright 1: external lightmaps are converted without the 4x (see below), so Q3's
+							// display space for them is the raw luxel value.
 							var u = (sx + 0.5f) / lmWidth;
 							var v = (sy + 0.5f) / lmHeight;
-							(r, g, b) = fogBaker!.Blend(fogOverlay, fogMap, r, g, b, u, v);
+							(r, g, b) = fogBaker!.Blend(fogOverlay, fogMap, r, g, b, u, v, overbright: 1);
 						}
 
-						var color = ColorUtil.ConvertQ3LightmapToColorRGBExp32(r, g, b, options.clampOverbright);
+						var color = ColorUtil.ConvertQ3LightmapToColorRGBExp32(r, g, b, options.clampOverbright,
+							applyOverbright: false); // Don't apply overbright to external lightmaps
 
 						lmColors.Add(color);
 					}

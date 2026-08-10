@@ -54,12 +54,13 @@ namespace BSPConvert.Lib
 				return false;
 			}
 
-			// Translucent liquids that mix framebuffer blends (e.g. a brightening "GL_dst_color" ripple over a
-			// darkening "GL_zero GL_src_color" surface) fit no single bake mode, so the stack baker skips them and
-			// they'd otherwise fall through to an opaque base material. Carry them here as a translucent surface.
+			// Liquids that mix framebuffer blends (e.g. a brightening "GL_dst_color" ripple over a darkening
+			// "GL_zero GL_src_color" surface) fit no single bake mode, so the stack baker skips them and they'd
+			// otherwise fall through to a plain base material. Carry them here, translucent unless the shader's
+			// lightmap stage is an opaque base beneath them (BrightenOrOpaque).
 			var liquidStages = GetTextureStages(shader);
 			if (IsTranslucentLiquidStack(liquidStages))
-				return TryConvertDetailMaterial(textureName, shader, liquidStages, OutputMode.Brighten);
+				return TryConvertDetailMaterial(textureName, shader, liquidStages, BrightenOrOpaque(shader));
 
 			return false;
 		}
@@ -130,10 +131,11 @@ namespace BSPConvert.Lib
 			return rates;
 		}
 
-		// A stack of purely translucent framebuffer blends (brightening, multiplying, additive or alpha overlays)
-		// with no opaque base and reproducible scrolling - a layered Q3 liquid (e.g. a "GL_dst_color" ripple over a
+		// A stack of framebuffer blends (brightening, multiplying, additive or alpha overlays) with no opaque stage
+		// of its own and reproducible scrolling - a layered Q3 liquid (e.g. a "GL_dst_color" ripple over a
 		// "GL_zero GL_src_color" surface). The mix of blend types fits no single flipbook bake mode, so the stack
-		// baker skips them; they're routed straight to the live $basetexture+$detail surface instead.
+		// baker skips them; they're routed straight to the live $basetexture+$detail surface instead. Whether the
+		// result is actually translucent is BrightenOrOpaque's call - a lightmap stage can still be its base.
 		private bool IsTranslucentLiquidStack(List<ShaderStage> stages)
 		{
 			return stages.Count >= 2
@@ -151,7 +153,7 @@ namespace BSPConvert.Lib
 		// pair can be formed or an image is missing.
 		private bool TryConvertDetailMaterial(string textureName, Shader shader, List<ShaderStage> stages, OutputMode mode)
 		{
-			if (!ChooseDetailLayers(stages, mode, out var baseStage, out var detailStage))
+			if (!ChooseDetailLayers(shader, stages, mode, out var baseStage, out var detailStage))
 				return false;
 
 			var baseImg = GetStageImagePath(baseStage);
@@ -173,7 +175,7 @@ namespace BSPConvert.Lib
 		// Picks which stage drives the surface ($basetexture) and which rides on it as $detail. The base is the most
 		// surface-like stage (opaque > multiplicative/alpha tint > brightening > additive glow); the detail scrolls
 		// and/or rotates on its own transform, so the base need not move so long as one of the two layers does.
-		private bool ChooseDetailLayers(List<ShaderStage> stages, OutputMode mode, out ShaderStage baseStage, out ShaderStage detailStage)
+		private bool ChooseDetailLayers(Shader shader, List<ShaderStage> stages, OutputMode mode, out ShaderStage baseStage, out ShaderStage detailStage)
 		{
 			baseStage = null!;
 			detailStage = null!;
@@ -184,11 +186,15 @@ namespace BSPConvert.Lib
 
 			baseStage = usable.OrderByDescending(BasePriority).First();
 
-			// An opaque-base stack must keep the lit opaque stage as $basetexture.
+			// An opaque-base stack must keep the lit opaque stage as $basetexture. When the stack is opaque only
+			// because the shader's lightmap stage is its base, there is no such texture stage to keep - Source's
+			// LightmappedGeneric supplies the lightmap itself - so the priority pick above stands.
 			if (mode == OutputMode.Opaque && !IsOpaqueBlend(baseStage))
 			{
-				baseStage = usable.FirstOrDefault(IsOpaqueBlend)!;
-				if (baseStage == null)
+				var opaqueStage = usable.FirstOrDefault(IsOpaqueBlend);
+				if (opaqueStage != null)
+					baseStage = opaqueStage;
+				else if (!HasOpaqueLightmapBase(shader))
 					return false;
 			}
 

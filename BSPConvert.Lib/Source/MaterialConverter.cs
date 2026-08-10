@@ -4,6 +4,8 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.Globalization;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
 
 namespace BSPConvert.Lib
 {
@@ -33,6 +35,8 @@ namespace BSPConvert.Lib
 		// (baked into Source lightmaps instead), levelshots, and source frames already baked into flipbooks.
 		// Case-insensitive so it matches on-disk filename casing.
 		private readonly HashSet<string> referencedTextures = new(StringComparer.OrdinalIgnoreCase);
+		// Mean alpha per texture path, cached so a texture shared by several shaders is only decoded once.
+		private readonly Dictionary<string, float> averageAlphaCache = new(StringComparer.OrdinalIgnoreCase);
 
 		private string[] skySuffixes =
 		{
@@ -122,7 +126,19 @@ namespace BSPConvert.Lib
 		private void CreateShaderVMT(string texture, Shader shader)
 		{
 			if (shader.fogParms != null && generateFogMaterials)
+			{
 				CreateFogVMT(texture, shader); // Fog appearance material for the CONTENTS_FOG overlay
+
+				// A Q3 fog shader can also carry visible texture stages (e.g. the scrolling cloud layers on
+				// textures/sfx/hellfog) that Q3 draws over the fog boundary. The fog texture name is reserved for
+				// the Fog appearance VMT, so emit those stages as a sibling overlay material that the converted
+				// fog faces reference (see BSPConverter.TryCreateFogOverlayFace). The overlay face is coplanar with
+				// the fog boundary, so $decal gives it the decal depth bias that stops it z-fighting the fog volume,
+				// and $translucent keeps it in the post-opaque pass for stable draw order (same reasoning as the
+				// polygonOffset overlays handled in AppendShaderParameters).
+				if (FogShaderHasOverlay(shader))
+					CreateBaseShaderVMT(GetFogOverlayTextureName(texture), shader, "$decal 1", "$translucent 1");
+			}
 			else if (detailMaterialConverter.TryConvert(texture, shader))
 				return; // scroll-only liquid converted to a live $basetexture+$detail material
 			else if (flipbookConverter.TryConvert(texture, shader))
@@ -139,6 +155,24 @@ namespace BSPConvert.Lib
 		{
 			var fogVmt = GenerateFogVMT(shader);
 			WriteVMT(texture, fogVmt);
+		}
+
+		// Suffix for the visible overlay material derived from a fog shader that also carries texture stages
+		// (the fog texture name itself is taken by the Fog appearance VMT).
+		private const string FogOverlaySuffix = "_fogoverlay";
+
+		// A Q3 fog shader whose stages include a real (non-$lightmap) texture - e.g. the scrolling
+		// kc_fogcloud3 layers on textures/sfx/hellfog - is drawn by Q3 as those stages over the fog boundary.
+		// Such shaders get a sibling overlay material in addition to the Fog appearance material.
+		public static bool FogShaderHasOverlay(Shader shader)
+		{
+			return shader.fogParms != null && shader.GetImageStages().Any();
+		}
+
+		// Name of the visible overlay material derived from a fog shader (see FogShaderHasOverlay).
+		public static string GetFogOverlayTextureName(string fogTextureName)
+		{
+			return fogTextureName + FogOverlaySuffix;
 		}
 
 		private string GenerateFogVMT(Shader shader)
@@ -205,7 +239,7 @@ namespace BSPConvert.Lib
 			return true;
 		}
 
-		private void CreateBaseShaderVMT(string texture, Shader shader)
+		private void CreateBaseShaderVMT(string texture, Shader shader, params string[] extraParams)
 		{
 			// Skip external-lightmap stages ("tcGen lightmap" with a real image, e.g. maps/<map>/lm_0000): they're
 			// baked into the Source lightmap by ExternalLightmapLoader/ConvertLightmaps, never referenced as a VMT
@@ -222,17 +256,22 @@ namespace BSPConvert.Lib
 				TryCopyQ3Content(baseTexture);
 			}
 
-			var shaderVmt = GenerateVMT(shader);
+			var shaderVmt = GenerateVMT(shader, extraParams);
 			WriteVMT(texture, shaderVmt);
 		}
 
-		private string GenerateVMT(Shader shader)
+		// extraParams are appended verbatim (tab-indented) inside the material block, for callers that need
+		// parameters not derived from the Q3 shader itself (e.g. the fog overlay's decal depth bias).
+		private string GenerateVMT(Shader shader, params string[] extraParams)
 		{
 			var sb = new StringBuilder();
 			sb.AppendLine(GetShaderType(shader));
 			sb.AppendLine("{");
 
 			AppendShaderParameters(sb, shader);
+
+			foreach (var param in extraParams)
+				sb.AppendLine(CultureInfo.InvariantCulture, $"\t{param}");
 
 			sb.AppendLine("}");
 
@@ -546,11 +585,70 @@ namespace BSPConvert.Lib
 			if (isAdditive)
 				sb.AppendLine("\t$additive 1");
 			else if (isAlphaBlend)
+			{
 				sb.AppendLine("\t$translucent 1");
+
+				// An env-map-only shader (Q3 glass: an alpha-blended "tcGen environment" stage and nothing else)
+				// gets the 1x1 placeholder as its $basetexture. $translucent turns on src-alpha blending, but the
+				// alpha it blends with comes from the base texture, and the placeholder carries no alpha channel -
+				// so the surface blends at full opacity and the reflection hides whatever is behind the glass.
+				// Q3 instead blends that stage by its own texture's alpha, and the spheremap never feeds the
+				// surface alpha, so pass the reflection texture's opacity along as a constant $alpha.
+				if (isEnvMapOnly)
+					AppendEnvMapOnlyAlpha(sb, textureStage!);
+			}
 
 			if (textureStage != null && textureStage.bundles[0].texMods.Any(y => y.type == TexMod.TMOD_SCROLL || y.type == TexMod.TMOD_ROTATE ||
 				y.type == TexMod.TMOD_STRETCH || y.type == TexMod.TMOD_SCALE))
 				ConvertTexMods(sb, textureStage);
+		}
+
+		// Emits the surface opacity of an alpha-blended env-map-only stage as a constant $alpha, taken from the
+		// mean alpha of its reflection texture. Q3 blends such a stage per-pixel by the texture's alpha sampled
+		// at the reflection coords; Source's spheremap path only ever takes the surface alpha from $basetexture,
+		// so a single constant stands in - exact for the uniform-alpha textures Q3 glass shaders use, an average
+		// otherwise. Skipped when the texture is opaque, which needs no blending anyway.
+		private void AppendEnvMapOnlyAlpha(StringBuilder sb, ShaderStage envStage)
+		{
+			var alpha = GetAverageAlpha(Path.ChangeExtension(envStage.bundles[0].images[0], null));
+			if (alpha < 1f)
+				sb.AppendLine(CultureInfo.InvariantCulture, $"\t$alpha {alpha}");
+		}
+
+		// Mean alpha (0-1) of a shader texture. Returns 1 (opaque) when the image can't be found or read, or
+		// when it has no alpha channel - both leave the surface at its unmodulated opacity.
+		private float GetAverageAlpha(string texturePath)
+		{
+			if (averageAlphaCache.TryGetValue(texturePath, out var cached))
+				return cached;
+
+			var average = 1f;
+			var imagePath = ResolveImagePath(texturePath);
+			if (imagePath != null && File.Exists(imagePath))
+			{
+				try
+				{
+					using var image = Image.Load<Rgba32>(imagePath);
+					ulong total = 0;
+					image.ProcessPixelRows(accessor =>
+					{
+						for (var y = 0; y < accessor.Height; y++)
+						{
+							foreach (ref var pixel in accessor.GetRowSpan(y))
+								total += pixel.A;
+						}
+					});
+
+					average = (float)total / (image.Width * image.Height * 255f);
+				}
+				catch (Exception)
+				{
+					// Unreadable image - fall back to opaque rather than failing the conversion
+				}
+			}
+
+			averageAlphaCache[texturePath] = average;
+			return average;
 		}
 
 		// Emits the spheremap reflection params for a Q3 "tcGen environment" shader. Shared by the live

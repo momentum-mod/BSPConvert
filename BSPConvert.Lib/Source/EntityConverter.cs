@@ -238,8 +238,56 @@ namespace BSPConvert.Lib
 				}
 			}
 
+			foreach (var entity in sourceEntities)
+				PrioritizeConnections(entity);
+
 			foreach (var entity in removeEntities)
 				sourceEntities.Remove(entity);
+		}
+
+		private static void PrioritizeConnections(Entity entity)
+		{
+			if (entity.connections.Count <= 1)
+				return;
+
+			if (!entity.connections.Any(x => x.target == "!player"))
+				return;
+
+			var priorityFirst = new List<Entity.EntityConnection>();
+			var prioritySecond = new List<Entity.EntityConnection>();
+			var priorityLast = new List<Entity.EntityConnection>();
+
+			foreach (var connection in entity.connections)
+			{
+				var action = connection.action;
+				var param = connection.param;
+				var target = connection.target;
+
+				if (target == "!player")
+				{
+					var isRemoveWeapon = string.Equals(action, "RemoveWeapon", StringComparison.OrdinalIgnoreCase);
+					var isSetZero = action.StartsWith("Set", StringComparison.OrdinalIgnoreCase) && string.Equals(param, "0", StringComparison.OrdinalIgnoreCase);
+					var isSetNonZero = action.StartsWith("Set", StringComparison.OrdinalIgnoreCase) && !string.Equals(param, "0", StringComparison.OrdinalIgnoreCase);
+
+					if (isRemoveWeapon || isSetZero) // Remove old weapons/ammo/powerups first
+						priorityFirst.Add(connection);
+					else if (isSetNonZero) // Set new weapons/ammo/powerup values second
+						prioritySecond.Add(connection);
+					else
+						priorityLast.Add(connection); // Other connections e.g. "AddCells" last to add on top of the initially "Set" outputs
+				}
+				else
+					priorityLast.Add(connection);
+			}
+
+			if (priorityFirst.Count == 0 && prioritySecond.Count == 0)
+				return;
+
+			// Clear connections and add them back in order of importance
+			entity.connections.Clear();
+			entity.connections.AddRange(priorityLast);
+			entity.connections.AddRange(prioritySecond);
+			entity.connections.AddRange(priorityFirst);
 		}
 
 		private void ConvertTeleportDestination(Entity entity)
@@ -1064,27 +1112,52 @@ namespace BSPConvert.Lib
 			if (!spawnflags.HasFlag(TargetInitFlags.KeepWeapons))
 			{
 				RemoveWeaponOnOutput(entity, "weapon_momentum_df_grenadelauncher", output, delay);
+				RemoveAmmoOnOutput(entity, "SetGrenades", output, delay);
 				RemoveWeaponOnOutput(entity, "weapon_momentum_df_rocketlauncher", output, delay);
+				RemoveAmmoOnOutput(entity, "SetRockets", output, delay);
 				RemoveWeaponOnOutput(entity, "weapon_momentum_df_plasmagun", output, delay);
+				RemoveAmmoOnOutput(entity, "SetCells", output, delay);
 				RemoveWeaponOnOutput(entity, "weapon_momentum_df_lightninggun", output, delay);
+				RemoveAmmoOnOutput(entity, "SetLightning", output, delay);
 				RemoveWeaponOnOutput(entity, "weapon_momentum_df_railgun", output, delay);
+				RemoveAmmoOnOutput(entity, "SetRails", output, delay);
 				RemoveWeaponOnOutput(entity, "weapon_momentum_df_bfg", output, delay);
+				RemoveAmmoOnOutput(entity, "SetBfgRockets", output, delay);
 				RemoveWeaponOnOutput(entity, "weapon_momentum_df_shotgun", output, delay);
+				RemoveAmmoOnOutput(entity, "SetShells", output, delay);
 			}
 			if (spawnflags.HasFlag(TargetInitFlags.RemoveMachineGun))
 			{
 				RemoveWeaponOnOutput(entity, "weapon_momentum_df_machinegun", output, delay);
+				RemoveAmmoOnOutput(entity, "SetBullets", output, delay);
 			}
 		}
 
 		private static void RemoveWeaponOnOutput(Entity entity, string weaponName, string output, float delay)
 		{
+			if (entity.connections.Any(c => c.action == "GiveWeapon" && c.param == weaponName))
+				return; // Don't remove weapon if it is also being given by the same entity
+
 			var connection = new Entity.EntityConnection()
 			{
 				name = output,
 				target = "!player",
 				action = "RemoveWeapon",
 				param = weaponName,
+				delay = delay,
+				fireOnce = -1
+			};
+			entity.connections.Add(connection);
+		}
+
+		private void RemoveAmmoOnOutput(Entity entity, string ammoName, string output, float delay)
+		{
+			var connection = new Entity.EntityConnection()
+			{
+				name = output,
+				target = "!player",
+				action = ammoName,
+				param = "0",
 				delay = delay,
 				fireOnce = -1
 			};
@@ -1168,15 +1241,15 @@ namespace BSPConvert.Lib
 				switch (target.ClassName)
 				{
 					case "item_haste":
-						SetHasteOnOutput(entity, ConvertPowerupCount(target["count"]), output, delay + 0.008f); // Hack to make giving haste happen after target_init strip
+						SetHasteOnOutput(entity, ConvertPowerupCount(target["count"]), output, delay);
 						break;
 					case "item_enviro": // TODO: Not supported yet
 						break;
 					case "item_flight":
-						SetFlightOnOutput(entity, ConvertPowerupCount(target["count"]), output, delay + 0.008f); // Hack to make giving flight happen after target_init strip
+						SetFlightOnOutput(entity, ConvertPowerupCount(target["count"]), output, delay);
 						break;
 					case "item_quad":
-						SetQuadOnOutput(entity, ConvertPowerupCount(target["count"]), output, delay + 0.008f); // Hack to make giving quad happen after target_init strip
+						SetQuadOnOutput(entity, ConvertPowerupCount(target["count"]), output, delay);
 						break;
 					default:
 						if (target.ClassName.StartsWith("weapon_", StringComparison.OrdinalIgnoreCase))
@@ -1233,10 +1306,11 @@ namespace BSPConvert.Lib
 				target = "!player",
 				action = "GiveWeapon",
 				param = weaponName,
-				delay = delay + 0.008f, //hack to make giving weapon happen after target_init strip
+				delay = delay,
 				fireOnce = -1
 			};
 			entity.connections.Add(connection);
+			entity.connections.RemoveAll(c => c.action == "RemoveWeapon" && c.param == weaponName); // Remove any instances where the weapon being given is also being removed
 
 			GiveWeaponAmmoOnOutput(entity, weaponEnt, output, delay);
 		}
@@ -1330,7 +1404,7 @@ namespace BSPConvert.Lib
 				target = "!player",
 				action = ammoOutput,
 				param = count,
-				delay = delay + 0.008f, //hack to make adding ammo happen after setting ammo
+				delay = delay,
 				fireOnce = -1
 			};
 			entity.connections.Add(connection);
@@ -1532,7 +1606,7 @@ namespace BSPConvert.Lib
 				case "item_flight":
 					return "momentum_powerup_flight";
 				case "item_quad":
-					return "momentum_powerup_damage_boost";
+					return "momentum_powerup_damageboost";
 				default:
 					return string.Empty;
 			}
@@ -1609,7 +1683,7 @@ namespace BSPConvert.Lib
 				case "momentum_powerup_flight":
 					itemEnt["flighttime"] = ConvertPowerupCount(itemEnt["count"]);
 					break;
-				case "momentum_powerup_damage_boost":
+				case "momentum_powerup_damageboost":
 					itemEnt["damageboosttime"] = ConvertPowerupCount(itemEnt["count"]);
 					break;
 			}
@@ -1640,7 +1714,7 @@ namespace BSPConvert.Lib
 				case "item_flight":
 					return "momentum_powerup_flight";
 				case "item_quad":
-					return "momentum_powerup_damage_boost";
+					return "momentum_powerup_damageboost";
 				default:
 					return q3ItemName; // Unsupported item, return original classname to avoid crash
 			}

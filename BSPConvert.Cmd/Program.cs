@@ -32,6 +32,9 @@ namespace BSPConvert.Cmd
 			[Option("fogminheight", Required = false, Default = 256f, HelpText = "Minimum vertical height (units) for converted fog volumes. Thin fog layers are expanded downward to this height so they span enough view froxels to reduce flickering. Only used with --fogobb.")]
 			public float FogMinHeight { get; set; }
 
+			[Option("nofogoverlay", Required = false, HelpText = "Don't draw fog shader visible stages (e.g. scrolling clouds) as an overlay face; fog brush faces are just dropped.")]
+			public bool NoFogOverlay { get; set; }
+
 			[Option("nozones", Required = false, HelpText = "Ignore timer zone triggers.")]
 			public bool IgnoreZones { get; set; }
 
@@ -122,6 +125,7 @@ namespace BSPConvert.Cmd
 					lavaTriggers = options.LavaTriggers,
 					useObbFog = options.UseObbFog,
 					fogMinHeight = options.FogMinHeight,
+					noFogOverlay = options.NoFogOverlay,
 					ignoreZones = options.IgnoreZones,
 					noEnvMap = options.NoEnvMap,
 					//oldBSP = options.OldBSP,

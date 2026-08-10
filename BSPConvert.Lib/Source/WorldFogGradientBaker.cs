@@ -138,7 +138,10 @@ namespace BSPConvert.Lib
 		// headroom (too light, too soft a taper) and scales the fog color itself 4x too bright. So reproduce the
 		// blend in Q3's display space (overbright + clamp), then divide the overbright back out so the downstream
 		// conversion re-applies it to land on Q3's actual displayed color.
-		public (byte r, byte g, byte b) Blend(FogOverlay overlay, in LuxelToWorld map, byte r, byte g, byte b, float u, float v)
+		//
+		// 'overbright' must match the factor the caller's conversion applies (ColorUtil.OVERBRIGHT for internal
+		// lightmaps, 1 for external ones, which are converted without it) so the two cancel exactly.
+		public (byte r, byte g, byte b) Blend(FogOverlay overlay, in LuxelToWorld map, byte r, byte g, byte b, float u, float v, int overbright = ColorUtil.OVERBRIGHT)
 		{
 			var world = map.At(u, v);
 			var (fr, fg, fb, fa) = Sample(overlay, world);
@@ -146,20 +149,20 @@ namespace BSPConvert.Lib
 				return (r, g, b);
 
 			return (
-				FogChannel(r, fr, fa),
-				FogChannel(g, fg, fa),
-				FogChannel(b, fb, fa));
+				FogChannel(r, fr, fa, overbright),
+				FogChannel(g, fg, fa, overbright),
+				FogChannel(b, fb, fa, overbright));
 		}
 
 		// Composites one fog channel in Q3's post-overbright display space, then maps back to a pre-overbright
 		// luxel byte. lit = overbright, clamped to display white; disp = the fog alpha-blend over it (the fog
-		// color is a plain framebuffer texel, not overbright-scaled); dividing by OVERBRIGHT undoes the overbright
+		// color is a plain framebuffer texel, not overbright-scaled); dividing by overbright undoes the overbright
 		// the lightmap conversion adds back. See Blend.
-		private static byte FogChannel(byte luxel, float fogColor, float fogAlpha)
+		private static byte FogChannel(byte luxel, float fogColor, float fogAlpha, int overbright)
 		{
-			var lit = MathF.Min(luxel * ColorUtil.OVERBRIGHT, 255f);
+			var lit = MathF.Min(luxel * overbright, 255f);
 			var disp = lit * (1f - fogAlpha) + fogColor * fogAlpha;
-			return (byte)Math.Clamp(disp / ColorUtil.OVERBRIGHT, 0f, 255f);
+			return (byte)Math.Clamp(disp / overbright, 0f, 255f);
 		}
 
 		// Samples the overlay at a world position: projects through the tcGen vectors + static tcMods, then

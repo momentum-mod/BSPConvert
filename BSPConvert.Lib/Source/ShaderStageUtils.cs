@@ -50,7 +50,7 @@ namespace BSPConvert.Lib
 			}
 			if (stages.All(IsBrightenBlend))
 			{
-				mode = OutputMode.Brighten;
+				mode = BrightenOrOpaque(shader);
 				return true;
 			}
 			return false;
@@ -70,14 +70,32 @@ namespace BSPConvert.Lib
 					(t.type == TexMod.TMOD_STRETCH && t.wave.frequency > 0f)));
 		}
 
-		public static OutputMode ClassifyOutputMode(List<ShaderStage> stages)
+		public static OutputMode ClassifyOutputMode(Shader shader, List<ShaderStage> stages)
 		{
 			if (stages.Any(IsOpaqueBlend))
 				return OutputMode.Opaque;
 			if (stages.All(IsAdditiveBlend))
 				return OutputMode.Additive;
-			return OutputMode.Brighten;
+			return BrightenOrOpaque(shader);
 		}
+
+		// The output mode of a stack whose stages all composite against the framebuffer. Normally that means a
+		// translucent Q3 liquid, but the stack is opaque when the shader's own lightmap stage is its base: Q3's
+		// lit-surface idiom draws "map $lightmap" first with no blendFunc and multiplies the diffuse onto it, and
+		// GetTextureStages drops lightmap stages because Source's LightmappedGeneric applies the lightmap itself.
+		// Left uncounted, such a surface (say a diffuse filter under a scrolling brighten overlay) looks base-less
+		// and is written out see-through when it is in fact fully opaque.
+		public static OutputMode BrightenOrOpaque(Shader shader) =>
+			HasOpaqueLightmapBase(shader) ? OutputMode.Opaque : OutputMode.Brighten;
+
+		// True when the shader's lightmap stage is itself an opaque base (see BrightenOrOpaque).
+		public static bool HasOpaqueLightmapBase(Shader shader)
+		{
+			return shader.stages != null && shader.stages.Any(s => IsLightmapStage(s) && IsOpaqueBlend(s));
+		}
+
+		private static bool IsLightmapStage(ShaderStage stage) =>
+			stage.bundles[0].tcGen == TexCoordGen.TCGEN_LIGHTMAP || stage.bundles[0].images[0] == "$lightmap";
 
 		// An opaque base stage writes solid color to the framebuffer ("GL_one GL_zero" or no blendFunc).
 		public static bool IsOpaqueBlend(ShaderStage stage) => IsOpaqueBlendFlags(stage.flags);
@@ -140,8 +158,7 @@ namespace BSPConvert.Lib
 		// to forward Q3's lightmap dimming of a spheremap reflection ($envmaplightscale).
 		public static bool HasLightmapStage(Shader shader)
 		{
-			return shader.stages != null && shader.stages.Any(s =>
-				s.bundles[0].tcGen == TexCoordGen.TCGEN_LIGHTMAP || s.bundles[0].images[0] == "$lightmap");
+			return shader.stages != null && shader.stages.Any(IsLightmapStage);
 		}
 
 		// A transparent overlay blend - additive ("GL_one GL_one") or alpha ("GL_src_alpha GL_one_minus_src_alpha").
