@@ -2757,6 +2757,13 @@ namespace BSPConvert.Lib
 
 				var lightmapOffset = lmColors.Count * 4;
 
+				// Q3 applies its 4x display overbright to lightmap data loaded from the BSP, not to an image
+				// loaded as a regular texture - but q3map2 still writes external lightmaps in that same
+				// pre-overbright range, so taking them literally renders the whole map 4x dark (and leaves any
+				// baked fog brighter than the surface it should be fading out). Apply the 4x when the image
+				// stays under the ceiling, and take it as-is when it already spans full display range.
+				var overbright = lmData.preOverbright ? ColorUtil.OVERBRIGHT : 1;
+
 				// Guard-band border only for primitive faces; see ConvertInternalLightmaps for the rationale.
 				var border = FaceOutputUsesPrimitives(faceIndex) ? LIGHTMAP_BORDER : 0;
 				var lmWidth = (int)lmData.size.X;
@@ -2786,15 +2793,15 @@ namespace BSPConvert.Lib
 						if (fogOverlay != null)
 						{
 							// Sample the fog at the luxel's page-relative lightmap coords (its texel center).
-							// Overbright 1: external lightmaps are converted without the 4x (see below), so Q3's
-							// display space for them is the raw luxel value.
+							// The blend runs in Q3's display space, so it takes the same overbright the
+							// conversion below applies - otherwise the fog lands at the wrong brightness.
 							var u = (sx + 0.5f) / lmWidth;
 							var v = (sy + 0.5f) / lmHeight;
-							(r, g, b) = fogBaker!.Blend(fogOverlay, fogMap, r, g, b, u, v, overbright: 1);
+							(r, g, b) = fogBaker!.Blend(fogOverlay, fogMap, r, g, b, u, v, overbright);
 						}
 
 						var color = ColorUtil.ConvertQ3LightmapToColorRGBExp32(r, g, b, options.clampOverbright,
-							applyOverbright: false); // Don't apply overbright to external lightmaps
+							applyOverbright: lmData.preOverbright);
 
 						lmColors.Add(color);
 					}

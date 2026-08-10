@@ -17,6 +17,12 @@ namespace BSPConvert.Lib
 	{
 		public Vector2 size;
 		public byte[] data;
+
+		// True when no luxel in the map exceeds 255/OVERBRIGHT, i.e. q3map2 wrote these images in Quake 3's
+		// pre-overbright range (like internal lightmaps) and the engine's 4x display overbright is expected to
+		// be applied. Other q3map2 configurations export external lightmaps already at full display range;
+		// those have luxels above the ceiling and must be taken as-is. See ConvertExternalLightmaps.
+		public bool preOverbright;
 	}
 	
 	public class ExternalLightmapLoader
@@ -72,7 +78,30 @@ namespace BSPConvert.Lib
 				}
 			}
 
+			// How q3map2 exported the lightmaps is a property of the map, not of one page, so decide it across
+			// all of them: a single dark page that happens to stay under the ceiling must not end up 4x
+			// brighter than its neighbours.
+			var preOverbright = lightmapDict.Values.All(x => IsPreOverbright(x.data));
+			foreach (var lightmapData in lightmapDict.Values)
+				lightmapData.preOverbright = preOverbright;
+
 			return lightmapDict;
+		}
+
+		// Whether the image's luxels all fit under Quake 3's pre-overbright ceiling (255/OVERBRIGHT). Testing
+		// the ceiling rather than guessing is safe in both directions: the 4x is only ever applied when it
+		// cannot clip, and images that already reach full display range are left alone.
+		private static bool IsPreOverbright(byte[] data)
+		{
+			const int ceiling = 255 / ColorUtil.OVERBRIGHT;
+
+			foreach (var b in data)
+			{
+				if (b > ceiling)
+					return false;
+			}
+
+			return true;
 		}
 
 		private (byte[] data, Vector2 size) GetExternalLightmapData(ShaderStage stage)
