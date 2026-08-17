@@ -44,6 +44,9 @@ namespace BSPConvert.Cmd
 			[Option("clampoverbright", Required = false, HelpText = "Apply Quake 3's hue-preserving overbright clamp to lightmaps, flattening over-bright highlights toward white instead of letting the engine's 4x overbright blow past white.")]
 			public bool ClampOverbright { get; set; }
 
+			[Option("scale", Required = false, Default = 1f, HelpText = "Uniformly scale the map's geometry and entity positions by this factor (e.g. 2 doubles the world size). Mover speed/wait times, jump pad and teleport velocities, and other gameplay-tuning values are not scaled and may need manual retuning to feel the same at the new size.")]
+			public float Scale { get; set; }
+
 			//[Option("oldbsp", Required = false, HelpText = "Use BSP version 20 (HL2 / CS:S).")]
 			//public bool OldBSP { get; set; }
 
@@ -113,6 +116,9 @@ namespace BSPConvert.Cmd
 			if (options.OffModeEntityFallback != "cpm" && options.OffModeEntityFallback != "vq3")
 				throw new ArgumentOutOfRangeException("Default entity state must be either 'cpm' or 'vq3'.");
 
+			if (options.Scale <= 0f)
+				throw new ArgumentOutOfRangeException("Scale must be greater than 0.");
+
 			foreach (var inputEntry in options.InputFiles)
 			{
 				var converterOptions = new BSPConverterOptions()
@@ -135,6 +141,7 @@ namespace BSPConvert.Cmd
 					mapFilter = options.Maps?.ToArray(),
 					offModeEntityFallback = options.OffModeEntityFallback,
 					clampOverbright = options.ClampOverbright,
+					scale = options.Scale,
 					flipbook = new FlipbookOptions()
 					{
 						enabled = !options.NoAnim,

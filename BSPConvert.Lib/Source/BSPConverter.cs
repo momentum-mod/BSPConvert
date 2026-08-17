@@ -61,6 +61,10 @@ namespace BSPConvert.Lib
 		// When set, applies Quake 3's hue-preserving overbright clamp to lightmap luxels (flattens
 		// over-bright highlights toward white). Off by default. See ColorUtil.ConvertQ3LightmapToColorRGBExp32.
 		public bool clampOverbright;
+		// Uniform multiplier applied to the Quake 3 map's geometry (vertices, plane distances, bounding
+		// boxes) and position-based entity data before conversion, so the converted map is bigger/smaller
+		// than the original. 1 (default) makes no change. See BSPConverter.ScaleQuakeBsp.
+		public float scale = 1f;
 		// Settings for baking Q3 multi-pass scrolling shaders (e.g. liquids water) into looping animated
 		// flipbook VTFs. See FlipbookConverter.
 		public FlipbookOptions flipbook = new FlipbookOptions();
@@ -149,6 +153,7 @@ namespace BSPConvert.Lib
 				ClearDictionaries();
 
 				LoadBSP(bsp);
+				ScaleQuakeBsp(options.scale);
 
 				MarkTriggerPatchFaces();
 				ReplaceToolTextures();
@@ -217,6 +222,97 @@ namespace BSPConvert.Lib
 
 			var mapType = options.oldBSP ? MapType.Source20 : MapType.Source25;
 			sourceBsp = new BSP(bspName, mapType);
+		}
+
+		// Uniformly scales the Quake BSP's geometry in place before conversion, so every downstream
+		// Convert* step (which reads positions/bounds straight off quakeBsp) sees already-scaled data.
+		// Texture/lightmap UVs are untouched: GetTextureVectorsFromVertices derives Source's texinfo
+		// vectors from vertex position deltas, so scaling positions alone makes textures stretch over
+		// the larger surfaces (not re-tile) - the same way scaling brush geometry in Hammer would look.
+		// Gameplay-tuning values that aren't map geometry (mover speed, wait times, jump/teleport speed,
+		// hardcoded Source-side offsets) are intentionally left alone; only "height"/"lip", which are
+		// world-unit distances tied directly to brush dimensions, are scaled to match.
+		private void ScaleQuakeBsp(float scale)
+		{
+			if (scale == 1f)
+				return;
+
+			for (var i = 0; i < quakeBsp.Vertices.Count; i++)
+			{
+				var vertex = quakeBsp.Vertices[i];
+				vertex.position *= scale;
+				quakeBsp.Vertices[i] = vertex;
+			}
+
+			for (var i = 0; i < quakeBsp.Planes.Count; i++)
+			{
+				var plane = quakeBsp.Planes[i];
+				plane.Distance *= scale;
+			}
+
+			for (var i = 0; i < quakeBsp.Models.Count; i++)
+			{
+				var model = quakeBsp.Models[i];
+				model.Minimums *= scale;
+				model.Maximums *= scale;
+			}
+
+			for (var i = 0; i < quakeBsp.Nodes.Count; i++)
+			{
+				var node = quakeBsp.Nodes[i];
+				node.Minimums *= scale;
+				node.Maximums *= scale;
+			}
+
+			for (var i = 0; i < quakeBsp.Leaves.Count; i++)
+			{
+				var leaf = quakeBsp.Leaves[i];
+				leaf.Minimums *= scale;
+				leaf.Maximums *= scale;
+			}
+
+			foreach (var entity in quakeBsp.Entities)
+				ScaleEntity(entity, scale);
+		}
+
+		private static void ScaleEntity(Entity entity, float scale)
+		{
+			if (entity.ContainsKey("origin"))
+				entity.Origin *= scale;
+
+			// func_plat's "height" and func_plat/func_door/func_button's "lip" are world-unit distances
+			// measured against the brush model's own (now-scaled) bounds - see EntityConverter.ConvertFuncPlat
+			// and GetBrushThickness. Without scaling these too, a scaled-up door/plat would stop short of
+			// fully opening the doorway.
+			ScaleKey(entity, "height", scale);
+			ScaleKey(entity, "lip", scale);
+
+			// LightGridConverter re-derives the Q3 light grid's point count from the (now-scaled) world
+			// bounds divided by "gridsize"; scaling gridsize by the same factor keeps that count matching
+			// the baked LightGrid lump, otherwise ambient lighting silently fails to convert.
+			if (entity.ClassName == "worldspawn")
+				ScaleVectorKey(entity, "gridsize", scale);
+		}
+
+		private static void ScaleKey(Entity entity, string key, float scale)
+		{
+			if (float.TryParse(entity[key], NumberStyles.Float, CultureInfo.InvariantCulture, out var value))
+				entity[key] = (value * scale).ToString(CultureInfo.InvariantCulture);
+		}
+
+		private static void ScaleVectorKey(Entity entity, string key, float scale)
+		{
+			if (string.IsNullOrEmpty(entity[key]))
+				return;
+
+			var components = entity[key].Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+			for (var i = 0; i < components.Length; i++)
+			{
+				if (float.TryParse(components[i], NumberStyles.Float, CultureInfo.InvariantCulture, out var value))
+					components[i] = (value * scale).ToString(CultureInfo.InvariantCulture);
+			}
+
+			entity[key] = string.Join(" ", components);
 		}
 
 		private void CheckQ3Content()
