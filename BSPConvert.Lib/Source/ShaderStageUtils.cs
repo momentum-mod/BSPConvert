@@ -143,6 +143,18 @@ namespace BSPConvert.Lib
 				(srcBlend == ShaderStageFlags.GLS_SRCBLEND_DST_COLOR && dstBlend == ShaderStageFlags.GLS_DSTBLEND_ZERO);
 		}
 
+		// A "GL_one GL_src_color" self-tinting blend: the stage writes its own texture at full strength (srcFactor
+		// ONE) while tinting whatever's already drawn by its own color (dstFactor SRC_COLOR). Q3 uses this idiom for
+		// a surface's real diffuse texture layered over an earlier background pass (e.g. a pool floor drawn over
+		// scrolling caustic ripples) - visually the stage's own texture dominates the result, so like a plain opaque
+		// stage it's a valid $basetexture candidate, not just an overlay.
+		public static bool IsSelfTintBlend(ShaderStage stage)
+		{
+			var srcBlend = stage.flags & ShaderStageFlags.GLS_SRCBLEND_BITS;
+			var dstBlend = stage.flags & ShaderStageFlags.GLS_DSTBLEND_BITS;
+			return srcBlend == ShaderStageFlags.GLS_SRCBLEND_ONE && dstBlend == ShaderStageFlags.GLS_DSTBLEND_SRC_COLOR;
+		}
+
 		// A reverse alpha blend ("GL_one_minus_src_alpha GL_src_alpha"). Drawn over an opaque reflection base, this
 		// reveals the underlying reflection where the stage's alpha is high (refl*alpha) rather than low - the Q3
 		// blue-metal chrome idiom whose diffuse alpha is authored inverted.

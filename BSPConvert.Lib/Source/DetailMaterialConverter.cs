@@ -184,26 +184,34 @@ namespace BSPConvert.Lib
 			if (usable.Count < 2)
 				return false;
 
-			baseStage = usable.OrderByDescending(BasePriority).First();
+			// Among the most surface-like stages, prefer the last one drawn: Q3 replays the stack in order, so a
+			// later opaque/self-tint stage (e.g. a floor's real diffuse texture layered over an earlier scrolling
+			// caustic background pass) is what actually dominates the final pixel, not an earlier stage it draws over.
+			var maxPriority = usable.Max(BasePriority);
+			baseStage = usable.Last(s => BasePriority(s) == maxPriority);
 
-			// An opaque-base stack must keep the lit opaque stage as $basetexture. When the stack is opaque only
-			// because the shader's lightmap stage is its base, there is no such texture stage to keep - Source's
-			// LightmappedGeneric supplies the lightmap itself - so the priority pick above stands.
-			if (mode == OutputMode.Opaque && !IsOpaqueBlend(baseStage))
+			// An opaque-base stack must keep an opaque (or self-tinting, "GL_one GL_src_color") stage as
+			// $basetexture. When the stack is opaque only because the shader's lightmap stage is its base, there is
+			// no such texture stage to keep - Source's LightmappedGeneric supplies the lightmap itself - so the
+			// priority pick above stands.
+			if (mode == OutputMode.Opaque && !IsOpaqueBlend(baseStage) && !IsSelfTintBlend(baseStage))
 			{
-				var opaqueStage = usable.FirstOrDefault(IsOpaqueBlend);
+				var opaqueStage = usable.LastOrDefault(s => IsOpaqueBlend(s) || IsSelfTintBlend(s));
 				if (opaqueStage != null)
 					baseStage = opaqueStage;
 				else if (!HasOpaqueLightmapBase(shader))
 					return false;
 			}
 
-			// Detail = the most prominent remaining stage (prefer one that moves, then the strongest scroll).
+			// Detail = the most prominent remaining stage (prefer one that moves, then the strongest scroll, then a
+			// blended stage over a flatly opaque one - an opaque detail would just replace the base's texels instead
+			// of overlaying it).
 			var chosenBase = baseStage;
 			detailStage = usable
 				.Where(s => s != chosenBase)
 				.OrderByDescending(s => HasScroll(s) || HasRotate(s))
 				.ThenByDescending(ScrollMagnitude)
+				.ThenBy(s => IsOpaqueBlend(s) ? 1 : 0)
 				.FirstOrDefault()!;
 			if (detailStage == null)
 				return false;
@@ -373,11 +381,12 @@ namespace BSPConvert.Lib
 			return 2; // TCOMBINE_DETAIL_OVER_BASE: lerp toward detail by its alpha
 		}
 
-		// How surface-like a stage is, for choosing $basetexture: an opaque base outranks a multiplicative/alpha
-		// tint, which outranks a brightening ripple, which outranks an additive glow (best left as the overlay).
+		// How surface-like a stage is, for choosing $basetexture: an opaque base (or a self-tinting "GL_one
+		// GL_src_color" stage - see IsSelfTintBlend) outranks a multiplicative/alpha tint, which outranks a
+		// brightening ripple, which outranks an additive glow (best left as the overlay).
 		private static int BasePriority(ShaderStage stage)
 		{
-			if (IsOpaqueBlend(stage)) return 4;
+			if (IsOpaqueBlend(stage) || IsSelfTintBlend(stage)) return 4;
 			if (IsMultiplyBlend(stage)) return 3;
 			if (IsAlphaBlend(stage)) return 2;
 			if (IsBrightenBlend(stage)) return 1;
