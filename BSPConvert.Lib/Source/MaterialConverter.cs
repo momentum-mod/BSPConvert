@@ -139,12 +139,22 @@ namespace BSPConvert.Lib
 				if (FogShaderHasOverlay(shader))
 					CreateBaseShaderVMT(GetFogOverlayTextureName(texture), shader, "$decal 1", "$translucent 1");
 			}
-			else if (detailMaterialConverter.TryConvert(texture, shader))
+			// A sky shader's stages (e.g. scrolling cloud/flare layers) describe the Q3 dynamic sky overlay,
+			// not a liquid/flipbook material - guard both converters below so a skyParms shader always falls
+			// through to the sky-specific branches instead of being misread as a scrolling detail material.
+			else if (shader.skyParms == null && detailMaterialConverter.TryConvert(texture, shader))
 				return; // scroll-only liquid converted to a live $basetexture+$detail material
-			else if (flipbookConverter.TryConvert(texture, shader))
+			else if (shader.skyParms == null && flipbookConverter.TryConvert(texture, shader))
 				return; // multi-pass scrolling shader baked into an animated flipbook VTF + VMT
 			else if (shader.skyParms != null && shader.skyParms.HasImageBox)
+			{
+				// Q3 draws the outerbox first and then projects the shader's own stages onto the cloud dome
+				// over it (RB_StageIteratorSky), so an outerbox shader that also has cloud/flare stages needs
+				// those baked in too - the plain box copy below would otherwise silently drop them.
+				if (CloudSkyboxBaker.HasBakeableCloudStages(shader) && cloudSkyboxBaker.TryConvert(texture, shader))
+					return;
 				CreateSkyboxVMT(shader);
+			}
 			else if (CloudSkyboxBaker.IsCloudSkyShader(shader) && cloudSkyboxBaker.TryConvert(texture, shader))
 				return; // dynamic Q3 cloud sky baked into a static 6-sided Source skybox
 			else if (shader.GetImageStages().Any(x => !string.IsNullOrEmpty(x.bundles[0].images[0])))

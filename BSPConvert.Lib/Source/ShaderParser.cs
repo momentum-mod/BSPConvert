@@ -281,10 +281,38 @@ namespace BSPConvert.Lib
 
 			return new Shader.SkyParms()
 			{
-				outerBox = split[1],
+				outerBox = NormalizeSkyBoxPath(split[1]),
 				cloudHeight = split[2],
-				innerBox = split[3]
+				innerBox = NormalizeSkyBoxPath(split[3])
 			};
+		}
+
+		private static readonly string[] skyBoxSuffixes = { "bk", "dn", "ft", "lf", "rt", "up" };
+		private static readonly string[] skyBoxImageExtensions = { ".tga", ".jpg", ".jpeg", ".png" };
+
+		// Q3 expects skyParms' box parameters to be a shared prefix - it appends "_<suffix>.tga" itself
+		// (see ioq3's ParseSkyParms) - but some shaders mistakenly reference one face's actual filename
+		// instead (e.g. "env/sky/sky_bk.jpg"). Strip a trailing extension and face suffix so those still
+		// resolve to the prefix the map's images are actually named after, rather than silently failing to
+		// find any of the six faces.
+		private static string NormalizeSkyBoxPath(string boxPath)
+		{
+			foreach (var ext in skyBoxImageExtensions)
+			{
+				if (boxPath.EndsWith(ext, StringComparison.OrdinalIgnoreCase))
+				{
+					boxPath = boxPath.Substring(0, boxPath.Length - ext.Length);
+					break;
+				}
+			}
+
+			foreach (var suffix in skyBoxSuffixes)
+			{
+				if (boxPath.EndsWith("_" + suffix, StringComparison.OrdinalIgnoreCase))
+					return boxPath.Substring(0, boxPath.Length - (suffix.Length + 1));
+			}
+
+			return boxPath;
 		}
 
 		private CullType ParseCullType(string cullType)

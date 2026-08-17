@@ -10,16 +10,21 @@ using sourcepp.vtfpp;
 
 namespace BSPConvert.Lib
 {
-	// Bakes a Q3 "dynamic cloud" sky shader (skyParms with no outerbox box, e.g. "skyparms - 512 -" plus
-	// scrolling cloud stages - see textures/skies/hellsky) into a static 6-sided Source skybox.
+	// Bakes a Q3 sky shader's cloud stages (scrolling cloud/flare layers projected onto a dome - see
+	// textures/skies/hellsky, or breakorp's textures/breaker/breakasky) into a static 6-sided Source skybox.
+	// Handles two cases: a "dynamic cloud" sky with no outerbox (skyParms "- 512 -"), where the bake is the
+	// sole content of each face, and a sky that has BOTH an outerbox and cloud stages, where the bake layers
+	// the clouds on top of the outerbox's own images - matching RB_StageIteratorSky in ioq3 tr_sky.c, which
+	// draws the outer box first and then projects every shader stage onto the cloud dome over it. Without
+	// this, a shader like breakasky's (a flat outerbox color plus a scrolling cloud+flare overlay) would
+	// only convert its flat box, silently losing the cloud/flare layers that make up its actual look.
 	//
-	// Q3 renders these with no skybox image at all: it projects each cloud stage onto a virtual dome at the
-	// shader's cloudHeight and draws it live (see ioq3 tr_sky.c - MakeSkyVec / R_InitSkyTexCoords /
-	// FillCloudBox). Source has no equivalent live projection, so the dome projection + stage compositing is
-	// reproduced here offline, once per face, and written out as ordinary skybox face textures. Each face is
-	// produced exactly as a Q3 "outerbox" .tga for that face would be, so it flows through the same Source
-	// skybox path (naming, orientation, worldspawn skyname) as a real image skybox. Scrolling (tcMod scroll)
-	// is sampled at time 0 - a static Source sky can't animate it.
+	// Q3 renders the cloud dome live (see ioq3 tr_sky.c - MakeSkyVec / R_InitSkyTexCoords / FillCloudBox).
+	// Source has no equivalent live projection, so the dome projection + stage compositing is reproduced
+	// here offline, once per face, and written out as ordinary skybox face textures. Each face is produced
+	// exactly as a Q3 "outerbox" .tga for that face would be, so it flows through the same Source skybox
+	// path (naming, orientation, worldspawn skyname) as a real image skybox. Scrolling (tcMod scroll) is
+	// sampled at time 0 - a static Source sky can't animate it.
 	public class CloudSkyboxBaker
 	{
 		// Output face resolution. Q3 cloud textures are 256; 512 gives the dome projection room to resolve
@@ -51,6 +56,15 @@ namespace BSPConvert.Lib
 				shader.GetImageStages().Any();
 		}
 
+		// A shader whose non-lightmap stages should be projected onto a baked skybox - either as the sole
+		// content of a dome-only sky (IsCloudSkyShader) or layered on top of an outerbox's own images. Used
+		// by MaterialConverter to try baking before falling back to the plain outerbox copy (CreateSkyboxVMT),
+		// which would otherwise silently drop an outerbox shader's cloud/flare stages.
+		public static bool HasBakeableCloudStages(Shader shader)
+		{
+			return shader?.skyParms != null && shader.stages != null && shader.GetImageStages().Any();
+		}
+
 		// The Source skyname (worldspawn) for a cloud sky brush texture, e.g. "textures/skies/hellsky" ->
 		// "hellsky". The engine loads materials/skybox/<skyname><suffix>, which is where Bake writes the faces.
 		public static string GetSkyName(string textureName)
@@ -73,18 +87,25 @@ namespace BSPConvert.Lib
 
 		// Bakes the 6 skybox faces + VMTs for a cloud sky shader. Returns false (leaving the shader to the
 		// normal material path) only if not a single cloud stage can be loaded.
+		//
+		// When the shader also has an outerbox (HasImageBox), each face's own outerbox image is loaded as the
+		// bake's base layer and written to the same "skybox/{outerBox}{suffix}" path CreateSkyboxVMT would
+		// have used, so ResolveSkyboxName/GetSkyName's outerBox-based skyname still resolves to it - baking
+		// only changes what MaterialConverter writes at that path, not the name the map spawns with.
 		public bool TryConvert(string textureName, Shader shader)
 		{
 			var layers = LoadLayers(shader);
 			if (layers.Count == 0)
 				return false;
 
+			var hasOuterBox = shader.skyParms.HasImageBox;
 			var cloudHeight = ParseCloudHeight(shader.skyParms.cloudHeight);
-			var skyName = GetSkyName(textureName);
+			var skyName = hasOuterBox ? shader.skyParms.outerBox : GetSkyName(textureName);
 
 			foreach (var (suffix, q3Face) in Faces)
 			{
-				var pixels = BakeFace(q3Face, layers, cloudHeight);
+				var boxFace = hasOuterBox ? LoadBoxFace(shader.skyParms.outerBox, suffix) : null;
+				var pixels = BakeFace(q3Face, layers, cloudHeight, boxFace);
 
 				var baseTexture = $"skybox/{skyName}{suffix}";
 				if (!BakeFaceVtf(baseTexture, pixels))
@@ -94,6 +115,27 @@ namespace BSPConvert.Lib
 			}
 
 			return true;
+		}
+
+		// Loads one outerbox face image (same file the plain image-skybox path uses - see
+		// MaterialConverter.CreateSkyboxVMT) as the bake's base layer. Returns null (base starts black) when
+		// the image can't be found, rather than failing the whole bake over one missing face.
+		private Layer? LoadBoxFace(string outerBox, string suffix)
+		{
+			var imagePath = resolveImagePath($"{outerBox}_{suffix}");
+			if (imagePath == null || !File.Exists(imagePath))
+				return null;
+
+			using var image = Image.Load<Rgba32>(imagePath);
+			var pixels = new Rgba32[image.Width * image.Height];
+			image.CopyPixelDataTo(pixels);
+
+			return new Layer
+			{
+				pixels = pixels,
+				width = image.Width,
+				height = image.Height,
+			};
 		}
 
 		// Source skybox suffix -> Q3 MakeSkyVec face axis. The suffix is NOT the same as the axis index:
@@ -144,12 +186,23 @@ namespace BSPConvert.Lib
 			return layers;
 		}
 
+		// Q3's face index for straight down (see ioq3 tr_sky.c st_to_vec: axis 5 is "look straight down").
+		// FillCloudBox always skips this face ("still don't want to draw the bottom, even if fullClouds"),
+		// so the cloud dome is never projected underfoot - only the outerbox (or black, with no outerbox)
+		// shows there. Reproduced here so the bake doesn't show a distorted dome projection where Q3 never
+		// draws one.
+		private const int DownFace = 5;
+
 		// Bakes one face into an RGBA8888 buffer. Pixel (px,py) maps to the same dome view direction Q3's
 		// outerbox sampling uses for this face (image u,v -> MakeSkyVec(2u-1, 1-2v, axis)), so the result is
-		// what Q3 would have shown on that face.
-		private static byte[] BakeFace(int q3Face, List<Layer> layers, float cloudHeight)
+		// what Q3 would have shown on that face. When boxFace is given, it's sampled at the same (px,py) -
+		// pixel (px,py) is already exactly the outerbox's own UV for this face (see MakeSkyVec's outSt,
+		// which derives from the same s,t) - and used as the base the cloud layers composite over, instead
+		// of starting from black.
+		private static byte[] BakeFace(int q3Face, List<Layer> layers, float cloudHeight, Layer? boxFace)
 		{
 			var buffer = new byte[FaceSize * FaceSize * 4];
+			var skipClouds = q3Face == DownFace;
 
 			for (var py = 0; py < FaceSize; py++)
 			{
@@ -158,13 +211,21 @@ namespace BSPConvert.Lib
 				{
 					var s = 2f * ((px + 0.5f) / FaceSize) - 1f;
 
-					var dir = MakeSkyVec(s, t, q3Face);
-					var color = CloudColor(dir, layers, cloudHeight);
+					var baseColor = boxFace != null ?
+						SampleBilinearClamp(boxFace, (px + 0.5f) / FaceSize, (py + 0.5f) / FaceSize) :
+						Vector3.Zero;
+
+					var color = baseColor;
+					if (!skipClouds)
+					{
+						var dir = MakeSkyVec(s, t, q3Face);
+						color = CloudColor(dir, layers, cloudHeight, baseColor);
+					}
 
 					var index = (py * FaceSize + px) * 4;
-					buffer[index + 0] = (byte)(color.X * 255f + 0.5f);
-					buffer[index + 1] = (byte)(color.Y * 255f + 0.5f);
-					buffer[index + 2] = (byte)(color.Z * 255f + 0.5f);
+					buffer[index + 0] = (byte)(Math.Clamp(color.X, 0f, 1f) * 255f + 0.5f);
+					buffer[index + 1] = (byte)(Math.Clamp(color.Y, 0f, 1f) * 255f + 0.5f);
+					buffer[index + 2] = (byte)(Math.Clamp(color.Z, 0f, 1f) * 255f + 0.5f);
 					buffer[index + 3] = 255;
 				}
 			}
@@ -200,9 +261,10 @@ namespace BSPConvert.Lib
 
 		// ioq3 tr_sky.c: R_InitSkyTexCoords - intersect the view ray with the cloud dome (sphere of radius
 		// RadiusWorld whose top sits cloudHeight above the viewer), then derive the cloud texcoord from the
-		// normalized intersection point. Composites every cloud stage at that texcoord. The intersection point
-		// is invariant to the length of dir, so an unnormalized MakeSkyVec direction is fine.
-		private static Vector3 CloudColor(Vector3 dir, List<Layer> layers, float cloudHeight)
+		// normalized intersection point. Composites every cloud stage at that texcoord, starting from
+		// baseColor (the outerbox's own pixel here, or black for a dome-only sky with no outerbox). The
+		// intersection point is invariant to the length of dir, so an unnormalized MakeSkyVec direction is fine.
+		private static Vector3 CloudColor(Vector3 dir, List<Layer> layers, float cloudHeight, Vector3 baseColor)
 		{
 			var len2 = Vector3.Dot(dir, dir);
 			var disc = dir.Z * dir.Z * RadiusWorld * RadiusWorld +
@@ -217,7 +279,7 @@ namespace BSPConvert.Lib
 				MathF.Acos(Math.Clamp(v.X, -1f, 1f)),
 				MathF.Acos(Math.Clamp(v.Y, -1f, 1f)));
 
-			var accum = Vector3.Zero;
+			var accum = baseColor;
 			foreach (var layer in layers)
 			{
 				var sample = SampleBilinearWrap(layer, baseSt * layer.scale);
@@ -310,6 +372,32 @@ namespace BSPConvert.Lib
 			var c11 = ToVector(layer.pixels[y1w * w + x1w]);
 
 			return Vector4.Lerp(Vector4.Lerp(c00, c10, dx), Vector4.Lerp(c01, c11, dx), dy);
+		}
+
+		// Samples an outerbox face at normalized (u,v) in 0..1, clamped at the edges (unlike the cloud layers'
+		// wrapping sample) since a box face is a single non-tiling image, not a repeating pattern.
+		private static Vector3 SampleBilinearClamp(Layer layer, float u, float v)
+		{
+			var w = layer.width;
+			var h = layer.height;
+
+			var fx = Math.Clamp(u * w - 0.5f, 0f, w - 1f);
+			var fy = Math.Clamp(v * h - 0.5f, 0f, h - 1f);
+
+			var x0 = (int)MathF.Floor(fx);
+			var y0 = (int)MathF.Floor(fy);
+			var x1 = Math.Min(x0 + 1, w - 1);
+			var y1 = Math.Min(y0 + 1, h - 1);
+			var dx = fx - x0;
+			var dy = fy - y0;
+
+			var c00 = ToVector(layer.pixels[y0 * w + x0]);
+			var c10 = ToVector(layer.pixels[y0 * w + x1]);
+			var c01 = ToVector(layer.pixels[y1 * w + x0]);
+			var c11 = ToVector(layer.pixels[y1 * w + x1]);
+
+			var lerped = Vector4.Lerp(Vector4.Lerp(c00, c10, dx), Vector4.Lerp(c01, c11, dx), dy);
+			return new Vector3(lerped.X, lerped.Y, lerped.Z);
 		}
 
 		private static Vector4 ToVector(Rgba32 pixel) => new(pixel.R / 255f, pixel.G / 255f, pixel.B / 255f, pixel.A / 255f);
