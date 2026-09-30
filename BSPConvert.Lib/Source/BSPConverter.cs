@@ -1,4 +1,4 @@
-using LibBSP;
+﻿using LibBSP;
 using System;
 using System.IO;
 using System.Linq;
@@ -6,57 +6,30 @@ using BSPConvert.Lib.Zones;
 
 namespace BSPConvert.Lib
 {
+	// Options shared by every input engine. Engine-specific options live in their own class (e.g. q3).
 	public class BSPConverterOptions
 	{
-		public bool noPak;
-		public bool noToolDisplacements;
-		public bool patchesAsPrimitives;
-		private int displacementPower;
-		public int DisplacementPower
-		{
-			get { return displacementPower; }
-			set { displacementPower = Math.Clamp(value, 2, 4); }
-		}
-		public int minDamageToRespawnPlayer;
-		// Duplicate Quake 3 lava brushes (CONTENTS_LAVA) into trigger_hurt volumes so players are
-		// killed/respawned on contact. See Q3Converter.ConvertLavaTriggers.
-		public bool lavaTriggers;
-		// Quake 3 fog brushes are converted by default: the default path (useObbFog = false) tags each fog brush
-		// CONTENTS_FOG and drops its faces (nodraw). The engine composites a depth-clipped fog overlay for the
-		// volume, reading the appearance from the brush's Fog material. See Q3Converter.ConvertPolygon / ConvertBrushes.
-		// Use the legacy obb_volumefog entity path instead of the Fog shader. obb_volumefog is a froxel
-		// volumetric that handles arbitrary brush shapes but flickers on thin volumes; kept behind this
-		// flag for now. See Q3Converter.ConvertObbFog.
-		public bool useObbFog;
-		// Minimum vertical (Z) height, in units, for converted fog volumes. Thin fog layers are expanded
-		// downward to this height so they span enough view froxels to reduce flickering. obb-fog only.
-		// See ConvertObbFog.
-		public float fogMinHeight;
-		// Skip generating the fog overlay face for fog shaders with visible stages (e.g. the scrolling
-		// clouds on textures/sfx/hellfog); the fog brush face is just dropped instead. See TryCreateFogOverlayFace.
-		public bool noFogOverlay;
-		public bool ignoreZones;
-		public bool noEnvMap;
-		public bool oldBSP;
-		// LZMA compress the BSP's lumps
-		public bool compress;
-		public string prefix;
 		public string inputFile;
 		public string outputDir;
+		// Prefix for the converted BSP's file name
+		public string prefix;
 		// Optional filter to convert only specific BSP(s) from a multi-BSP pk3. Matched against each
 		// BSP's map name (without extension), case-insensitively. Null/empty converts every BSP.
 		public string[] mapFilter;
-		public string offModeEntityFallback;
-		// When set, applies Quake 3's hue-preserving overbright clamp to lightmap luxels (flattens
-		// over-bright highlights toward white). Off by default. See ColorUtil.ConvertQ3LightmapToColorRGBExp32.
-		public bool clampOverbright;
-		// Uniform multiplier applied to the Quake 3 map's geometry (vertices, plane distances, bounding
-		// boxes) and position-based entity data before conversion, so the converted map is bigger/smaller
-		// than the original. 1 (default) makes no change. See Q3Converter.ScaleQuakeBsp.
+		// Export materials into folders instead of embedding them in the BSP's pakfile
+		public bool noPak;
+		// LZMA compress the BSP's lumps
+		public bool compress;
+		public bool oldBSP;
+		public bool ignoreZones;
+		// Minimum trigger_hurt damage that respawns the player instead of hurting them
+		public int minDamageToRespawnPlayer;
+		// Uniform multiplier applied to the map's geometry (vertices, plane distances, bounding boxes) and
+		// position-based entity data before conversion, so the converted map is bigger/smaller than the
+		// original. 1 (default) makes no change. See Q3Converter.ScaleQuakeBsp.
 		public float scale = 1f;
-		// Settings for baking Q3 multi-pass scrolling shaders (e.g. liquids water) into looping animated
-		// flipbook VTFs. See FlipbookConverter.
-		public FlipbookOptions flipbook = new FlipbookOptions();
+
+		public Q3ConverterOptions q3 = new Q3ConverterOptions();
 	}
 
 	// Entry point for a conversion: loads the input file's BSP(s), hands each one to the converter for its

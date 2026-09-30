@@ -32,13 +32,16 @@ namespace BSPConvert.Test
 			var options = new BSPConverterOptions()
 			{
 				noPak = false,
-				DisplacementPower = 4,
 				minDamageToRespawnPlayer = 50,
 				ignoreZones = false,
 				oldBSP = false,
 				prefix = "df_",
 				inputFile = bspFile,
-				outputDir = outputDir
+				outputDir = outputDir,
+				q3 = new Q3ConverterOptions()
+				{
+					DisplacementPower = 4
+				}
 			};
 			
 			var converter = new BSPConverter(options, new DebugLogger());

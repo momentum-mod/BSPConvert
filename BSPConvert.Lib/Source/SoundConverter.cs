@@ -6,20 +6,24 @@ namespace BSPConvert.Lib.Source
 	public class SoundConverter
 	{
 		private string pk3Dir;
+		private AssetSearchPath externalContent;
 		private BSP bsp;
 		private string outputDir;
 		private Entities sourceEntities;
 
-		public SoundConverter(string pk3Dir, BSP bsp, Entities sourceEntities)
+		// externalContent is searched for sounds the map's entities use that aren't bundled in pk3Dir
+		public SoundConverter(string pk3Dir, AssetSearchPath externalContent, BSP bsp, Entities sourceEntities)
 		{
 			this.pk3Dir = pk3Dir;
+			this.externalContent = externalContent;
 			this.bsp = bsp;
 			this.sourceEntities = sourceEntities;
 		}
 
-		public SoundConverter(string pk3Dir, string outputDir, Entities sourceEntities)
+		public SoundConverter(string pk3Dir, AssetSearchPath externalContent, string outputDir, Entities sourceEntities)
 		{
 			this.pk3Dir = pk3Dir;
+			this.externalContent = externalContent;
 			this.outputDir = outputDir;
 			this.sourceEntities = sourceEntities;
 		}
@@ -70,11 +74,8 @@ namespace BSPConvert.Lib.Source
 
 		private void MoveToPk3SoundDir(string sound)
 		{
-			// Search Q3 base content first, then the user-managed CustomContent folder.
-			var soundPath = Path.Combine(ContentManager.GetQ3ContentDir(), "sound", sound);
-			if (!File.Exists(soundPath))
-				soundPath = Path.Combine(ContentManager.GetCustomContentDir(), "sound", sound);
-			if (!File.Exists(soundPath))
+			var soundPath = externalContent.FindFile(Path.Combine("sound", sound));
+			if (soundPath == null)
 				return;
 
 			var newPath = Path.Combine(pk3Dir, "sound", sound);

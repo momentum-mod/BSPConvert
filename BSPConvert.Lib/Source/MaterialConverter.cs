@@ -16,6 +16,8 @@ namespace BSPConvert.Lib
 		private const string InvisibleBaseTexture = "tools/envmapinvisible";
 
 		private string pk3Dir;
+		private string q3ContentDir;
+		private string customContentDir;
 		private Dictionary<string, Shader> shaderDict;
 		private Dictionary<string, string> pk3ImageDict;
 		private Dictionary<string, string> q3ImageDict;
@@ -48,15 +50,19 @@ namespace BSPConvert.Lib
 			"up"
 		};
 
-		public MaterialConverter(string pk3Dir, Dictionary<string, Shader> shaderDict, bool noEnvMap = false, FlipbookOptions? flipbookOptions = null, bool generateFogMaterials = false)
+		// Images a map's shaders use but doesn't bundle are copied into pk3Dir from q3ContentDir (Quake 3 base
+		// content) or customContentDir (user-supplied third-party assets).
+		public MaterialConverter(string pk3Dir, string q3ContentDir, string customContentDir, Dictionary<string, Shader> shaderDict, bool noEnvMap = false, FlipbookOptions? flipbookOptions = null, bool generateFogMaterials = false)
 		{
 			this.pk3Dir = pk3Dir;
+			this.q3ContentDir = q3ContentDir;
+			this.customContentDir = customContentDir;
 			this.shaderDict = shaderDict;
 			this.noEnvMap = noEnvMap;
 			this.generateFogMaterials = generateFogMaterials;
 			pk3ImageDict = GetImageLookupDictionary(pk3Dir);
-			q3ImageDict = GetImageLookupDictionary(ContentManager.GetQ3ContentDir());
-			customImageDict = GetImageLookupDictionary(ContentManager.GetCustomContentDir());
+			q3ImageDict = GetImageLookupDictionary(q3ContentDir);
+			customImageDict = GetImageLookupDictionary(customContentDir);
 			reverseAlphaChrome = ReverseAlphaChromeTextures.Analyze(shaderDict.Values);
 			var resolvedFlipbookOptions = flipbookOptions ?? new FlipbookOptions();
 			flipbookConverter = new FlipbookConverter(pk3Dir, resolvedFlipbookOptions, ResolveImagePath, TryCopyQ3Content, noEnvMap);
@@ -232,8 +238,8 @@ namespace BSPConvert.Lib
 			}
 
 			// Search external content (Q3 base first, then user-managed CustomContent) for the sky image.
-			return TryCopyExternalSky(q3ImageDict, ContentManager.GetQ3ContentDir(), skyTexture, skyboxDir)
-				|| TryCopyExternalSky(customImageDict, ContentManager.GetCustomContentDir(), skyTexture, skyboxDir);
+			return TryCopyExternalSky(q3ImageDict, q3ContentDir, skyTexture, skyboxDir)
+				|| TryCopyExternalSky(customImageDict, customContentDir, skyTexture, skyboxDir);
 		}
 
 		private bool TryCopyExternalSky(Dictionary<string, string> imageDict, string contentDir, string skyTexture, string skyboxDir)
@@ -365,12 +371,12 @@ namespace BSPConvert.Lib
 			RecordReferencedTexture(texturePath);
 
 			// Q3 base content takes precedence (matches existing behavior).
-			if (TryCopyExternalImage(q3ImageDict, ContentManager.GetQ3ContentDir(), texturePath))
+			if (TryCopyExternalImage(q3ImageDict, q3ContentDir, texturePath))
 				return;
 
 			// CustomContent only fills gaps - never overwrite the map's own bundled textures.
 			if (!pk3ImageDict.ContainsKey(texturePath))
-				TryCopyExternalImage(customImageDict, ContentManager.GetCustomContentDir(), texturePath);
+				TryCopyExternalImage(customImageDict, customContentDir, texturePath);
 		}
 
 		private bool TryCopyExternalImage(Dictionary<string, string> imageDict, string contentDir, string texturePath)

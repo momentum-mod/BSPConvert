@@ -15,6 +15,44 @@ using Vector2 = System.Numerics.Vector2;
 
 namespace BSPConvert.Lib
 {
+	public class Q3ConverterOptions
+	{
+		public bool noToolDisplacements;
+		public bool patchesAsPrimitives;
+		private int displacementPower;
+		public int DisplacementPower
+		{
+			get { return displacementPower; }
+			set { displacementPower = Math.Clamp(value, 2, 4); }
+		}
+		// Duplicate Quake 3 lava brushes (CONTENTS_LAVA) into trigger_hurt volumes so players are
+		// killed/respawned on contact. See Q3Converter.ConvertLavaTriggers.
+		public bool lavaTriggers;
+		// Quake 3 fog brushes are converted by default: the default path (useObbFog = false) tags each fog brush
+		// CONTENTS_FOG and drops its faces (nodraw). The engine composites a depth-clipped fog overlay for the
+		// volume, reading the appearance from the brush's Fog material. See Q3Converter.ConvertPolygon / ConvertBrushes.
+		// Use the legacy obb_volumefog entity path instead of the Fog shader. obb_volumefog is a froxel
+		// volumetric that handles arbitrary brush shapes but flickers on thin volumes; kept behind this
+		// flag for now. See Q3Converter.ConvertObbFog.
+		public bool useObbFog;
+		// Minimum vertical (Z) height, in units, for converted fog volumes. Thin fog layers are expanded
+		// downward to this height so they span enough view froxels to reduce flickering. obb-fog only.
+		// See ConvertObbFog.
+		public float fogMinHeight;
+		// Skip generating the fog overlay face for fog shaders with visible stages (e.g. the scrolling
+		// clouds on textures/sfx/hellfog); the fog brush face is just dropped instead. See TryCreateFogOverlayFace.
+		public bool noFogOverlay;
+		public bool noEnvMap;
+		// For maps with different cpm/vq3 entities, which entities to use when played in non-defrag modes ("cpm" or "vq3")
+		public string offModeEntityFallback;
+		// When set, applies Quake 3's hue-preserving overbright clamp to lightmap luxels (flattens
+		// over-bright highlights toward white). Off by default. See ColorUtil.ConvertQ3LightmapToColorRGBExp32.
+		public bool clampOverbright;
+		// Settings for baking Q3 multi-pass scrolling shaders (e.g. liquids water) into looping animated
+		// flipbook VTFs. See FlipbookConverter.
+		public FlipbookOptions flipbook = new FlipbookOptions();
+	}
+
 	// Converts Quake 3 BSPs (see IEngineConverter). Shaders and external lightmaps are loaded once per input
 	// file and shared by every BSP it contains.
 	public class Q3Converter : IEngineConverter
@@ -65,6 +103,12 @@ namespace BSPConvert.Lib
 		private const int MAX_LIGHTMAP_EXTENT = 1023;
 		private const string invisibleDisplacementTexture = "tools/toolsinvisibledisplacement";
 
+		// Quake 3 base game content (pak0.pk3 extracted by the user), used for assets maps reference without bundling
+		private static readonly string q3ContentDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Q3Content");
+		// Optional user-managed folder for third-party map assets (textures/scripts the map
+		// depends on but doesn't bundle). Searched after Q3Content to resolve external dependencies.
+		private static readonly string customContentDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "CustomContent");
+
 		public Q3Converter(BSPConverterOptions options, ILogger logger, ContentManager contentManager)
 		{
 			this.options = options;
@@ -109,11 +153,11 @@ namespace BSPConvert.Lib
 			ConvertModels();
 			ConvertBrushes();
 			ConvertBrushSides();
-			if (options.useObbFog)
+			if (options.q3.useObbFog)
 				ConvertObbFog();
 			ConvertFuncDoorTriggers();
 			ConvertSkyboxSwappers();
-			if (options.lavaTriggers)
+			if (options.q3.lavaTriggers)
 				ConvertLavaTriggers();
 			ConvertLightmaps();
 
@@ -227,7 +271,7 @@ namespace BSPConvert.Lib
 
 		private void CheckQ3Content()
 		{
-			var files = Directory.GetFiles(ContentManager.GetQ3ContentDir(), "*.*", SearchOption.AllDirectories);
+			var files = Directory.GetFiles(q3ContentDir, "*.*", SearchOption.AllDirectories);
 			if (files.Length <= 1)
 				logger.Log("Warning: Q3Content folder is empty. Quake 3 assets will not be converted.");
 		}
@@ -246,7 +290,7 @@ namespace BSPConvert.Lib
 		{
 			// Patches converted to primitives use invisible displacements for collisions
 			if (quakeBsp.Faces.Any(x => x.Type == FaceType.Patch &&
-				(options.patchesAsPrimitives || x.Texture.Name.StartsWith("tools/", StringComparison.OrdinalIgnoreCase))))
+				(options.q3.patchesAsPrimitives || x.Texture.Name.StartsWith("tools/", StringComparison.OrdinalIgnoreCase))))
 			{
 				// Copy invisible displacement assets to content dir
 				FileUtil.CopyBuiltinMaterialAsset(Path.Combine("tools", "toolsinvisibledisplacement.vmt"), contentManager.ContentDir);
@@ -267,8 +311,8 @@ namespace BSPConvert.Lib
 			// The default (non-obb) fog path emits Q3 fog shaders as Fog VMTs. The fog brush faces are nodraw, so
 			// these aren't drawn as surfaces; the engine reads the material off the CONTENTS_FOG brush for the
 			// overlay's fog appearance ($fogcolor / $fogdepthforopaque).
-			var generateFogMaterials = !options.useObbFog;
-			var materialConverter = new MaterialConverter(contentManager.ContentDir, shaderDict, options.noEnvMap, options.flipbook, generateFogMaterials);
+			var generateFogMaterials = !options.q3.useObbFog;
+			var materialConverter = new MaterialConverter(contentManager.ContentDir, q3ContentDir, customContentDir, shaderDict, options.q3.noEnvMap, options.q3.flipbook, generateFogMaterials);
 			foreach (var texture in quakeBsp.Textures)
 				materialConverter.Convert(texture.Name);
 
@@ -296,7 +340,7 @@ namespace BSPConvert.Lib
 
 		private string[] GetQ3Shaders()
 		{
-			var q3ScriptsDir = Path.Combine(ContentManager.GetQ3ContentDir(), "scripts");
+			var q3ScriptsDir = Path.Combine(q3ContentDir, "scripts");
 			if (Directory.Exists(q3ScriptsDir))
 				return Directory.GetFiles(q3ScriptsDir, "*.shader");
 
@@ -314,7 +358,7 @@ namespace BSPConvert.Lib
 
 		private string[] GetCustomContentShaders()
 		{
-			var customScriptsDir = Path.Combine(ContentManager.GetCustomContentDir(), "scripts");
+			var customScriptsDir = Path.Combine(customContentDir, "scripts");
 			if (Directory.Exists(customScriptsDir))
 				return Directory.GetFiles(customScriptsDir, "*.shader");
 
@@ -335,7 +379,7 @@ namespace BSPConvert.Lib
 			// ConvertSkyboxSwappers can emit the swap triggers later, once the Source brushes/models exist.
 			skyboxSwapPlan = new SkyboxSwapConverter(quakeBsp, ResolveSkyboxName, logger, GetSkyName()).Build();
 
-			var converter = new EntityConverter(quakeBsp.Models, quakeBsp.Entities, sourceBsp.Entities, skyboxSwapPlan.DefaultSkyName!, options.minDamageToRespawnPlayer, options.ignoreZones, options.offModeEntityFallback);
+			var converter = new EntityConverter(quakeBsp.Models, quakeBsp.Entities, sourceBsp.Entities, skyboxSwapPlan.DefaultSkyName!, options.minDamageToRespawnPlayer, options.ignoreZones, options.q3.offModeEntityFallback);
 			converter.Convert();
 		}
 
@@ -413,9 +457,11 @@ namespace BSPConvert.Lib
 
 		private void ConvertSounds()
 		{
+			// Sounds the map doesn't bundle come from Q3 base content first, then CustomContent
+			var externalContent = new AssetSearchPath(q3ContentDir, customContentDir);
 			var converter = options.noPak ?
-				new SoundConverter(contentManager.ContentDir, options.outputDir, sourceBsp.Entities) :
-				new SoundConverter(contentManager.ContentDir, sourceBsp, sourceBsp.Entities);
+				new SoundConverter(contentManager.ContentDir, externalContent, options.outputDir, sourceBsp.Entities) :
+				new SoundConverter(contentManager.ContentDir, externalContent, sourceBsp, sourceBsp.Entities);
 			converter.Convert();
 		}
 
@@ -880,8 +926,8 @@ namespace BSPConvert.Lib
 
 				// Expand thin fog layers downward to a minimum height (lower the bottom, keep the original top
 				// in place) so the volume spans enough view froxels to avoid flickering as the camera pans.
-				if (maxs.Z() - mins.Z() < options.fogMinHeight)
-					mins = new Vector3(mins.X(), mins.Y(), maxs.Z() - options.fogMinHeight);
+				if (maxs.Z() - mins.Z() < options.q3.fogMinHeight)
+					mins = new Vector3(mins.X(), mins.Y(), maxs.Z() - options.q3.fogMinHeight);
 
 				var center = (mins + maxs) * 0.5f;
 				var size = maxs - mins;
@@ -1160,8 +1206,8 @@ namespace BSPConvert.Lib
 				// A fog shader that also carries visible stages (e.g. the scrolling clouds on textures/sfx/hellfog)
 				// draws those over the fog boundary in Q3. Reproduce that as a one-sided overlay surface; the fog
 				// volume itself is still the CONTENTS_FOG brush + Fog overlay. Skipped in obb fog mode (no overlay
-				// material is generated there) and when disabled via options.noFogOverlay.
-				if (!options.useObbFog && !options.noFogOverlay && TryCreateFogOverlayFace(faceIndex))
+				// material is generated there) and when disabled via options.q3.noFogOverlay.
+				if (!options.q3.useObbFog && !options.q3.noFogOverlay && TryCreateFogOverlayFace(faceIndex))
 					return;
 
 				// Otherwise fog brush faces are not drawn. The engine tracks the brush as a bounds-based fog volume
@@ -1340,7 +1386,7 @@ namespace BSPConvert.Lib
 				return;
 			}
 
-			if (options.patchesAsPrimitives)
+			if (options.q3.patchesAsPrimitives)
 			{
 				ConvertPatchAsPrimitive(faceIndex);
 				return;
@@ -1403,7 +1449,7 @@ namespace BSPConvert.Lib
 			// Mirror CreatePatchDisplacement's skip rule so we never emit a face that references a
 			// displacement we don't end up creating. Note the primitive pass may already have
 			// rewritten tool textures to the (tools/) invisible displacement material.
-			if (options.noToolDisplacements && qFace.Texture.Name.StartsWith("tools/", StringComparison.OrdinalIgnoreCase))
+			if (options.q3.noToolDisplacements && qFace.Texture.Name.StartsWith("tools/", StringComparison.OrdinalIgnoreCase))
 				return -1;
 
 			var patchWidth = (int)qFace.PatchSize.X;
@@ -1495,10 +1541,10 @@ namespace BSPConvert.Lib
 
 		private void CreatePatchDisplacement(int sFaceIndex, Vertex[] faceVerts, int patchWidth, int patchStartVertex, Face qFace)
 		{
-			if (options.noToolDisplacements && qFace.Texture.Name.StartsWith("tools/", StringComparison.OrdinalIgnoreCase))
+			if (options.q3.noToolDisplacements && qFace.Texture.Name.StartsWith("tools/", StringComparison.OrdinalIgnoreCase))
 				return;
 
-			var power = options.DisplacementPower;
+			var power = options.q3.DisplacementPower;
 
 			var startPosition = quakeBsp.Vertices[patchStartVertex].position;
 			var firstVertex = CreateDisplacementVertices(faceVerts, patchWidth, patchStartVertex, power);
@@ -1604,10 +1650,10 @@ namespace BSPConvert.Lib
 			builder.AddEdge(faceVerts[2], faceVerts[1], qFaceIndex);
 			builder.AddEdge(faceVerts[1], faceVerts[0], qFaceIndex);
 
-			if (options.noToolDisplacements && qFace.Texture.Name.StartsWith("tools/", StringComparison.OrdinalIgnoreCase))
+			if (options.q3.noToolDisplacements && qFace.Texture.Name.StartsWith("tools/", StringComparison.OrdinalIgnoreCase))
 				return sourceBsp.Faces.Count - 1;
 
-			var power = options.DisplacementPower;
+			var power = options.q3.DisplacementPower;
 			var subdiv = (1 << power) + 1;
 
 			var posControlPoints = GetPatchControlPoints(patchStartVertex, patchWidth);
@@ -2054,7 +2100,7 @@ namespace BSPConvert.Lib
 							qLightmapData[q3LightmapOffset + index * 3 + 0],
 							qLightmapData[q3LightmapOffset + index * 3 + 1],
 							qLightmapData[q3LightmapOffset + index * 3 + 2],
-							options.clampOverbright);
+							options.q3.clampOverbright);
 
 						lmColors.Add(color);
 					}
@@ -2132,7 +2178,7 @@ namespace BSPConvert.Lib
 							lmData.data[index * 3 + 0],
 							lmData.data[index * 3 + 1],
 							lmData.data[index * 3 + 2],
-							options.clampOverbright,
+							options.q3.clampOverbright,
 							applyOverbright: false); // Don't apply overbright to external lightmaps
 
 						lmColors.Add(color);
@@ -2176,7 +2222,7 @@ namespace BSPConvert.Lib
 
 		private void ConvertLightGrid()
 		{
-			var lightGridConverter = new LightGridConverter(quakeBsp, sourceBsp, options.clampOverbright);
+			var lightGridConverter = new LightGridConverter(quakeBsp, sourceBsp, options.q3.clampOverbright);
 			lightGridConverter.Convert();
 		}
 

@@ -8,6 +8,8 @@ using System.Threading.Tasks;
 
 namespace BSPConvert.Lib
 {
+	// Loads the input file's BSP(s) and owns the temp content directory conversion works in. Archive inputs (pk3)
+	// are extracted there, and converted assets are staged there before being embedded or exported.
 	public class ContentManager : IDisposable
 	{
 		private string contentDir;
@@ -21,9 +23,6 @@ namespace BSPConvert.Lib
 		{
 			get { return bspFiles; }
 		}
-		
-		private static string Q3CONTENT_FOLDER = "Q3Content";
-		private static string CUSTOMCONTENT_FOLDER = "CustomContent";
 
 		public ContentManager(string inputFile)
 		{
@@ -64,18 +63,6 @@ namespace BSPConvert.Lib
 			}
 			else
 				throw new Exception("Invalid input file extension: " + ext);
-		}
-
-		public static string GetQ3ContentDir()
-		{
-			return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, Q3CONTENT_FOLDER);
-		}
-
-		// Optional user-managed folder for third-party map assets (textures/scripts the map
-		// depends on but doesn't bundle). Searched like Q3Content to resolve external dependencies.
-		public static string GetCustomContentDir()
-		{
-			return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, CUSTOMCONTENT_FOLDER);
 		}
 
 		public void Dispose()

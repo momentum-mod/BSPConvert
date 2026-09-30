@@ -127,34 +127,37 @@ namespace BSPConvert.Cmd
 				var converterOptions = new BSPConverterOptions()
 				{
 					noPak = options.NoPak,
-					noToolDisplacements = options.NoToolDisplacements,
-					patchesAsPrimitives = !options.PatchesAsDisplacements,
-					DisplacementPower = options.DisplacementPower,
 					minDamageToRespawnPlayer = options.MinDamageToRespawnPlayer,
-					lavaTriggers = options.LavaTriggers,
-					useObbFog = options.UseObbFog,
-					fogMinHeight = options.FogMinHeight,
-					noFogOverlay = options.NoFogOverlay,
 					ignoreZones = options.IgnoreZones,
-					noEnvMap = options.NoEnvMap,
 					//oldBSP = options.OldBSP,
 					compress = options.Compress,
 					prefix = options.Prefix,
 					inputFile = inputEntry,
 					outputDir = options.OutputDirectory,
 					mapFilter = options.Maps?.ToArray(),
-					offModeEntityFallback = options.OffModeEntityFallback,
-					clampOverbright = options.ClampOverbright,
 					scale = options.Scale,
-					flipbook = new FlipbookOptions()
+					q3 = new Q3ConverterOptions()
 					{
-						enabled = !options.NoAnim,
-						byteBudget = (long)(options.AnimBudgetMB * 1024 * 1024),
-						maxResolution = options.AnimMaxRes,
-						fps = options.AnimFps,
-						maxFrames = options.AnimMaxFrames,
-						alpha = options.AnimAlpha,
-						autoAlpha = options.AnimAlpha >= 1f
+						noToolDisplacements = options.NoToolDisplacements,
+						patchesAsPrimitives = !options.PatchesAsDisplacements,
+						DisplacementPower = options.DisplacementPower,
+						lavaTriggers = options.LavaTriggers,
+						useObbFog = options.UseObbFog,
+						fogMinHeight = options.FogMinHeight,
+						noFogOverlay = options.NoFogOverlay,
+						noEnvMap = options.NoEnvMap,
+						offModeEntityFallback = options.OffModeEntityFallback,
+						clampOverbright = options.ClampOverbright,
+						flipbook = new FlipbookOptions()
+						{
+							enabled = !options.NoAnim,
+							byteBudget = (long)(options.AnimBudgetMB * 1024 * 1024),
+							maxResolution = options.AnimMaxRes,
+							fps = options.AnimFps,
+							maxFrames = options.AnimMaxFrames,
+							alpha = options.AnimAlpha,
+							autoAlpha = options.AnimAlpha >= 1f
+						}
 					}
 				};
 				var converter = new BSPConverter(converterOptions, new ConsoleLogger());
