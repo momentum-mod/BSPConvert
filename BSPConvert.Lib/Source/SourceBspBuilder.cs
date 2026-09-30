@@ -21,6 +21,9 @@ namespace BSPConvert.Lib
 		private readonly Dictionary<string, int> textureInfoLookup = new Dictionary<string, int>();
 		private readonly Dictionary<string, int> textureDataLookup = new Dictionary<string, int>();
 		private readonly Dictionary<(Vector3, float), int> planeDict = new Dictionary<(Vector3, float), int>();
+		// Brushes belonging to each brush model. Source BSPs don't store this (a model only references a node tree),
+		// so it's recorded here for consumers that need a model's brush geometry, like zone generation.
+		private readonly Dictionary<int, IReadOnlyList<int>> modelBrushes = new Dictionary<int, IReadOnlyList<int>>();
 
 		public BSP Bsp { get; }
 		public bool OldBSP { get; }
@@ -443,6 +446,21 @@ namespace BSPConvert.Lib
 
 		#region Brushes and brush models
 
+		// Records which brushes make up a brush model (see modelBrushes). Engine converters that add models
+		// directly to Bsp.Models call this; models created through AddBrushModel are recorded automatically.
+		public void SetModelBrushes(int modelIndex, IReadOnlyList<int> brushIndices)
+		{
+			modelBrushes[modelIndex] = brushIndices;
+		}
+
+		public IReadOnlyList<int> GetModelBrushes(int modelIndex)
+		{
+			if (modelBrushes.TryGetValue(modelIndex, out var brushIndices))
+				return brushIndices;
+
+			return Array.Empty<int>();
+		}
+
 		public int AddBrushSide(int planeIndex, int textureInfoIndex)
 		{
 			var data = new byte[BrushSide.GetStructLength(Bsp.MapType)];
@@ -562,7 +580,15 @@ namespace BSPConvert.Lib
 			model.NumFaces = 0;
 			Bsp.Models.Add(model);
 
-			return Bsp.Models.Count - 1;
+			var modelIndex = Bsp.Models.Count - 1;
+
+			var brushIndices = new int[numLeafBrushes];
+			for (var i = 0; i < numLeafBrushes; i++)
+				brushIndices[i] = (int)Bsp.LeafBrushes[firstLeafBrush + i];
+
+			SetModelBrushes(modelIndex, brushIndices);
+
+			return modelIndex;
 		}
 
 		// Computes an AABB enclosing the convex brush defined by its outward-facing side planes, by intersecting

@@ -80,7 +80,7 @@ namespace BSPConvert.Lib
 				engineConverter.Convert(bsp, builder);
 
 				WriteBSP(builder, bsp.MapName);
-				GenerateZones(builder.Bsp, bsp);
+				GenerateZones(builder, bsp.MapName);
 			}
 
 			contentManager.Dispose();
@@ -108,20 +108,19 @@ namespace BSPConvert.Lib
 			logger.Log($"Wrote BSP File: {bspPath}");
 		}
 
-		private void GenerateZones(BSP sourceBsp, BSP inputBsp)
+		private void GenerateZones(SourceBspBuilder builder, string mapName)
 		{
 			if (options.ignoreZones)
 				return;
 
-			// TODO: ZoneGenerator still reads zone geometry from the input BSP's brushes, which only works for Quake 3
-			var zoneGenerator = new ZoneGenerator(sourceBsp, inputBsp, logger);
+			var zoneGenerator = new ZoneGenerator(builder, logger);
 			var zoneDefs = zoneGenerator.Generate();
 
 			var zonesDir = Path.Combine(options.outputDir, "maps", "zones", "local");
 			if (!Directory.Exists(zonesDir))
 				Directory.CreateDirectory(zonesDir);
 
-			var zonePath = Path.Combine(zonesDir, $"{options.prefix}{inputBsp.MapName}.json");
+			var zonePath = Path.Combine(zonesDir, $"{options.prefix}{mapName}.json");
 			ZoneWriter.WriteToFile(zoneDefs, zonePath);
 
 			logger.Log($"Wrote Zone File: {zonePath}");

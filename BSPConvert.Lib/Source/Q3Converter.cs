@@ -775,6 +775,8 @@ namespace BSPConvert.Lib
 					sModel.NumFaces = qModel.NumFaces;
 				}
 
+				// Q3 brushes are converted 1:1 (see ConvertBrushes), so the model's brush range carries over as is
+				builder.SetModelBrushes(sourceBsp.Models.Count, Enumerable.Range(qModel.FirstBrushIndex, qModel.NumBrushes).ToArray());
 				sourceBsp.Models.Add(sModel);
 			}
 

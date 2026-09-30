@@ -11,6 +11,7 @@ namespace BSPConvert.Lib.Zones
 	{
 		private readonly ILogger logger;
 
+		private readonly SourceBspBuilder output;
 		private readonly Entities entities;
 		private readonly Lump<Model> models;
 		private readonly Lump<Brush> brushes;
@@ -19,17 +20,19 @@ namespace BSPConvert.Lib.Zones
 
 		private const float VerticalEpsilon = 0.01f;
 
-		public ZoneGenerator(BSP sourceBsp, BSP quakeBsp, ILogger logger)
+		// Reads zone entities and their brush geometry from the converted Source BSP, so zones work for any input
+		// engine whose converter records its models' brushes (see SourceBspBuilder.SetModelBrushes).
+		public ZoneGenerator(SourceBspBuilder output, ILogger logger)
 		{
 			this.logger = logger;
+			this.output = output;
 
+			var sourceBsp = output.Bsp;
 			this.entities = sourceBsp.Entities;
-
-			// Note: Use the Quake 3 BSP for zone geometry since it's easier to extract region polygons from brush models
-			this.models = quakeBsp.Models;
-			this.brushes = quakeBsp.Brushes;
-			this.brushSides = quakeBsp.BrushSides;
-			this.planes = quakeBsp.Planes;
+			this.models = sourceBsp.Models;
+			this.brushes = sourceBsp.Brushes;
+			this.brushSides = sourceBsp.BrushSides;
+			this.planes = sourceBsp.Planes;
 		}
 
 		public ZoneDefsBase Generate()
@@ -151,7 +154,7 @@ namespace BSPConvert.Lib.Zones
 			var bottom = mins.Z();
 			var height = maxs.Z() - mins.Z();
 
-			var points = ComputeBrushPolygon(model);
+			var points = ComputeBrushPolygon(modelNumber, model);
 			if (points == null || points.Count < 3)
 			{
 				// Fallback to AABB if brush planes can't produce a valid polygon
@@ -176,7 +179,7 @@ namespace BSPConvert.Lib.Zones
 		/// Computes the 2D polygon for a brush model by intersecting the vertical brush side half-spaces.
 		/// Starts with the model's AABB as an initial polygon, then clips it against each vertical plane.
 		/// </summary>
-		private List<float[]>? ComputeBrushPolygon(Model model)
+		private List<float[]>? ComputeBrushPolygon(int modelNumber, Model model)
 		{
 			var mins = model.Minimums;
 			var maxs = model.Maximums;
@@ -191,7 +194,7 @@ namespace BSPConvert.Lib.Zones
 			};
 
 			// Gather all vertical planes from the model's brushes
-			var verticalPlanes = GetVerticalPlanes(model);
+			var verticalPlanes = GetVerticalPlanes(modelNumber);
 
 			// Clip the polygon against each vertical plane's half-space
 			foreach (var plane in verticalPlanes)
@@ -208,13 +211,18 @@ namespace BSPConvert.Lib.Zones
 		}
 
 		/// <summary>
-		/// Collects all vertical brush side planes from the brushes belonging to the specified model.
+		/// Collects the vertical brush side planes of the model's first brush.
 		/// A plane is vertical if its normal has no significant Z component.
 		/// </summary>
-		private List<PlaneBSP> GetVerticalPlanes(Model model)
+		private List<PlaneBSP> GetVerticalPlanes(int modelNumber)
 		{
 			var verticalPlanes = new List<PlaneBSP>();
-			var brush = brushes[model.FirstBrushIndex];
+
+			var modelBrushes = output.GetModelBrushes(modelNumber);
+			if (modelBrushes.Count == 0)
+				return verticalPlanes;
+
+			var brush = brushes[modelBrushes[0]];
 
 			for (var i = 0; i < brush.NumSides; i++)
 			{
