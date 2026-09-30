@@ -51,6 +51,8 @@ namespace BSPConvert.Lib
 		public bool ignoreZones;
 		public bool noEnvMap;
 		public bool oldBSP;
+		// LZMA compress the BSP's lumps
+		public bool compress;
 		public string prefix;
 		public string inputFile;
 		public string outputDir;
@@ -3021,7 +3023,7 @@ namespace BSPConvert.Lib
 
 			var writer = new BSPWriter(sourceBsp);
 			var bspPath = Path.Combine(mapsDir, $"{options.prefix}{quakeBsp.MapName}.bsp");
-			writer.WriteBSP(bspPath);
+			writer.WriteBSP(bspPath, options.compress);
 
 			logger.Log($"Wrote BSP File: {bspPath}");
 		}

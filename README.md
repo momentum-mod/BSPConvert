@@ -10,6 +10,7 @@ Check out this video for a demonstration of what this tool is currently capable 
 Available command line arguments:
 ```
   --nopak                 Export materials into folders instead of embedding them in the BSP.
+  --compress              LZMA compress the converted BSP.
   --subdiv                (Default: 4) Displacement subdivisions [2-4].
   --mindmg                (Default: 50) Minimum damage to convert trigger_hurt into trigger_teleport.
   --prefix                Prefix for the converted BSP's file name.

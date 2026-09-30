@@ -11,6 +11,9 @@ namespace BSPConvert.Cmd
 			[Option("nopak", Required = false, HelpText = "Export materials into folders instead of embedding them in the BSP.")]
 			public bool NoPak { get; set; }
 
+			[Option("compress", Required = false, HelpText = "LZMA compress the converted BSP.")]
+			public bool Compress { get; set; }
+
 			[Option("notooldisps", Required = false, HelpText = "Skip converting patches with tool textures to displacements.")]
 			public bool NoToolDisplacements { get; set; }
 
@@ -135,6 +138,7 @@ namespace BSPConvert.Cmd
 					ignoreZones = options.IgnoreZones,
 					noEnvMap = options.NoEnvMap,
 					//oldBSP = options.OldBSP,
+					compress = options.Compress,
 					prefix = options.Prefix,
 					inputFile = inputEntry,
 					outputDir = options.OutputDirectory,
