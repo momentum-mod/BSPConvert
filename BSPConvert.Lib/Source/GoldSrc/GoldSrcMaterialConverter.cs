@@ -41,6 +41,21 @@ namespace BSPConvert.Lib.GoldSrc
 			ComputeTransparencyFlags = 1,
 		};
 
+		// Skybox faces are clamped so filtering doesn't wrap around to the opposite edge and leave seams, and drawn
+		// at about their full size, so like Valve's skyboxes they don't need mips
+		private static readonly VTF.CreationOptions SkyboxVtfOptions = new VTF.CreationOptions
+		{
+			Version = 6,
+			CompressionLevel = 0,
+			OutputFormat = ImageFormat.STRATA_BC7,
+			WidthResizeMethod = ImageConversion.ResizeMethod.POWER_OF_TWO_BIGGER,
+			HeightResizeMethod = ImageConversion.ResizeMethod.POWER_OF_TWO_BIGGER,
+			VTFFlags = VTF.Flags.V0_CLAMP_S | VTF.Flags.V0_CLAMP_T | VTF.Flags.V0_NO_MIP | VTF.Flags.V0_NO_LOD,
+			ComputeMips = 0,
+			ComputeThumbnail = 1,
+			ComputeReflectivity = 1,
+		};
+
 		private readonly string contentDir;
 		private readonly List<string> writtenFiles = new List<string>();
 
@@ -103,6 +118,28 @@ namespace BSPConvert.Lib.GoldSrc
 			writtenFiles.Add(vtfPath);
 			foreach (var materialName in frameMaterialNames)
 				WriteVmt(materialName, vtfMaterialName, first, isAlphaTested, animated: true);
+
+			return true;
+		}
+
+		// A skybox face from a sky image (TGA or BMP), drawn fullbright like GoldSrc's sky
+		public bool ConvertSkyboxFace(string materialName, string imagePath)
+		{
+			var basePath = GetBasePath(materialName);
+			if (!VTF.Create(imagePath, basePath + ".vtf", SkyboxVtfOptions))
+				return false;
+
+			writtenFiles.Add(basePath + ".vtf");
+
+			var vmt = new StringBuilder();
+			vmt.AppendLine("\"UnlitGeneric\"");
+			vmt.AppendLine("{");
+			vmt.AppendLine(CultureInfo.InvariantCulture, $"\t\"$basetexture\" \"{materialName}\"");
+			vmt.AppendLine("\t\"$nofog\" \"1\"");
+			vmt.AppendLine("\t\"$ignorez\" \"1\"");
+			vmt.AppendLine("}");
+			File.WriteAllText(basePath + ".vmt", vmt.ToString());
+			writtenFiles.Add(basePath + ".vmt");
 
 			return true;
 		}

@@ -84,7 +84,7 @@ namespace BSPConvert.Cmd
 			[Option("offmodeents", Required = false, Default = "cpm", HelpText = "For maps with different cpm/vq3 entities, choose which entities to use when played in non-defrag modes (e.g. --offmodeents vq3).")]
 			public string OffModeEntityFallback { get; set; }
 
-			[Option("wads", Required = false, Separator = ',', HelpText = "GoldSrc only: comma-separated folders to search (recursively) for the WAD files the map takes its textures from, e.g. your Half-Life install or a folder of community WADs. The input's own folder and a default Steam Half-Life install are always searched.")]
+			[Option("wads", Required = false, Separator = ',', HelpText = "GoldSrc only: comma-separated folders to search (recursively) for the WAD files the map takes its textures from and its sky images (gfx/env), e.g. your Half-Life install or a folder of community WADs. The input's own folder and a default Steam Half-Life install are always searched.")]
 			public IEnumerable<string> WadDirs { get; set; }
 
 			[Value(0, MetaName = "input files", Required = true, HelpText = "Input Quake 3 BSP/PK3 or GoldSrc (Half-Life, CS 1.6) BSP/ZIP file(s) to be converted. Archives (.pk3/.zip) convert every BSP they contain.")]

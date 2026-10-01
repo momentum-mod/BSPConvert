@@ -14,9 +14,9 @@ namespace BSPConvert.Lib.GoldSrc
 {
 	public class GoldSrcConverterOptions
 	{
-		// Extra directories searched (recursively) for the WAD files maps take their textures from, e.g. a Half-Life
-		// install or a folder of community WADs. Searched after the input file's own directories and before the
-		// default Steam Half-Life install.
+		// Extra directories searched (recursively) for the WAD files maps take their textures from and their sky
+		// images, e.g. a Half-Life install or a folder of community WADs. Searched after the input file's own
+		// directories and before the default Steam Half-Life install.
 		public string[] wadDirs;
 	}
 
@@ -126,6 +126,7 @@ namespace BSPConvert.Lib.GoldSrc
 			ConvertEntities();
 			ConvertPlanes();
 			ConvertTexInfos();
+			ConvertSkybox();
 			ConvertVertices();
 			ConvertFaces();
 			ConvertLighting();
@@ -418,7 +419,7 @@ namespace BSPConvert.Lib.GoldSrc
 
 		private void FindTextures()
 		{
-			textureFinder = new GoldSrcTextureFinder(gs, GetWadSearchDirs(), GetModName(), logger);
+			textureFinder = new GoldSrcTextureFinder(gs, GetAssetSearchDirs(), GetModName(), logger);
 			mipTextures = new MipTexture?[gs.MipTextures.Length];
 			var missing = new List<string>();
 			for (var i = 0; i < mipTextures.Length; i++)
@@ -434,9 +435,10 @@ namespace BSPConvert.Lib.GoldSrc
 				logger.Log($"Warning: Textures not found (pass the folder of the WADs that have them with --wads): {string.Join(", ", missing)}");
 		}
 
-		// The input's own directories first (an extracted map archive, the bsp's folder and the mod folder above a
-		// maps folder), then the user's directories, then a default Steam Half-Life install
-		private IEnumerable<string> GetWadSearchDirs()
+		// Where WADs and sky images are searched for (recursively): the input's own directories first (an extracted
+		// map archive, the bsp's folder and the mod folder above a maps folder), then the user's directories, then a
+		// default Steam Half-Life install
+		private IEnumerable<string> GetAssetSearchDirs()
 		{
 			yield return contentManager.ContentDir;
 
@@ -541,6 +543,85 @@ namespace BSPConvert.Lib.GoldSrc
 				convertedMaterials[frameMaterial] = new ConvertedMaterial(frameMaterials[0], frames[0], true);
 
 			return true;
+		}
+
+		// GoldSrc's default sv_skyname, for maps whose worldspawn doesn't set one
+		private const string DefaultSkyName = "desert";
+		private static readonly string[] SkyboxSuffixes = { "rt", "bk", "lf", "ft", "up", "dn" };
+
+		// Converts the sky drawn on "sky" faces. GoldSrc loads gfx/env/<skyname><suffix>.tga (or .bmp) and Source
+		// loads materials/skybox/<skyname><suffix>.vmt, with the same suffixes and face orientation.
+		private void ConvertSkybox()
+		{
+			if (!gs.MipTextures.Any(mipTex => mipTex.name.Equals("sky", StringComparison.OrdinalIgnoreCase)))
+				return;
+
+			var worldspawn = sourceBsp.Entities.FirstOrDefault(e => e.ClassName == "worldspawn");
+			if (worldspawn == null)
+				return;
+
+			var skyName = worldspawn["skyname"].Trim().ToLowerInvariant();
+			if (skyName.Length == 0)
+				skyName = DefaultSkyName;
+
+			if (skyName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+			{
+				logger.Log($"Warning: Sky name {skyName} isn't a valid file name, skipping the skybox");
+				return;
+			}
+
+			var images = FindSkyboxImages(skyName);
+			var missing = SkyboxSuffixes.Where((suffix, i) => images[i] == null).Select(suffix => skyName + suffix).ToList();
+			if (missing.Count > 0)
+			{
+				// Source falls back to its default sky if any face is missing
+				logger.Log($"Warning: Sky images not found (pass the folder of the mod that has them with --wads): {string.Join(", ", missing)}");
+				return;
+			}
+
+			for (var i = 0; i < SkyboxSuffixes.Length; i++)
+			{
+				if (!materialConverter.ConvertSkyboxFace($"skybox/{skyName}{SkyboxSuffixes[i]}", images[i]!))
+				{
+					logger.Log($"Warning: Failed to convert sky image {images[i]}");
+					return;
+				}
+			}
+
+			worldspawn["skyname"] = skyName;
+			logger.Log($"Converted skybox {skyName}");
+		}
+
+		// Each face's gfx/env image, from the first search directory that has it. Like the engine, a TGA wins over a
+		// BMP (the software renderer's 8-bit version).
+		private string?[] FindSkyboxImages(string skyName)
+		{
+			var enumerationOptions = new EnumerationOptions
+			{
+				RecurseSubdirectories = true,
+				MatchCasing = MatchCasing.CaseInsensitive,
+				IgnoreInaccessible = true
+			};
+
+			// File name -> path. Earlier directories win.
+			var imagePaths = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+			foreach (var dir in GetAssetSearchDirs())
+			{
+				if (!Directory.Exists(dir))
+					continue;
+
+				foreach (var path in Directory.EnumerateFiles(dir, skyName + "*", enumerationOptions))
+				{
+					var envDir = Path.GetDirectoryName(path);
+					if (string.Equals(Path.GetFileName(envDir), "env", StringComparison.OrdinalIgnoreCase) &&
+						string.Equals(Path.GetFileName(Path.GetDirectoryName(envDir)), "gfx", StringComparison.OrdinalIgnoreCase))
+						imagePaths.TryAdd(Path.GetFileName(path), path);
+				}
+			}
+
+			return SkyboxSuffixes
+				.Select(suffix => imagePaths.GetValueOrDefault(skyName + suffix + ".tga") ?? imagePaths.GetValueOrDefault(skyName + suffix + ".bmp"))
+				.ToArray();
 		}
 
 		// Embeds the converted materials in the BSP, or with --nopak moves them to the output's materials folder
