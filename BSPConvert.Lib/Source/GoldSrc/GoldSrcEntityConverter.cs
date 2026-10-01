@@ -55,6 +55,11 @@ namespace BSPConvert.Lib.GoldSrc
 		private const int SF_AUTO_FIREONCE = 1;
 		private const int SF_TRIGGER_HURT_TARGETONCE = 1;
 		private const int SF_TRIGGER_HURT_CLIENTONLYFIRE = 16;
+		private const int SF_CORNER_FIREONCE = 4;
+		private const int SF_ROTBUTTON_NOTSOLID = 1;
+		private const int SF_DOOR_ROTATE_BACKWARDS = 2;
+		private const int SF_DOOR_ROTATE_Z = 64;
+		private const int SF_DOOR_ROTATE_X = 128;
 
 		// Source logic_relay spawnflags
 		private const int SF_REMOVE_ON_FIRE = 1;
@@ -62,6 +67,23 @@ namespace BSPConvert.Lib.GoldSrc
 
 		// A multi_manager fires at most this many targets
 		private const int MaxMultiManagerTargets = 16;
+
+		// Classes whose target the conversion turns into outputs (see AddTargetOutputs)
+		private static readonly HashSet<string> TargetFiringClasses = new HashSet<string>
+		{
+			"trigger_multiple", "trigger_once", "trigger_hurt", "func_button", "func_rot_button", "func_door",
+			"func_door_rotating", "func_breakable", "trigger_relay", "trigger_auto",
+		};
+
+		// Classes that keep their target in Source, where it's the next path_corner or the teleport destination
+		private static readonly HashSet<string> SourceTargetClasses = new HashSet<string>
+		{
+			"func_train", "path_corner", "trigger_teleport",
+		};
+
+		// Suffix of the relays an entity whose target trigger_changetarget changes fires through (see
+		// GetTargetRelayName)
+		private const string TargetRelaySuffix = "__target";
 
 		// Keys the engine stores in an entity's entvars before the entity sees them (gEntvarsDescription), so they
 		// never become a multi_manager's targets
@@ -89,8 +111,13 @@ namespace BSPConvert.Lib.GoldSrc
 		}
 
 		private readonly ILogger logger;
+		private List<Entity> entities;
 		// GoldSrc classname of each entity with a targetname, by targetname, from before any class is converted
 		private ILookup<string, (Entity entity, string className)> targetsByName;
+		// The targets trigger_changetargets can give the entities with each name, in order
+		private Dictionary<string, List<string>> newTargetsByName;
+		// The entities given relays to fire their target through (see AddTargetOutputs)
+		private readonly HashSet<Entity> entitiesWithTargetRelays = new HashSet<Entity>();
 		private int outputCount;
 
 		public GoldSrcEntityConverter(ILogger logger)
@@ -104,15 +131,22 @@ namespace BSPConvert.Lib.GoldSrc
 		// its Use did. Entities that only exist to fire targets (multi_manager, trigger_relay, trigger_auto) become
 		// the Source logic entities that fire outputs. Needs every entity's GoldSrc keyvalues, so it runs before
 		// Convert.
-		// TODO: multisource masters, trigger_changetarget, game_counter, path_corner "message" targets
-		public void ConvertTargets(IReadOnlyList<Entity> entities)
+		// TODO: multisource masters, game_counter
+		public void ConvertTargets(List<Entity> entities)
 		{
+			this.entities = entities;
 			targetsByName = entities
 				.Where(entity => !string.IsNullOrEmpty(entity["targetname"]))
 				.ToLookup(entity => entity["targetname"], entity => (entity, entity.ClassName));
+			newTargetsByName = entities
+				.Where(entity => entity.ClassName == "trigger_changetarget" && !string.IsNullOrEmpty(entity["target"]) && !string.IsNullOrEmpty(entity["m_iszNewTarget"]))
+				.GroupBy(entity => entity["target"])
+				.ToDictionary(group => group.Key, group => group.Select(entity => entity["m_iszNewTarget"]).Distinct().ToList());
+			entitiesWithTargetRelays.Clear();
 			outputCount = 0;
 
-			foreach (var entity in entities)
+			// Converting adds the relays for changeable targets to the list
+			foreach (var entity in entities.ToList())
 			{
 				var gsFlags = GetSpawnFlags(entity);
 				switch (entity.ClassName)
@@ -126,6 +160,7 @@ namespace BSPConvert.Lib.GoldSrc
 							(gsFlags & SF_TRIGGER_HURT_TARGETONCE) != 0 ? 1 : -1);
 						break;
 					case "func_button":
+					case "func_rot_button":
 						// Fired once the button is pressed in, and toggle buttons fire again once they're back out
 						AddTargetOutputs(entity, "OnIn", UseType.Toggle);
 						if ((gsFlags & SF_BUTTON_TOGGLE) != 0)
@@ -136,7 +171,7 @@ namespace BSPConvert.Lib.GoldSrc
 						// Fired once the door is fully open and once it's fully closed. "netname" is fired once it's closed.
 						AddTargetOutputs(entity, "OnFullyOpen", UseType.Toggle);
 						AddTargetOutputs(entity, "OnFullyClosed", UseType.Toggle);
-						AddUseOutputs(entity, "OnFullyClosed", entity["netname"], UseType.Toggle, 0f, -1);
+						AddUseOutputs(entity, entity, "OnFullyClosed", entity["netname"], UseType.Toggle, 0f, -1);
 						entity.Remove("netname");
 						break;
 					case "func_breakable":
@@ -158,6 +193,14 @@ namespace BSPConvert.Lib.GoldSrc
 						AddTargetOutputs(entity, "OnMapSpawn", GetTriggerState(entity));
 						SetSpawnFlags(entity, (gsFlags & SF_AUTO_FIREONCE) != 0 ? SF_REMOVE_ON_FIRE : 0);
 						entity.Remove("triggerstate");
+						break;
+					case "path_corner":
+						// Fired when a train reaches it
+						AddUseOutputs(entity, entity, "OnPass", entity["message"], UseType.Toggle, 0f, (gsFlags & SF_CORNER_FIREONCE) != 0 ? 1 : -1);
+						entity.Remove("message");
+						break;
+					case "trigger_changetarget":
+						ConvertChangeTarget(entity);
 						break;
 				}
 			}
@@ -184,18 +227,57 @@ namespace BSPConvert.Lib.GoldSrc
 			foreach (var (key, name, delay) in targets)
 			{
 				entity.Remove(key);
-				AddUseOutputs(entity, "OnTrigger", name, UseType.Toggle, delay, -1);
+				AddUseOutputs(entity, entity, "OnTrigger", name, UseType.Toggle, delay, -1);
 			}
 
 			entity.Remove("wait");
 			SetSpawnFlags(entity, (gsFlags & SF_MULTIMAN_THREAD) != 0 ? SF_ALLOW_FAST_RETRIGGER : 0);
 		}
 
+		// trigger_changetarget sets the target of the entities named by its target. Entities that keep their target in
+		// Source get it with AddOutput. The others fire their target through a relay per target they can have
+		// (AddTargetOutputs), so it switches to the new target's relay.
+		private void ConvertChangeTarget(Entity entity)
+		{
+			var targetName = entity["target"];
+			var newTarget = entity["m_iszNewTarget"];
+			entity.ClassName = "logic_relay";
+			SetSpawnFlags(entity, SF_ALLOW_FAST_RETRIGGER);
+			entity.Remove("target");
+			entity.Remove("m_iszNewTarget");
+			// It acts as soon as it's used
+			entity.Remove("delay");
+			if (string.IsNullOrEmpty(targetName) || string.IsNullOrEmpty(newTarget))
+				return;
+
+			var classNames = targetsByName[targetName].Select(target => target.className).ToHashSet();
+			if (classNames.Overlaps(TargetFiringClasses))
+			{
+				var targetIndex = newTargetsByName[targetName].IndexOf(newTarget) + 1;
+				AddOutput(entity, "OnTrigger", targetName + TargetRelaySuffix + "*", "Disable", "", 0f, -1);
+				AddOutput(entity, "OnTrigger", GetTargetRelayName(targetName, targetIndex, null), "Enable", "", 0f, -1);
+			}
+
+			if (classNames.Overlaps(SourceTargetClasses))
+				AddOutput(entity, "OnTrigger", targetName, "AddOutput", "target " + newTarget, 0f, -1);
+		}
+
 		// SUB_UseTargets: after the entity's delay, kills its killtarget and uses its target
 		private void AddTargetOutputs(Entity entity, string output, UseType useType, int timesToFire = -1)
 		{
 			var delay = TryParseFloat(entity["delay"], out var parsedDelay) ? parsedDelay : 0f;
-			AddUseOutputs(entity, output, entity["target"], useType, delay, timesToFire);
+			var targetName = entity["targetname"];
+			if (!string.IsNullOrEmpty(targetName) && newTargetsByName.TryGetValue(targetName, out var newTargets))
+			{
+				// trigger_changetarget can change the target, so fire every relay and let the current target's through
+				AddTargetRelays(entity, newTargets, useType);
+				for (var i = 0; i <= newTargets.Count; i++)
+					AddOutput(entity, output, GetTargetRelayName(targetName, i, entity), "Trigger", "", delay, timesToFire);
+			}
+			else
+			{
+				AddUseOutputs(entity, entity, output, entity["target"], useType, delay, timesToFire);
+			}
 
 			var killTarget = entity["killtarget"];
 			if (!string.IsNullOrEmpty(killTarget))
@@ -206,8 +288,42 @@ namespace BSPConvert.Lib.GoldSrc
 			entity.Remove("delay");
 		}
 
-		// FireTargets: uses every entity named targetName
-		private void AddUseOutputs(Entity entity, string output, string targetName, UseType useType, float delay, int timesToFire)
+		// A relay for each target an entity can have, its own first, that fires that target and is only enabled
+		// while it's the entity's target
+		private void AddTargetRelays(Entity entity, List<string> newTargets, UseType useType)
+		{
+			if (!entitiesWithTargetRelays.Add(entity))
+				return;
+
+			var targetName = entity["targetname"];
+			var targets = new List<string> { entity["target"] };
+			targets.AddRange(newTargets);
+			for (var i = 0; i < targets.Count; i++)
+			{
+				var relay = new Entity();
+				relay.ClassName = "logic_relay";
+				relay["targetname"] = GetTargetRelayName(targetName, i, entity);
+				relay["origin"] = entity["origin"];
+				SetSpawnFlags(relay, SF_ALLOW_FAST_RETRIGGER);
+				if (i > 0)
+					relay["StartDisabled"] = "1";
+
+				// Fires as the entity, as far as the entities it fires can tell
+				AddUseOutputs(relay, entity, "OnTrigger", targets[i], useType, 0f, -1);
+				entities.Add(relay);
+			}
+		}
+
+		// "<name>__target<index>_<entity>": every entity with a name has its own relays, and a trigger_changetarget
+		// enables the ones for a target on all of them at once with "<name>__target<index>_*"
+		private string GetTargetRelayName(string targetName, int targetIndex, Entity? entity)
+		{
+			var entitySuffix = entity != null ? entities.IndexOf(entity).ToString(CultureInfo.InvariantCulture) : "*";
+			return FormattableString.Invariant($"{targetName}{TargetRelaySuffix}{targetIndex}_{entitySuffix}");
+		}
+
+		// FireTargets: uses every entity named targetName, as caller
+		private void AddUseOutputs(Entity entity, Entity caller, string output, string targetName, UseType useType, float delay, int timesToFire)
 		{
 			if (string.IsNullOrEmpty(targetName))
 				return;
@@ -231,6 +347,7 @@ namespace BSPConvert.Lib.GoldSrc
 					// Use opens a closed door, and closes an open one only if it doesn't close by itself
 					return ((GetSpawnFlags(target) & SF_DOOR_NO_AUTO_RETURN) != 0 ? "Toggle" : "Open", "");
 				case "func_button":
+				case "func_rot_button":
 					return ("Press", "");
 				case "func_wall_toggle":
 				case "func_train":
@@ -244,6 +361,7 @@ namespace BSPConvert.Lib.GoldSrc
 					return ("Break", "");
 				case "multi_manager":
 				case "trigger_relay":
+				case "trigger_changetarget":
 					return ("Trigger", "");
 				case "ambient_generic":
 					return ("ToggleSound", "");
@@ -322,6 +440,10 @@ namespace BSPConvert.Lib.GoldSrc
 					ConvertAnglesToMoveDir(entity, "movedir");
 					ConvertButtonSpawnFlags(entity);
 					break;
+				case "func_rot_button":
+					// A rotating button's angles are its starting rotation, as in Source
+					ConvertRotButtonSpawnFlags(entity);
+					break;
 				case "func_conveyor":
 				case "func_water":
 					ConvertAnglesToMoveDir(entity, "movedir");
@@ -376,6 +498,18 @@ namespace BSPConvert.Lib.GoldSrc
 			var flags = gsFlags & (SF_BUTTON_DONTMOVE | SF_BUTTON_TOGGLE);
 			if ((gsFlags & SF_BUTTON_SPARK_IF_OFF_GOLDSRC) != 0)
 				flags |= SF_BUTTON_SPARK_IF_OFF;
+			flags |= (gsFlags & SF_BUTTON_TOUCH_ONLY) != 0 ? SF_BUTTON_TOUCH_ACTIVATES : SF_BUTTON_USE_ACTIVATES;
+			if (float.TryParse(entity["health"], NumberStyles.Float, CultureInfo.InvariantCulture, out var health) && health > 0f)
+				flags |= SF_BUTTON_DAMAGE_ACTIVATES;
+
+			SetSpawnFlags(entity, flags);
+		}
+
+		// Rotating buttons share the axis and direction flags with rotating doors, which mean the same in Source
+		private static void ConvertRotButtonSpawnFlags(Entity entity)
+		{
+			var gsFlags = GetSpawnFlags(entity);
+			var flags = gsFlags & (SF_ROTBUTTON_NOTSOLID | SF_DOOR_ROTATE_BACKWARDS | SF_BUTTON_TOGGLE | SF_DOOR_ROTATE_Z | SF_DOOR_ROTATE_X);
 			flags |= (gsFlags & SF_BUTTON_TOUCH_ONLY) != 0 ? SF_BUTTON_TOUCH_ACTIVATES : SF_BUTTON_USE_ACTIVATES;
 			if (float.TryParse(entity["health"], NumberStyles.Float, CultureInfo.InvariantCulture, out var health) && health > 0f)
 				flags |= SF_BUTTON_DAMAGE_ACTIVATES;
