@@ -265,8 +265,9 @@ namespace BSPConvert.Lib.GoldSrc
 			for (var i = 0; i < mipTextures.Length; i++)
 			{
 				mipTextures[i] = finder.Find(i);
-				if (mipTextures[i] == null && !string.IsNullOrEmpty(gs.MipTextures[i].name))
-					missing.Add(gs.MipTextures[i].name);
+				var name = gs.MipTextures[i].name;
+				if (mipTextures[i] == null && !string.IsNullOrEmpty(name) && !IsToolTexture(name))
+					missing.Add(name);
 			}
 
 			logger.Log($"Found {mipTextures.Length - missing.Count}/{mipTextures.Length} textures");
@@ -317,7 +318,7 @@ namespace BSPConvert.Lib.GoldSrc
 			for (var i = 0; i < mipTextures.Length; i++)
 			{
 				var texture = mipTextures[i];
-				if (texture == null)
+				if (texture == null || IsToolTexture(gs.MipTextures[i].name))
 					continue;
 
 				var materialName = GetMaterialName(gs.MipTextures[i].name);
@@ -351,8 +352,29 @@ namespace BSPConvert.Lib.GoldSrc
 			sourceBsp.PakFile.SetZipArchive(archive, true);
 		}
 
+		// Compiler tool textures, drawn with the game's tool materials instead of being converted
+		private static readonly Dictionary<string, string> ToolMaterials = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+		{
+			["sky"] = "tools/toolsskybox",
+			["aaatrigger"] = "tools/toolstrigger",
+			["clip"] = "tools/toolsplayerclip",
+			["null"] = "tools/toolsnodraw",
+			["bevel"] = "tools/toolsnodraw",
+			["skip"] = "tools/toolsskip",
+			["hint"] = "tools/toolshint",
+			["origin"] = "tools/toolsorigin",
+		};
+
+		private static bool IsToolTexture(string mipTexName)
+		{
+			return ToolMaterials.ContainsKey(mipTexName);
+		}
+
 		private static string GetMaterialName(string mipTexName)
 		{
+			if (ToolMaterials.TryGetValue(mipTexName, out var toolMaterial))
+				return toolMaterial;
+
 			var name = mipTexName.ToLowerInvariant();
 			foreach (var c in Path.GetInvalidFileNameChars())
 				name = name.Replace(c, '_');
@@ -366,10 +388,9 @@ namespace BSPConvert.Lib.GoldSrc
 			if ((texInfo.flags & GoldSrcBsp.TEX_SPECIAL) != 0)
 				flags |= (int)SourceSurfaceFlags.SURF_NOLIGHT;
 
-			var name = mipTexName.ToLowerInvariant();
-			if (name == "sky")
+			if (mipTexName.Equals("sky", StringComparison.OrdinalIgnoreCase))
 				flags |= (int)(SourceSurfaceFlags.SURF_SKY | SourceSurfaceFlags.SURF_NOLIGHT | SourceSurfaceFlags.SURF_SKYNOEMIT);
-			else if (name is "aaatrigger" or "null" or "clip" or "origin" or "bevel" or "hint" or "skip")
+			else if (IsToolTexture(mipTexName))
 				flags |= (int)(SourceSurfaceFlags.SURF_NODRAW | SourceSurfaceFlags.SURF_NOLIGHT);
 
 			return flags;
