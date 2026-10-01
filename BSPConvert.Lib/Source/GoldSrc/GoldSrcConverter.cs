@@ -1,4 +1,5 @@
 using LibBSP;
+using SharpCompress.Archives;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -49,6 +50,10 @@ namespace BSPConvert.Lib.GoldSrc
 
 		private const int LightmapLuxelSize = 16;
 
+		// Neutral gray for textures that weren't found. Strata tints the replacement for a missing material by its
+		// texdata reflectivity (mat_error_texture_advanced), so black would render them black.
+		private static readonly Color MissingTextureReflectivity = ColorExtensions.FromArgb(255, 128, 128, 128);
+
 		// Where Steam installs Half-Life by default, searched for WADs last
 		private static readonly string DefaultHalfLifeDir = Path.Combine(
 			Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Steam", "steamapps", "common", "Half-Life");
@@ -64,6 +69,8 @@ namespace BSPConvert.Lib.GoldSrc
 		private int[] texInfoMap;
 		// Each miptex's pixels, or null where neither the BSP nor a WAD has them
 		private MipTexture?[] mipTextures;
+		private GoldSrcMaterialConverter materialConverter;
+		private readonly HashSet<string> convertedMaterials = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 		private int[] sourceLeafForGoldSrcLeaf;
 		// The converted faces with lightmaps, with where theirs is in the GoldSrc lighting data and how big it is, for
 		// ConvertLighting to place it in Source's
@@ -118,6 +125,8 @@ namespace BSPConvert.Lib.GoldSrc
 			builder.AddPlaceholderArea();
 			builder.AddPlaceholderAreaPortal();
 			builder.AddPlaceholderWorldLight();
+
+			WriteMaterials();
 		}
 
 		// Matches the lump versions the Q3 converter writes for the same lumps
@@ -206,14 +215,24 @@ namespace BSPConvert.Lib.GoldSrc
 
 		private void ConvertTexInfos()
 		{
-			// TODO: Convert the textures themselves to VTFs
 			FindTextures();
+			ConvertTextures();
 
 			var texDataForMipTex = new int[gs.MipTextures.Length];
 			for (var i = 0; i < gs.MipTextures.Length; i++)
 			{
 				var mipTex = gs.MipTextures[i];
-				texDataForMipTex[i] = builder.AddTextureData(GetMaterialName(mipTex.name), mipTex.width, mipTex.height, GetReflectivity(i));
+				var materialName = GetMaterialName(mipTex.name);
+				var textureDataIndex = builder.LookupTextureData(materialName);
+				if (textureDataIndex < 0)
+				{
+					// Converted textures take their size and reflectivity from the VTF
+					textureDataIndex = convertedMaterials.Contains(materialName) ?
+						builder.AddTextureData(materialName) :
+						builder.AddTextureData(materialName, mipTex.width, mipTex.height, MissingTextureReflectivity);
+				}
+
+				texDataForMipTex[i] = textureDataIndex;
 			}
 
 			texInfoMap = new int[gs.TexInfos.Length];
@@ -291,51 +310,54 @@ namespace BSPConvert.Lib.GoldSrc
 			return suffixIndex > 0 ? modDir.Substring(0, suffixIndex) : modDir;
 		}
 
-		// Average linear color of a texture, the way vtex computes a VTF's reflectivity. Textures that weren't found
-		// get a neutral gray.
-		private Color GetReflectivity(int mipTexIndex)
+		private void ConvertTextures()
 		{
-			const float DefaultReflectivity = 0.5f;
-			var mipTexture = mipTextures[mipTexIndex];
-			if (mipTexture == null)
-				return ColorFromLinear(DefaultReflectivity, DefaultReflectivity, DefaultReflectivity);
-
-			// '{' textures are alpha tested: palette index 255 is transparent
-			var isAlphaTested = mipTexture.Name.StartsWith('{');
-			var palette = mipTexture.Palette;
-
-			double r = 0, g = 0, b = 0;
-			var count = 0;
-			foreach (var index in mipTexture.Pixels)
+			materialConverter = new GoldSrcMaterialConverter(contentManager.ContentDir);
+			convertedMaterials.Clear();
+			for (var i = 0; i < mipTextures.Length; i++)
 			{
-				if (isAlphaTested && index == 255)
+				var texture = mipTextures[i];
+				if (texture == null)
 					continue;
 
-				r += GammaToLinear(palette[index * 3]);
-				g += GammaToLinear(palette[index * 3 + 1]);
-				b += GammaToLinear(palette[index * 3 + 2]);
-				count++;
+				var materialName = GetMaterialName(gs.MipTextures[i].name);
+				if (convertedMaterials.Contains(materialName))
+					continue;
+
+				if (materialConverter.Convert(materialName, texture))
+					convertedMaterials.Add(materialName);
+				else
+					logger.Log($"Warning: Failed to convert texture {texture.Name}");
 			}
 
-			if (count == 0)
-				return ColorFromLinear(DefaultReflectivity, DefaultReflectivity, DefaultReflectivity);
-
-			return ColorFromLinear((float)(r / count), (float)(g / count), (float)(b / count));
+			logger.Log($"Converted {convertedMaterials.Count} textures");
 		}
 
-		private static double GammaToLinear(byte value)
+		// Embeds the converted materials in the BSP, or with --nopak moves them to the output's materials folder
+		private void WriteMaterials()
 		{
-			return Math.Pow(value / 255.0, 2.2);
-		}
+			var files = materialConverter.WrittenFiles;
+			if (options.noPak)
+			{
+				foreach (var file in files)
+					FileUtil.MoveFile(file, Path.Combine(options.outputDir, "materials", Path.GetRelativePath(contentManager.ContentDir, file)));
+				return;
+			}
 
-		private static Color ColorFromLinear(float r, float g, float b)
-		{
-			return ColorExtensions.FromArgb(255, (int)MathF.Round(r * 255f), (int)MathF.Round(g * 255f), (int)MathF.Round(b * 255f));
+			builder.CreatePakFile();
+			using var archive = sourceBsp.PakFile.GetZipArchive();
+			foreach (var file in files)
+				archive.AddEntry("materials/" + Path.GetRelativePath(contentManager.ContentDir, file).Replace(Path.DirectorySeparatorChar, '/'), new FileInfo(file));
+			sourceBsp.PakFile.SetZipArchive(archive, true);
 		}
 
 		private static string GetMaterialName(string mipTexName)
 		{
-			return "goldsrc/" + mipTexName.ToLowerInvariant();
+			var name = mipTexName.ToLowerInvariant();
+			foreach (var c in Path.GetInvalidFileNameChars())
+				name = name.Replace(c, '_');
+
+			return "goldsrc/" + name;
 		}
 
 		private static int GetSurfaceFlags(GoldSrcBsp.TexInfo texInfo, string mipTexName)
