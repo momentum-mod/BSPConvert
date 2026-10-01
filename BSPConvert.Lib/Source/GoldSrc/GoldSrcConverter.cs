@@ -167,10 +167,10 @@ namespace BSPConvert.Lib.GoldSrc
 			builder.SetLumpVersion(Lightmaps.GetIndexForLump(sourceBsp.MapType), 1);
 		}
 
-		// TODO: Convert GoldSrc entity logic to Source/Momentum (doors' movedir, multi_manager, timers, ...).
-		// For now entities are copied as is, which keeps brush entity collision and teleports working.
+		// TODO: Convert GoldSrc entity logic to Source/Momentum (multi_manager, masters, ...)
 		private void ConvertEntities()
 		{
+			var entityConverter = new GoldSrcEntityConverter();
 			foreach (var gsEntity in gs.Entities)
 			{
 				var entity = new Entity();
@@ -178,6 +178,7 @@ namespace BSPConvert.Lib.GoldSrc
 					entity[key] = gsEntity[key];
 
 				ConvertRenderMode(entity);
+				entityConverter.Convert(entity);
 
 				switch (entity.ClassName)
 				{
@@ -185,16 +186,6 @@ namespace BSPConvert.Lib.GoldSrc
 						entity.Remove("wad");
 						entity.Remove("_wad");
 						entity[ClipHullsWorldspawnKey] = "1";
-						break;
-					case "trigger_multiple":
-					case "trigger_once":
-					case "trigger_teleport":
-					case "trigger_push":
-					case "trigger_hurt":
-						// GoldSrc triggers fire for clients unless "No Clients" (2) is set; Source triggers only fire
-						// for clients with "Clients" (1) set.
-						var gsFlags = int.TryParse(entity["spawnflags"], out var flags) ? flags : 0;
-						entity["spawnflags"] = (gsFlags & 2) != 0 ? "0" : "1";
 						break;
 					case "func_water":
 						ConvertVolumeEntity(entity);
