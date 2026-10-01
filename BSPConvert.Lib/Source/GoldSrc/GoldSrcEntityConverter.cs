@@ -59,6 +59,11 @@ namespace BSPConvert.Lib.GoldSrc
 		private const int SF_GAMECOUNT_FIREONCE = 1;
 		private const int SF_GAMECOUNT_RESET = 2;
 		private const int SF_GAMECOUNTSET_FIREONCE = 1;
+		private const int SF_GLOBAL_SET = 1;
+
+		// Source spawnflags that lock a door or button until it's unlocked
+		private const int SF_DOOR_LOCKED = 2048;
+		private const int SF_BUTTON_LOCKED = 2048;
 		private const int SF_ROTBUTTON_NOTSOLID = 1;
 		private const int SF_DOOR_ROTATE_BACKWARDS = 2;
 		private const int SF_DOOR_ROTATE_Z = 64;
@@ -71,6 +76,10 @@ namespace BSPConvert.Lib.GoldSrc
 		// A multi_manager fires at most this many targets
 		private const int MaxMultiManagerTargets = 16;
 
+		// A multisource registers at most this many inputs, and logic_branch_listener watches at most this many branches
+		private const int MaxMultisourceInputs = 32;
+		private const int MaxListenerBranches = 16;
+
 		// A game_counter's count has no bounds, where math_counter's stays between its min and max
 		private const string UnboundedCount = "1000000";
 
@@ -80,6 +89,9 @@ namespace BSPConvert.Lib.GoldSrc
 			"trigger_multiple", "trigger_once", "trigger_hurt", "func_button", "func_rot_button", "func_door",
 			"func_door_rotating", "func_breakable", "trigger_relay", "trigger_auto", "game_counter", "game_counter_set",
 		};
+
+		// Classes that use their targets, which multisources expect an input to be able to do
+		private static readonly HashSet<string> UsingClasses = new HashSet<string>(TargetFiringClasses) { "multi_manager", "multisource" };
 
 		// Classes that keep their target in Source, where it's the next path_corner or the teleport destination
 		private static readonly HashSet<string> SourceTargetClasses = new HashSet<string>
@@ -126,7 +138,26 @@ namespace BSPConvert.Lib.GoldSrc
 		private Dictionary<string, List<string>> newTargetsByName;
 		// The entities given relays to fire their target through (see AddTargetOutputs)
 		private readonly HashSet<Entity> entitiesWithTargetRelays = new HashSet<Entity>();
+		// Multisources by name, and whether each global state they depend on starts on
+		private Dictionary<string, Multisource> multisources;
+		private Dictionary<string, bool> multisourceGlobalStates;
+		// Doors and buttons whose master isn't triggered when they spawn, locked once their spawnflags are converted
+		private readonly HashSet<Entity> startLocked = new HashSet<Entity>();
+		// Entities given a name so their master can lock them, which GoldSrc didn't name
+		private readonly HashSet<Entity> namedForMaster = new HashSet<Entity>();
 		private int outputCount;
+
+		// A multisource: its inputs (the entities that target it, in the order the engine registers them) and the
+		// global state it also needs on
+		private class Multisource
+		{
+			public List<Entity> Inputs = new List<Entity>();
+			public string GlobalState = "";
+			// The entities it's the master of, with their GoldSrc classname
+			public List<(Entity entity, string className)> Users = new List<(Entity, string)>();
+			// An input can never use it, so it never turns on
+			public bool NeverTriggered;
+		}
 
 		public GoldSrcEntityConverter(ILogger logger)
 		{
@@ -139,7 +170,6 @@ namespace BSPConvert.Lib.GoldSrc
 		// its Use did. Entities that only exist to fire targets (multi_manager, trigger_relay, trigger_auto) become
 		// the Source logic entities that fire outputs. Needs every entity's GoldSrc keyvalues, so it runs before
 		// Convert.
-		// TODO: multisource masters
 		public void ConvertTargets(List<Entity> entities)
 		{
 			this.entities = entities;
@@ -151,7 +181,10 @@ namespace BSPConvert.Lib.GoldSrc
 				.GroupBy(entity => entity["target"])
 				.ToDictionary(group => group.Key, group => group.Select(entity => entity["m_iszNewTarget"]).Distinct().ToList());
 			entitiesWithTargetRelays.Clear();
+			startLocked.Clear();
+			namedForMaster.Clear();
 			outputCount = 0;
+			FindMultisources();
 
 			// Converting adds the relays for changeable targets to the list
 			foreach (var entity in entities.ToList())
@@ -170,6 +203,7 @@ namespace BSPConvert.Lib.GoldSrc
 					case "func_button":
 					case "func_rot_button":
 						// Fired once the button is pressed in, and toggle buttons fire again once they're back out
+						AddButtonReturnOutputs(entity);
 						AddTargetOutputs(entity, "OnIn", UseType.Toggle);
 						if ((gsFlags & SF_BUTTON_TOGGLE) != 0)
 							AddTargetOutputs(entity, "OnOut", UseType.Toggle);
@@ -220,8 +254,15 @@ namespace BSPConvert.Lib.GoldSrc
 						SetSpawnFlags(entity, ((gsFlags & SF_GAMECOUNTSET_FIREONCE) != 0 ? SF_REMOVE_ON_FIRE : 0) | SF_ALLOW_FAST_RETRIGGER);
 						entity.Remove("frags");
 						break;
+					case "multisource":
+						ConvertMultisource(entity);
+						break;
 				}
 			}
+
+			// Masters are converted to locks (see ConvertMultisource)
+			foreach (var entity in entities)
+				entity.Remove("master");
 
 			logger.Log($"Converted GoldSrc targets into {outputCount} outputs");
 		}
@@ -230,6 +271,20 @@ namespace BSPConvert.Lib.GoldSrc
 		// target ("name" or "name#n", to list a name more than once) whose value is the delay. Until it has fired them
 		// all it ignores being used again, like a logic_relay, unless it's multithreaded.
 		private void ConvertMultiManager(Entity entity, int gsFlags)
+		{
+			var targets = GetMultiManagerTargets(entity);
+			entity.ClassName = "logic_relay";
+			foreach (var (key, name, delay) in targets)
+			{
+				entity.Remove(key);
+				AddUseOutputs(entity, entity, "OnTrigger", name, UseType.Toggle, delay, -1);
+			}
+
+			entity.Remove("wait");
+			SetSpawnFlags(entity, (gsFlags & SF_MULTIMAN_THREAD) != 0 ? SF_ALLOW_FAST_RETRIGGER : 0);
+		}
+
+		private static List<(string key, string name, float delay)> GetMultiManagerTargets(Entity entity)
 		{
 			var targets = new List<(string key, string name, float delay)>();
 			foreach (var (key, value) in entity)
@@ -241,15 +296,200 @@ namespace BSPConvert.Lib.GoldSrc
 				targets.Add((key, hashIndex >= 0 ? key.Substring(0, hashIndex) : key, TryParseFloat(value, out var delay) ? delay : 0f));
 			}
 
-			entity.ClassName = "logic_relay";
-			foreach (var (key, name, delay) in targets)
+			return targets;
+		}
+
+		// A multisource is a master: the doors, buttons, triggers and game entities naming it as their "master" only
+		// work while it's triggered, which is while every one of its inputs is on and its global state (if it has one)
+		// is on. Its inputs are the entities targeting it, each turned on and off by using it. Momentum has no
+		// multisource, so its inputs and global state become logic_branches, and it becomes a logic_branch_listener
+		// locking and unlocking the entities it's the master of.
+		private void FindMultisources()
+		{
+			multisources = new Dictionary<string, Multisource>();
+			multisourceGlobalStates = new Dictionary<string, bool>();
+			foreach (var entity in entities)
 			{
-				entity.Remove(key);
-				AddUseOutputs(entity, entity, "OnTrigger", name, UseType.Toggle, delay, -1);
+				var name = entity["targetname"];
+				if (entity.ClassName != "multisource" || string.IsNullOrEmpty(name) || multisources.ContainsKey(name))
+					continue;
+
+				// The engine registers the entities with it as their target, then the multi_managers that target it
+				var inputs = entities
+					.Where(input => input["target"] == name)
+					.Concat(entities.Where(input => input.ClassName == "multi_manager" && GetMultiManagerTargets(input).Any(target => target.name == name)))
+					.Take(MaxMultisourceInputs)
+					.ToList();
+
+				var multisource = new Multisource
+				{
+					Inputs = inputs,
+					GlobalState = entity["globalstate"],
+					NeverTriggered = inputs.Any(input => !UsingClasses.Contains(input.ClassName)),
+				};
+
+				// The engine finds a master by name, and only the first entity with the name counts
+				if (targetsByName[name].First().entity == entity)
+				{
+					multisource.Users = entities
+						.Where(user => user["master"] == name)
+						.Select(user => (user, user.ClassName))
+						.ToList();
+				}
+
+				multisources[name] = multisource;
+				if (multisource.NeverTriggered)
+					continue;
+
+				var maxInputs = MaxListenerBranches - (multisource.GlobalState.Length > 0 ? 1 : 0);
+				if (inputs.Count > maxInputs)
+				{
+					logger.Log($"Warning: multisource {name} has {inputs.Count} inputs, only the first {maxInputs} are converted");
+					inputs.RemoveRange(maxInputs, inputs.Count - maxInputs);
+				}
+
+				if (multisource.GlobalState.Length > 0)
+					multisourceGlobalStates[multisource.GlobalState] = false;
 			}
 
-			entity.Remove("wait");
-			SetSpawnFlags(entity, (gsFlags & SF_MULTIMAN_THREAD) != 0 ? SF_ALLOW_FAST_RETRIGGER : 0);
+			// The first env_global set to set its state on spawn does, then later ones find it already set
+			foreach (var globalState in multisourceGlobalStates.Keys.ToList())
+			{
+				var initial = entities.FirstOrDefault(entity => entity.ClassName == "env_global" && entity["globalstate"] == globalState &&
+					(GetSpawnFlags(entity) & SF_GLOBAL_SET) != 0);
+				var isOn = initial != null && GetInt(initial, "initialstate") == 1;
+				multisourceGlobalStates[globalState] = isOn;
+
+				var branch = new Entity();
+				branch.ClassName = "logic_branch";
+				branch["targetname"] = GetGlobalStateBranchName(globalState);
+				branch["InitialValue"] = isOn ? "1" : "0";
+				entities.Add(branch);
+			}
+		}
+
+		private void ConvertMultisource(Entity entity)
+		{
+			var name = entity["targetname"];
+			var target = entity["target"];
+			entity.ClassName = "logic_branch_listener";
+			entity.Remove("target");
+			entity.Remove("globalstate");
+			if (string.IsNullOrEmpty(name) || !multisources.TryGetValue(name, out var multisource))
+				return;
+
+			var users = multisource.Users;
+			var initiallyTriggered = !multisource.NeverTriggered && multisource.Inputs.Count == 0 &&
+				(multisource.GlobalState.Length == 0 || multisourceGlobalStates[multisource.GlobalState]);
+
+			var branchNames = new List<string>();
+			if (!multisource.NeverTriggered)
+			{
+				for (var i = 0; i < multisource.Inputs.Count; i++)
+				{
+					var branch = new Entity();
+					branch.ClassName = "logic_branch";
+					branch["targetname"] = GetInputBranchName(name, i);
+					branch["InitialValue"] = "0";
+					entities.Add(branch);
+					branchNames.Add(branch["targetname"]);
+				}
+
+				if (multisource.GlobalState.Length > 0)
+					branchNames.Add(GetGlobalStateBranchName(multisource.GlobalState));
+			}
+
+			for (var i = 0; i < branchNames.Count; i++)
+				entity[FormattableString.Invariant($"Branch{i + 1:00}")] = branchNames[i];
+
+			for (var i = 0; i < users.Count; i++)
+			{
+				var (user, className) = users[i];
+				var (lockInput, unlockInput) = GetLockInputs(className);
+				if (lockInput == null)
+					continue;
+
+				if (!initiallyTriggered)
+				{
+					if (lockInput == "Lock")
+						startLocked.Add(user);
+					else
+						user["StartDisabled"] = "1";
+				}
+
+				if (branchNames.Count == 0)
+					continue;
+
+				if (string.IsNullOrEmpty(user["targetname"]))
+				{
+					user["targetname"] = FormattableString.Invariant($"{name}__user{i}");
+					namedForMaster.Add(user);
+				}
+
+				AddOutput(entity, "OnAllTrue", user["targetname"], unlockInput!, "", 0f, -1);
+				AddOutput(entity, "OnMixed", user["targetname"], lockInput, "", 0f, -1);
+				AddOutput(entity, "OnAllFalse", user["targetname"], lockInput, "", 0f, -1);
+			}
+
+			// It uses its targets when it turns on
+			AddUseOutputs(entity, entity, "OnAllTrue", target, multisource.GlobalState.Length > 0 ? UseType.On : UseType.Toggle, 0f, -1);
+		}
+
+		// The inputs that stop and start an entity working while its master is off, or null if it has none
+		private static (string? lockInput, string? unlockInput) GetLockInputs(string gsClassName)
+		{
+			switch (gsClassName)
+			{
+				case "func_door":
+				case "func_door_rotating":
+				case "func_button":
+				case "func_rot_button":
+					return ("Lock", "Unlock");
+				case "trigger_multiple":
+				case "trigger_once":
+				case "trigger_teleport":
+				case "game_counter":
+				case "game_counter_set":
+					return ("Disable", "Enable");
+				default:
+					return (null, null);
+			}
+		}
+
+		// The branch of the input a caller turns on and off by using a multisource, or null if it has none
+		private string? GetMultisourceInputBranch(Entity multisourceEntity, Entity caller)
+		{
+			var name = multisourceEntity["targetname"];
+			if (!multisources.TryGetValue(name, out var multisource) || multisource.NeverTriggered || multisource.Inputs.Count == 0)
+				return null;
+
+			// The engine looks the caller up in its inputs and, not finding it, ends up at the last one
+			var index = multisource.Inputs.IndexOf(caller);
+			return GetInputBranchName(name, index >= 0 ? index : multisource.Inputs.Count - 1);
+		}
+
+		// A button that returns uses the multisources it targets again (ButtonBackHome)
+		private void AddButtonReturnOutputs(Entity button)
+		{
+			var targetName = button["target"];
+			if (string.IsNullOrEmpty(targetName))
+				return;
+
+			foreach (var (target, className) in targetsByName[targetName])
+			{
+				if (className == "multisource" && GetMultisourceInputBranch(target, button) is string branch)
+					AddOutput(button, "OnOut", branch, "Toggle", "", 0f, -1);
+			}
+		}
+
+		private static string GetInputBranchName(string multisourceName, int inputIndex)
+		{
+			return FormattableString.Invariant($"{multisourceName}__input{inputIndex}");
+		}
+
+		private static string GetGlobalStateBranchName(string globalState)
+		{
+			return "__goldsrc_global_" + globalState;
 		}
 
 		// game_counter counts up when it's used (down when it's used with off, or to the value a game_counter_set sets)
@@ -375,11 +615,41 @@ namespace BSPConvert.Lib.GoldSrc
 
 			// Entities sharing a name can be different classes that need different inputs
 			var inputs = targetsByName[targetName]
-				.Select(target => GetUseInput(target.entity, target.className, useType, value))
-				.Where(input => input != null)
+				.SelectMany(target => GetUseInputs(target.entity, target.className, caller, useType, value))
 				.Distinct();
-			foreach (var input in inputs)
-				AddOutput(entity, output, targetName, input!.Value.input, input.Value.param, delay, timesToFire);
+			foreach (var (inputTarget, input, param) in inputs)
+				AddOutput(entity, output, inputTarget ?? targetName, input, param, delay, timesToFire);
+		}
+
+		// The inputs that do what the entity's Use does, sent to the entity unless they name another target
+		private IEnumerable<(string? target, string input, string param)> GetUseInputs(Entity target, string gsClassName, Entity caller,
+			UseType useType, int value)
+		{
+			switch (gsClassName)
+			{
+				case "multisource":
+					// Turns the caller's input on or off, whatever it's used with
+					if (GetMultisourceInputBranch(target, caller) is string branch)
+						yield return (branch, "Toggle", "");
+					yield break;
+				case "env_global":
+					// Multisources see the global state through a branch
+					if (multisourceGlobalStates.ContainsKey(target["globalstate"]))
+					{
+						// Dead counts as off
+						var (branchInput, branchParam) = GetInt(target, "triggermode") switch
+						{
+							1 => ("SetValue", "1"),
+							3 => ("Toggle", ""),
+							_ => ("SetValue", "0"),
+						};
+						yield return (GetGlobalStateBranchName(target["globalstate"]), branchInput, branchParam);
+					}
+					break;
+			}
+
+			if (GetUseInput(target, gsClassName, useType, value) is { } input)
+				yield return (null, input.input, input.param);
 		}
 
 		// The input that does what the entity's Use does in GoldSrc, or null if its Use does nothing. Entities other
@@ -485,19 +755,23 @@ namespace BSPConvert.Lib.GoldSrc
 			{
 				case "func_door":
 					ConvertAnglesToMoveDir(entity, "movedir");
-					ConvertDoorSpawnFlags(entity);
+					ConvertDoorSpawnFlags(entity, IsNamedInGoldSrc(entity));
+					LockIfMasterOff(entity, SF_DOOR_LOCKED);
 					break;
 				case "func_door_rotating":
 					// A rotating door's angles are its starting rotation, as in Source
-					ConvertDoorSpawnFlags(entity);
+					ConvertDoorSpawnFlags(entity, IsNamedInGoldSrc(entity));
+					LockIfMasterOff(entity, SF_DOOR_LOCKED);
 					break;
 				case "func_button":
 					ConvertAnglesToMoveDir(entity, "movedir");
 					ConvertButtonSpawnFlags(entity);
+					LockIfMasterOff(entity, SF_BUTTON_LOCKED);
 					break;
 				case "func_rot_button":
 					// A rotating button's angles are its starting rotation, as in Source
 					ConvertRotButtonSpawnFlags(entity);
+					LockIfMasterOff(entity, SF_BUTTON_LOCKED);
 					break;
 				case "func_conveyor":
 				case "func_water":
@@ -534,16 +808,27 @@ namespace BSPConvert.Lib.GoldSrc
 
 		// GoldSrc doors open when a player touches them, unless they're use only or something targets them (they
 		// have a targetname). Source doors only open on touch with "Touch Opens".
-		private static void ConvertDoorSpawnFlags(Entity entity)
+		private static void ConvertDoorSpawnFlags(Entity entity, bool isNamed)
 		{
 			var gsFlags = GetSpawnFlags(entity);
 			var flags = gsFlags & GoldSrcDoorSharedFlags;
 			if (((uint)gsFlags & SF_DOOR_SILENT_GOLDSRC) != 0)
 				flags |= SF_DOOR_SILENT;
-			if ((gsFlags & SF_DOOR_USE_ONLY) == 0 && string.IsNullOrEmpty(entity["targetname"]))
+			if ((gsFlags & SF_DOOR_USE_ONLY) == 0 && !isNamed)
 				flags |= SF_DOOR_PTOUCH;
 
 			SetSpawnFlags(entity, flags);
+		}
+
+		private bool IsNamedInGoldSrc(Entity entity)
+		{
+			return !string.IsNullOrEmpty(entity["targetname"]) && !namedForMaster.Contains(entity);
+		}
+
+		private void LockIfMasterOff(Entity entity, int lockedFlag)
+		{
+			if (startLocked.Contains(entity))
+				SetSpawnFlags(entity, GetSpawnFlags(entity) | lockedFlag);
 		}
 
 		// GoldSrc buttons are pressed with +use unless they're touch only, and shot when they have health
