@@ -46,6 +46,9 @@ namespace BSPConvert.Lib.GoldSrc
 
 		public const int MAX_MAP_HULLS = 4;
 
+		// Plane type of a plane whose normal is +Z
+		public const int PLANE_Z = 2;
+
 		public struct Plane
 		{
 			public Vector3 normal;

@@ -75,11 +75,16 @@ namespace BSPConvert.Lib.GoldSrc
 		// Brush models whose entity's rendermode blends them (see ConvertRenderMode), and the texinfos made for them
 		private readonly Dictionary<int, (BlendMode mode, float amount)> modelBlendModes = new Dictionary<int, (BlendMode, float)>();
 		private readonly Dictionary<(int texInfo, BlendMode mode, float amount), int> blendTexInfos = new Dictionary<(int, BlendMode, float), int>();
+		private readonly Dictionary<int, int> noDrawTexInfos = new Dictionary<int, int>();
 
 		// A converted material: the material whose VTF it draws (itself, or an animation's first frame), that
 		// texture, and whether it animates
 		private record ConvertedMaterial(string VtfMaterial, MipTexture Texture, bool Animated);
 		private int[] sourceLeafForGoldSrcLeaf;
+		// Number of converted faces before each GoldSrc face, and of marksurfaces referencing them before each
+		// GoldSrc marksurface (one past the end too), to remap face ranges once nodraw faces are dropped
+		private int[] facesBefore;
+		private int[] markSurfacesBefore;
 		// The converted faces with lightmaps, with where theirs is in the GoldSrc lighting data and how big it is, for
 		// ConvertLighting to place it in Source's
 		private readonly List<(Face face, int lightOffset, int luxels, int styleCount)> litFaces = new List<(Face, int, int, int)>();
@@ -107,6 +112,7 @@ namespace BSPConvert.Lib.GoldSrc
 			volumeModelContents.Clear();
 			modelBlendModes.Clear();
 			blendTexInfos.Clear();
+			noDrawTexInfos.Clear();
 			volumeBrushRegions.Clear();
 			modelBrushes = new List<int>[gs.Models.Length];
 			for (var i = 0; i < modelBrushes.Length; i++)
@@ -342,8 +348,7 @@ namespace BSPConvert.Lib.GoldSrc
 			var baseMaterial = GetMaterialName(mipTexName);
 			if (blend.amount <= 0f)
 			{
-				blendTexInfo = AddTexInfo(texInfoIndex, NoDrawMaterial, GetNoDrawTextureData(),
-					(int)(SourceSurfaceFlags.SURF_NODRAW | SourceSurfaceFlags.SURF_NOLIGHT));
+				blendTexInfo = GetNoDrawTexInfo(texInfoIndex);
 			}
 			else if (!IsToolTexture(mipTexName) && convertedMaterials.TryGetValue(baseMaterial, out var converted))
 			{
@@ -369,6 +374,40 @@ namespace BSPConvert.Lib.GoldSrc
 
 			blendTexInfos[key] = blendTexInfo;
 			return blendTexInfo;
+		}
+
+		private int GetFaceTexInfo(GoldSrcBsp.Face face, int modelIndex)
+		{
+			if (modelIndex <= 0)
+				return texInfoMap[face.texInfo];
+
+			if (IsHiddenWaterFace(face, modelIndex))
+				return GetNoDrawTexInfo(face.texInfo);
+
+			return modelBlendModes.TryGetValue(modelIndex, out var blend) ? GetBlendTexInfo(face.texInfo, blend) : texInfoMap[face.texInfo];
+		}
+
+		// GoldSrc only draws the top of a brush entity's water: R_DrawBrushModel skips turbulent faces that aren't
+		// horizontal or that are at the model's bottom. Drawing the sides would z-fight with the walls they're against.
+		private bool IsHiddenWaterFace(GoldSrcBsp.Face face, int modelIndex)
+		{
+			if (!GoldSrcMaterialConverter.IsTurbulent(GetMipTexName(gs.TexInfos[face.texInfo])))
+				return false;
+
+			var plane = gs.Planes[face.planeIndex];
+			return plane.type != GoldSrcBsp.PLANE_Z || gs.Models[modelIndex].mins.Z + 1f >= plane.dist;
+		}
+
+		private int GetNoDrawTexInfo(int texInfoIndex)
+		{
+			if (!noDrawTexInfos.TryGetValue(texInfoIndex, out var noDrawTexInfo))
+			{
+				noDrawTexInfo = AddTexInfo(texInfoIndex, NoDrawMaterial, GetNoDrawTextureData(),
+					(int)(SourceSurfaceFlags.SURF_NODRAW | SourceSurfaceFlags.SURF_NOLIGHT));
+				noDrawTexInfos[texInfoIndex] = noDrawTexInfo;
+			}
+
+			return noDrawTexInfo;
 		}
 
 		private int GetNoDrawTextureData()
@@ -587,18 +626,29 @@ namespace BSPConvert.Lib.GoldSrc
 
 		private void ConvertFaces()
 		{
-			var faceBlendModes = new (BlendMode mode, float amount)?[gs.Faces.Length];
-			foreach (var (modelIndex, blend) in modelBlendModes)
+			// Brush model (0 = world) each face belongs to
+			var faceModels = new int[gs.Faces.Length];
+			for (var modelIndex = 1; modelIndex < gs.Models.Length; modelIndex++)
 			{
 				var model = gs.Models[modelIndex];
-				for (var i = model.firstFace; i < model.firstFace + model.numFaces && i < faceBlendModes.Length; i++)
-					faceBlendModes[i] = blend;
+				for (var i = model.firstFace; i < model.firstFace + model.numFaces && i < faceModels.Length; i++)
+					faceModels[i] = modelIndex;
 			}
 
+			facesBefore = new int[gs.Faces.Length + 1];
+			var keptFaces = new bool[gs.Faces.Length];
 			for (var i = 0; i < gs.Faces.Length; i++)
 			{
+				facesBefore[i] = sourceBsp.Faces.Count;
 				var gsFace = gs.Faces[i];
 				var texInfo = gs.TexInfos[gsFace.texInfo];
+
+				// Like VBSP, drop faces that shouldn't draw: the engine draws every face it's given, nodraw or not
+				var texInfoIndex = GetFaceTexInfo(gsFace, faceModels[i]);
+				if ((sourceBsp.TextureInfo[texInfoIndex].Flags & (int)SourceSurfaceFlags.SURF_NODRAW) != 0)
+					continue;
+
+				keptFaces[i] = true;
 				var face = builder.AddFace();
 
 				face.PlaneIndex = gsFace.planeIndex;
@@ -607,7 +657,7 @@ namespace BSPConvert.Lib.GoldSrc
 				face.IsOnNode = true;
 				face.FirstEdgeIndexIndex = gsFace.firstEdge;
 				face.NumEdgeIndices = gsFace.numEdges;
-				face.TextureInfoIndex = faceBlendModes[i] is { } blend ? GetBlendTexInfo(gsFace.texInfo, blend) : texInfoMap[gsFace.texInfo];
+				face.TextureInfoIndex = texInfoIndex;
 				face.DisplacementIndex = -1;
 				face.Area = (float)GetFaceArea(gsFace);
 
@@ -632,10 +682,39 @@ namespace BSPConvert.Lib.GoldSrc
 
 				// Vertex normals: one per face, indexed once per face vertex (the engine walks this list by edge count)
 				var normal = gs.Planes[gsFace.planeIndex].normal;
+				var normalIndex = sourceBsp.Normals.Count;
 				sourceBsp.Normals.Add(gsFace.planeSide ? -normal : normal);
 				for (var j = 0; j < gsFace.numEdges; j++)
-					sourceBsp.Indices.Add(i);
+					sourceBsp.Indices.Add(normalIndex);
 			}
+			facesBefore[gs.Faces.Length] = sourceBsp.Faces.Count;
+
+			// Leaves list the faces in them through marksurfaces, which only keep the converted faces
+			markSurfacesBefore = new int[gs.MarkSurfaces.Length + 1];
+			for (var i = 0; i < gs.MarkSurfaces.Length; i++)
+			{
+				markSurfacesBefore[i] = sourceBsp.LeafFaces.Count;
+				var faceIndex = gs.MarkSurfaces[i];
+				if (faceIndex >= 0 && faceIndex < keptFaces.Length && keptFaces[faceIndex])
+					sourceBsp.LeafFaces.Add(facesBefore[faceIndex]);
+			}
+			markSurfacesBefore[gs.MarkSurfaces.Length] = sourceBsp.LeafFaces.Count;
+		}
+
+		// The converted faces in a range of GoldSrc faces (nodes and models list theirs as one range). Dropping faces
+		// keeps the rest in order, so the range stays contiguous.
+		private (int first, int count) RemapFaceRange(int first, int count)
+		{
+			var start = Math.Clamp(first, 0, gs.Faces.Length);
+			var end = Math.Clamp(first + count, start, gs.Faces.Length);
+			return (facesBefore[start], facesBefore[end] - facesBefore[start]);
+		}
+
+		private (int first, int count) RemapMarkSurfaceRange(int first, int count)
+		{
+			var start = Math.Clamp(first, 0, gs.MarkSurfaces.Length);
+			var end = Math.Clamp(first + count, start, gs.MarkSurfaces.Length);
+			return (markSurfacesBefore[start], markSurfacesBefore[end] - markSurfacesBefore[start]);
 		}
 
 		private Vector3 GetFaceVertex(int surfEdgeIndex)
@@ -744,8 +823,7 @@ namespace BSPConvert.Lib.GoldSrc
 				node.Child2Index = gsNode.child1;
 				node.Minimums = gsNode.mins;
 				node.Maximums = gsNode.maxs;
-				node.FirstFaceIndex = gsNode.firstFace;
-				node.NumFaceIndices = gsNode.numFaces;
+				(node.FirstFaceIndex, node.NumFaceIndices) = RemapFaceRange(gsNode.firstFace, gsNode.numFaces);
 				node.AreaIndex = 0;
 				sourceBsp.Nodes.Add(node);
 			}
@@ -763,9 +841,6 @@ namespace BSPConvert.Lib.GoldSrc
 
 			// Source leaf 0 is the shared solid leaf, like GoldSrc's
 			sourceLeafForGoldSrcLeaf[0] = AddLeaf(gs.Leaves[0], -1);
-
-			for (var i = 0; i < gs.MarkSurfaces.Length; i++)
-				sourceBsp.LeafFaces.Add(gs.MarkSurfaces[i]);
 
 			var hull0Brushes = 0;
 			for (var modelIndex = 0; modelIndex < gs.Models.Length; modelIndex++)
@@ -840,8 +915,9 @@ namespace BSPConvert.Lib.GoldSrc
 			leaf.Flags = cluster >= 0 ? (int)(LeafFlags.RADIAL | LeafFlags.SKY2D) : 0;
 			leaf.Minimums = gsLeaf.mins;
 			leaf.Maximums = gsLeaf.maxs;
-			leaf.FirstMarkFaceIndex = gsLeaf.firstMarkSurface;
-			leaf.NumMarkFaceIndices = gsLeaf.contents == GoldSrcBsp.CONTENTS_SOLID ? 0 : gsLeaf.numMarkSurfaces;
+			var (firstMarkFace, numMarkFaces) = RemapMarkSurfaceRange(gsLeaf.firstMarkSurface, gsLeaf.numMarkSurfaces);
+			leaf.FirstMarkFaceIndex = firstMarkFace;
+			leaf.NumMarkFaceIndices = gsLeaf.contents == GoldSrcBsp.CONTENTS_SOLID ? 0 : numMarkFaces;
 			leaf.FirstMarkBrushIndex = 0;
 			leaf.NumMarkBrushIndices = 0;
 			leaf.LeafWaterDataID = -1;
@@ -1084,8 +1160,7 @@ namespace BSPConvert.Lib.GoldSrc
 				model.Minimums = gsModel.mins;
 				model.Maximums = gsModel.maxs;
 				model.Origin = gsModel.origin;
-				model.FirstFaceIndex = gsModel.firstFace;
-				model.NumFaces = gsModel.numFaces;
+				(model.FirstFaceIndex, model.NumFaces) = RemapFaceRange(gsModel.firstFace, gsModel.numFaces);
 
 				builder.SetModelBrushes(sourceBsp.Models.Count, modelBrushes[i]);
 				sourceBsp.Models.Add(model);

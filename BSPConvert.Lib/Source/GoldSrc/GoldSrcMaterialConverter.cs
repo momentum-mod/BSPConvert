@@ -120,6 +120,14 @@ namespace BSPConvert.Lib.GoldSrc
 			return textureName.Length > 2 && (textureName[0] == '+' || textureName[0] == '-') ? textureName.Substring(2) : textureName;
 		}
 
+		// Textures the engine draws as warped, unlit liquid (SURF_DRAWTURB)
+		public static bool IsTurbulent(string textureName)
+		{
+			return textureName.StartsWith('!') ||
+				textureName.StartsWith("water", StringComparison.OrdinalIgnoreCase) ||
+				textureName.StartsWith("laser", StringComparison.OrdinalIgnoreCase);
+		}
+
 		private static bool IsAlphaTested(string textureName)
 		{
 			return GetBaseName(textureName).StartsWith('{');
@@ -222,8 +230,8 @@ namespace BSPConvert.Lib.GoldSrc
 
 		private static string CreateVmt(string baseTexture, MipTexture texture, bool isAlphaTested, bool animated, BlendMode blendMode, float amount)
 		{
-			// Water ('!') isn't lightmapped in GoldSrc, and neither are translucent or additive brush entities
-			var isUnlit = GetBaseName(texture.Name).StartsWith('!') || blendMode != BlendMode.Opaque;
+			// Water isn't lightmapped in GoldSrc, and neither are translucent or additive brush entities
+			var isUnlit = IsTurbulent(GetBaseName(texture.Name)) || blendMode != BlendMode.Opaque;
 			var shader = isUnlit ? "UnlitGeneric" : "LightmappedGeneric";
 
 			var vmt = new StringBuilder();
