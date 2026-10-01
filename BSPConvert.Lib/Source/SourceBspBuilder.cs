@@ -89,6 +89,25 @@ namespace BSPConvert.Lib
 			return Bsp.TextureData.Count - 1;
 		}
 
+		// Creates a texdata entry with an explicit texture size, for materials whose VTF isn't in the content
+		// directory (e.g. textures converted elsewhere or not converted at all). Registered like AddTextureData.
+		public int AddTextureData(string textureName, int width, int height)
+		{
+			var textureData = CreateTextureData();
+			textureData.Reflectivity = new Color();
+			textureData.Size = new Vector2(width, height);
+			textureData.ViewSize = new Vector2(width, height);
+			textureData.TextureStringOffsetIndex = CreateTextureDataStringTableEntry(textureName);
+
+			Bsp.TextureData.Add(textureData);
+			var index = Bsp.TextureData.Count - 1;
+
+			if (!textureDataLookup.ContainsKey(textureName))
+				textureDataLookup.Add(textureName, index);
+
+			return index;
+		}
+
 		public int LookupTextureData(string textureName)
 		{
 			if (textureDataLookup.TryGetValue(textureName, out var textureDataIndex))
@@ -172,7 +191,9 @@ namespace BSPConvert.Lib
 
 		// Adds a texinfo, or returns the index of an identical one that was already added. lookupName registers a
 		// newly added texinfo as that material's default (see LookupTextureInfo) if it doesn't have one yet.
-		public int AddTextureInfo(Vector3 uAxis, Vector3 vAxis, Vector3 lightmapUAxis, Vector3 lightmapVAxis, int flags, int textureDataIndex, string? lookupName = null)
+		// translation/lightmapTranslation are the texel/luxel offsets added after projecting onto the axes.
+		public int AddTextureInfo(Vector3 uAxis, Vector3 vAxis, Vector3 lightmapUAxis, Vector3 lightmapVAxis, int flags, int textureDataIndex, string? lookupName = null,
+			Vector2 translation = default, Vector2 lightmapTranslation = default)
 		{
 			var data = new byte[TextureInfo.GetStructLength(Bsp.MapType)];
 			var textureInfo = new TextureInfo(data, Bsp.TextureInfo);
@@ -181,6 +202,8 @@ namespace BSPConvert.Lib
 			textureInfo.VAxis = vAxis;
 			textureInfo.LightmapUAxis = lightmapUAxis;
 			textureInfo.LightmapVAxis = lightmapVAxis;
+			textureInfo.Translation = translation;
+			textureInfo.LightmapTranslation = lightmapTranslation;
 			textureInfo.Flags = flags;
 			textureInfo.TextureIndex = textureDataIndex;
 
@@ -461,14 +484,15 @@ namespace BSPConvert.Lib
 			return Array.Empty<int>();
 		}
 
-		public int AddBrushSide(int planeIndex, int textureInfoIndex)
+		// Bevel sides only clip box traces: point traces skip them (see the engine's CM_ClipBoxToBrush)
+		public int AddBrushSide(int planeIndex, int textureInfoIndex, bool isBevel = false)
 		{
 			var data = new byte[BrushSide.GetStructLength(Bsp.MapType)];
 			var side = new BrushSide(data, Bsp.BrushSides);
 			side.PlaneIndex = planeIndex;
 			side.TextureIndex = textureInfoIndex;
 			side.DisplacementIndex = 0;
-			side.IsBevel = false;
+			side.IsBevel = isBevel;
 			Bsp.BrushSides.Add(side);
 
 			return Bsp.BrushSides.Count - 1;
