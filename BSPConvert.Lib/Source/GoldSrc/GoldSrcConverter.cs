@@ -1,6 +1,7 @@
 using LibBSP;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 
 using Vector3 = System.Numerics.Vector3;
@@ -10,6 +11,14 @@ using Color = System.Drawing.Color;
 
 namespace BSPConvert.Lib.GoldSrc
 {
+	public class GoldSrcConverterOptions
+	{
+		// Extra directories searched (recursively) for the WAD files maps take their textures from, e.g. a Half-Life
+		// install or a folder of community WADs. Searched after the input file's own directories and before the
+		// default Steam Half-Life install.
+		public string[] wadDirs;
+	}
+
 	// Converts GoldSrc (Half-Life / Counter-Strike 1.6) BSPs (see IEngineConverter).
 	//
 	// Collision: GoldSrc doesn't expand the player box at runtime. The compiler bakes a clip hull per player size
@@ -40,14 +49,21 @@ namespace BSPConvert.Lib.GoldSrc
 
 		private const int LightmapLuxelSize = 16;
 
+		// Where Steam installs Half-Life by default, searched for WADs last
+		private static readonly string DefaultHalfLifeDir = Path.Combine(
+			Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Steam", "steamapps", "common", "Half-Life");
+
 		private readonly BSPConverterOptions options;
 		private readonly ILogger logger;
+		private readonly ContentManager contentManager;
 
 		private GoldSrcBsp gs;
 		private SourceBspBuilder builder;
 		private BSP sourceBsp;
 
 		private int[] texInfoMap;
+		// Each miptex's pixels, or null where neither the BSP nor a WAD has them
+		private MipTexture?[] mipTextures;
 		private int[] sourceLeafForGoldSrcLeaf;
 		// The converted faces with lightmaps, with where theirs is in the GoldSrc lighting data and how big it is, for
 		// ConvertLighting to place it in Source's
@@ -59,10 +75,11 @@ namespace BSPConvert.Lib.GoldSrc
 		private Dictionary<int, int> volumeModelContents = new Dictionary<int, int>();
 		private Dictionary<int, ConvexRegion> volumeBrushRegions = new Dictionary<int, ConvexRegion>();
 
-		public GoldSrcConverter(BSPConverterOptions options, ILogger logger)
+		public GoldSrcConverter(BSPConverterOptions options, ILogger logger, ContentManager contentManager)
 		{
 			this.options = options;
 			this.logger = logger;
+			this.contentManager = contentManager;
 		}
 
 		public void Convert(BSP inputBsp, SourceBspBuilder output)
@@ -189,7 +206,9 @@ namespace BSPConvert.Lib.GoldSrc
 
 		private void ConvertTexInfos()
 		{
-			// TODO: Convert the textures themselves (embedded and WAD miptex) to VTFs
+			// TODO: Convert the textures themselves to VTFs
+			FindTextures();
+
 			var texDataForMipTex = new int[gs.MipTextures.Length];
 			for (var i = 0; i < gs.MipTextures.Length; i++)
 			{
@@ -219,20 +238,75 @@ namespace BSPConvert.Lib.GoldSrc
 			}
 		}
 
-		// Average linear color of an embedded texture, the way vtex computes a VTF's reflectivity. Textures that live
-		// in a WAD get a neutral gray until WAD textures are converted.
+		private void FindTextures()
+		{
+			var finder = new GoldSrcTextureFinder(gs, GetWadSearchDirs(), GetModName(), logger);
+			mipTextures = new MipTexture?[gs.MipTextures.Length];
+			var missing = new List<string>();
+			for (var i = 0; i < mipTextures.Length; i++)
+			{
+				mipTextures[i] = finder.Find(i);
+				if (mipTextures[i] == null && !string.IsNullOrEmpty(gs.MipTextures[i].name))
+					missing.Add(gs.MipTextures[i].name);
+			}
+
+			logger.Log($"Found {mipTextures.Length - missing.Count}/{mipTextures.Length} textures");
+			if (missing.Count > 0)
+				logger.Log($"Warning: Textures not found (pass the folder of the WADs that have them with --wads): {string.Join(", ", missing)}");
+		}
+
+		// The input's own directories first (an extracted map archive, the bsp's folder and the mod folder above a
+		// maps folder), then the user's directories, then a default Steam Half-Life install
+		private IEnumerable<string> GetWadSearchDirs()
+		{
+			yield return contentManager.ContentDir;
+
+			var inputDir = Path.GetDirectoryName(Path.GetFullPath(options.inputFile));
+			if (inputDir != null)
+			{
+				yield return inputDir;
+				if (Path.GetFileName(inputDir).Equals("maps", StringComparison.OrdinalIgnoreCase) && Path.GetDirectoryName(inputDir) is string modDir)
+					yield return modDir;
+			}
+
+			if (options.goldSrc.wadDirs != null)
+			{
+				foreach (var dir in options.goldSrc.wadDirs)
+					yield return dir;
+			}
+
+			yield return DefaultHalfLifeDir;
+		}
+
+		// The mod the map is for: the folder above its maps folder (without a _downloads or similar suffix), or
+		// Counter-Strike's when the map isn't in one, since that's what KZ and bhop maps are for
+		private string GetModName()
+		{
+			var inputDir = Path.GetDirectoryName(Path.GetFullPath(options.inputFile));
+			if (inputDir == null || !Path.GetFileName(inputDir).Equals("maps", StringComparison.OrdinalIgnoreCase) ||
+				Path.GetFileName(Path.GetDirectoryName(inputDir)) is not string modDir || modDir.Length == 0)
+				return "cstrike";
+
+			var suffixIndex = modDir.IndexOf('_', StringComparison.Ordinal);
+			return suffixIndex > 0 ? modDir.Substring(0, suffixIndex) : modDir;
+		}
+
+		// Average linear color of a texture, the way vtex computes a VTF's reflectivity. Textures that weren't found
+		// get a neutral gray.
 		private Color GetReflectivity(int mipTexIndex)
 		{
 			const float DefaultReflectivity = 0.5f;
-			if (!gs.TryGetMipTexPixels(mipTexIndex, out var pixels, out var palette))
+			var mipTexture = mipTextures[mipTexIndex];
+			if (mipTexture == null)
 				return ColorFromLinear(DefaultReflectivity, DefaultReflectivity, DefaultReflectivity);
 
 			// '{' textures are alpha tested: palette index 255 is transparent
-			var isAlphaTested = gs.MipTextures[mipTexIndex].name.StartsWith('{');
+			var isAlphaTested = mipTexture.Name.StartsWith('{');
+			var palette = mipTexture.Palette;
 
 			double r = 0, g = 0, b = 0;
 			var count = 0;
-			foreach (var index in pixels)
+			foreach (var index in mipTexture.Pixels)
 			{
 				if (isAlphaTested && index == 255)
 					continue;

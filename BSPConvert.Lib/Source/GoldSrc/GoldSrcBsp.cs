@@ -108,10 +108,8 @@ namespace BSPConvert.Lib.GoldSrc
 			public string name;
 			public int width;
 			public int height;
-			// Offset of the mip 0 pixel data within the textures lump, or 0 when the texture lives in an external WAD
-			public int dataOffset;
-			// Offset of the 256 color RGB palette within the textures lump (embedded textures only)
-			public int paletteOffset;
+			// Offset of the miptex within the textures lump, or -1 if the lump has no entry for it
+			public int offset;
 		}
 
 		public struct Model
@@ -238,54 +236,30 @@ namespace BSPConvert.Lib.GoldSrc
 			var mipTextures = new MipTex[count];
 			for (var i = 0; i < count; i++)
 			{
-				if (offsets[i] < 0)
+				if (offsets[i] < 0 || offsets[i] + MipTexture.HeaderSize > lump.Length)
 				{
-					mipTextures[i] = new MipTex { name = "", width = 16, height = 16 };
+					mipTextures[i] = new MipTex { name = "", width = 16, height = 16, offset = -1 };
 					continue;
 				}
 
 				reader.BaseStream.Position = offsets[i];
-				var nameBytes = reader.ReadBytes(16);
-				var nameLength = Array.IndexOf(nameBytes, (byte)0);
-				var mipTex = new MipTex
+				mipTextures[i] = new MipTex
 				{
-					name = Encoding.ASCII.GetString(nameBytes, 0, nameLength < 0 ? 16 : nameLength),
+					name = MipTexture.ReadName(reader.ReadBytes(16)),
 					width = reader.ReadInt32(),
-					height = reader.ReadInt32()
+					height = reader.ReadInt32(),
+					offset = offsets[i]
 				};
-				var mip0Offset = reader.ReadInt32();
-				reader.ReadInt32(); // mip 1
-				reader.ReadInt32(); // mip 2
-				var mip3Offset = reader.ReadInt32();
-				if (mip0Offset > 0)
-				{
-					mipTex.dataOffset = offsets[i] + mip0Offset;
-					// The palette follows the smallest mip, after a 16-bit color count
-					mipTex.paletteOffset = offsets[i] + mip3Offset + (mipTex.width / 8) * (mipTex.height / 8) + 2;
-				}
-				mipTextures[i] = mipTex;
 			}
 
 			return mipTextures;
 		}
 
-		// Mip 0 of an embedded texture as palette indices, and its 256 color RGB palette. False for textures that
-		// live in an external WAD (or whose data runs past the lump).
-		public bool TryGetMipTexPixels(int mipTexIndex, out ReadOnlySpan<byte> pixels, out ReadOnlySpan<byte> palette)
+		// The texture's pixels if they're embedded in the BSP, or null if it lives in an external WAD
+		public MipTexture? GetEmbeddedMipTexture(int mipTexIndex)
 		{
-			pixels = default;
-			palette = default;
-
-			var mipTex = MipTextures[mipTexIndex];
-			var pixelCount = mipTex.width * mipTex.height;
-			if (mipTex.dataOffset <= 0 || pixelCount <= 0 ||
-				mipTex.dataOffset + pixelCount > TexturesLump.Length ||
-				mipTex.paletteOffset + 256 * 3 > TexturesLump.Length)
-				return false;
-
-			pixels = TexturesLump.AsSpan(mipTex.dataOffset, pixelCount);
-			palette = TexturesLump.AsSpan(mipTex.paletteOffset, 256 * 3);
-			return true;
+			var offset = MipTextures[mipTexIndex].offset;
+			return offset < 0 ? null : MipTexture.Read(TexturesLump.AsSpan(offset));
 		}
 
 		private static T[] ReadArray<T>(byte[] lump, int structSize, Func<BinaryReader, T> readFunc)

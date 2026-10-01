@@ -31,6 +31,7 @@ namespace BSPConvert.Lib
 		public float scale = 1f;
 
 		public Q3ConverterOptions q3 = new Q3ConverterOptions();
+		public GoldSrcConverterOptions goldSrc = new GoldSrcConverterOptions();
 	}
 
 	// Entry point for a conversion: loads the input file's BSP(s), hands each one to the converter for its
@@ -99,7 +100,7 @@ namespace BSPConvert.Lib
 				return q3Converter ??= new Q3Converter(options, logger, contentManager);
 
 			if (mapType.IsSubtypeOf(MapType.GoldSrc))
-				return goldSrcConverter ??= new GoldSrcConverter(options, logger);
+				return goldSrcConverter ??= new GoldSrcConverter(options, logger, contentManager);
 
 			return null;
 		}
