@@ -2,6 +2,7 @@ using LibBSP;
 using SharpCompress.Archives;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 
@@ -94,6 +95,8 @@ namespace BSPConvert.Lib.GoldSrc
 		// their hull 0 brushes (see ConvertVolumeEntity)
 		private Dictionary<int, int> volumeModelContents = new Dictionary<int, int>();
 		private Dictionary<int, ConvexRegion> volumeBrushRegions = new Dictionary<int, ConvexRegion>();
+		// Brush models of func_ladders, whose brushes become world ladder brushes (see ConvertLadder)
+		private readonly HashSet<int> ladderModels = new HashSet<int>();
 
 		public GoldSrcConverter(BSPConverterOptions options, ILogger logger, ContentManager contentManager)
 		{
@@ -114,6 +117,7 @@ namespace BSPConvert.Lib.GoldSrc
 			blendTexInfos.Clear();
 			noDrawTexInfos.Clear();
 			volumeBrushRegions.Clear();
+			ladderModels.Clear();
 			modelBrushes = new List<int>[gs.Models.Length];
 			for (var i = 0; i < modelBrushes.Length; i++)
 				modelBrushes[i] = new List<int>();
@@ -197,6 +201,10 @@ namespace BSPConvert.Lib.GoldSrc
 					case "func_water":
 						ConvertVolumeEntity(entity);
 						break;
+					case "func_ladder":
+						// Becomes world brushes (see ConvertLadder)
+						ConvertLadder(entity);
+						continue;
 				}
 
 				sourceBsp.Entities.Add(entity);
@@ -220,6 +228,39 @@ namespace BSPConvert.Lib.GoldSrc
 				logger.Log($"Warning: {entity.ClassName} {entity["model"]} ({entity["targetname"]}) is converted as static water and won't move.");
 
 			entity.ClassName = "func_illusionary";
+		}
+
+		// GoldSrc's func_ladder is a non-solid brush entity the player climbs while overlapping it. Momentum has no
+		// func_ladder and climbs Source ladders instead: solid brushes with CONTENTS_LADDER that the player moves
+		// into (like Valve's own conversions for Half-Life: Source). So the ladder's brushes, including its clip hull
+		// brushes that GoldSrc-hull game modes trace, are added to the world with CONTENTS_LADDER and the entity is
+		// dropped. Its faces are never drawn, like GoldSrc's ladders, which the game makes invisible.
+		private void ConvertLadder(Entity entity)
+		{
+			if (!TryGetBrushModel(entity, out var modelIndex))
+				return;
+
+			if (TryParseVector(entity["origin"], out var origin) && origin != Vector3.Zero)
+			{
+				logger.Log($"Warning: {entity.ClassName} {entity["model"]} has an origin brush, which isn't supported, so it isn't converted");
+				return;
+			}
+
+			ladderModels.Add(modelIndex);
+		}
+
+		private static bool TryParseVector(string value, out Vector3 result)
+		{
+			result = Vector3.Zero;
+			var parts = value.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+			if (parts.Length != 3 ||
+				!float.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var x) ||
+				!float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var y) ||
+				!float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out var z))
+				return false;
+
+			result = new Vector3(x, y, z);
+			return true;
 		}
 
 		// GoldSrc rendermodes (const.h)
@@ -1029,9 +1070,13 @@ namespace BSPConvert.Lib.GoldSrc
 			numSides += AddAxialBevels(region);
 
 			var isVolume = volumeModelContents.TryGetValue(modelIndex, out var volumeContents);
+			var isLadder = ladderModels.Contains(modelIndex);
 			var contents = GetSourceContents(isVolume ? volumeContents : gs.Leaves[gsLeafIndex].contents);
+			if (isLadder)
+				contents |= (int)SourceContentsFlags.CONTENTS_LADDER;
+
 			var brushIndex = builder.AddBrush(firstSide, numSides, contents);
-			if (isVolume)
+			if (isVolume || isLadder)
 				volumeBrushRegions[brushIndex] = region;
 
 			// A solid region's Source leaf is its own, so it can take the region's real bounds
@@ -1047,16 +1092,18 @@ namespace BSPConvert.Lib.GoldSrc
 			return true;
 		}
 
-		// World point contents only see brushes listed in world leaves, so list the volume entities' brushes in the
-		// world leaves they overlap
+		// World point contents and traces only see brushes listed in world leaves, so list the brushes of water and
+		// ladder entities in the world leaves they overlap
 		private void AddVolumeBrushesToWorld()
 		{
 			var worldHeadNode = gs.Models[0].headNodes[0];
 			foreach (var (brushIndex, region) in volumeBrushRegions)
 				RegisterInHull0Leaves(worldHeadNode, region, brushIndex);
 
-			if (volumeBrushRegions.Count > 0)
-				logger.Log($"Converted {volumeModelContents.Count} water entities into {volumeBrushRegions.Count} static world water brushes");
+			if (volumeModelContents.Count > 0)
+				logger.Log($"Converted {volumeModelContents.Count} water entities into static world water brushes");
+			if (ladderModels.Count > 0)
+				logger.Log($"Converted {ladderModels.Count} ladder entities into world ladder brushes");
 		}
 
 		private int AddAxialBevels(ConvexRegion region)
@@ -1164,13 +1211,16 @@ namespace BSPConvert.Lib.GoldSrc
 				builder.AddBrushSide(builder.AddPlane(n, face.Dist - offset), -1);
 			}
 
-			var brushIndex = builder.AddBrush(firstSide, region.Faces.Count, (int)contents);
+			// Ladders are world brushes (see ConvertLadder)
+			var isLadder = ladderModels.Contains(modelIndex);
+			var brushContents = (int)contents | (isLadder ? (int)SourceContentsFlags.CONTENTS_LADDER : 0);
+			var brushIndex = builder.AddBrush(firstSide, region.Faces.Count, brushContents);
 			modelBrushes[modelIndex].Add(brushIndex);
 
 			// A box trace only tests the brushes of leaves it passes through, and its center is somewhere inside
 			// the clip hull region whenever it collides with this brush, so list the brush in every hull 0 leaf
 			// the region overlaps.
-			var headNode = gs.Models[modelIndex].headNodes[0];
+			var headNode = gs.Models[isLadder ? 0 : modelIndex].headNodes[0];
 			if (headNode >= 0)
 				RegisterInHull0Leaves(headNode, region, brushIndex);
 
