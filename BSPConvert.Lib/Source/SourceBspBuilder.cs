@@ -63,10 +63,11 @@ namespace BSPConvert.Lib
 		#region Texture data
 
 		// Creates a texdata entry for the material and registers it as the material's default texdata (see
-		// LookupTextureData). Returns the new entry's index.
-		public int AddTextureData(string textureName)
+		// LookupTextureData). Returns the new entry's index. Size and reflectivity come from the material's VTF, or
+		// from vtfName's when several materials share one VTF (e.g. the frames of an animated texture).
+		public int AddTextureData(string textureName, string? vtfName = null)
 		{
-			var index = AddTextureDataVariant(textureName);
+			var index = AddTextureDataVariant(textureName, vtfName);
 
 			if (!textureDataLookup.ContainsKey(textureName))
 				textureDataLookup.Add(textureName, index);
@@ -78,9 +79,9 @@ namespace BSPConvert.Lib
 		// registering it in textureDataLookup. Use this when a distinct texdata is needed
 		// for an already-named material (e.g. a surface-flag variant), so the name->index
 		// lookup keeps pointing at the original/default entry.
-		public int AddTextureDataVariant(string textureName)
+		public int AddTextureDataVariant(string textureName, string? vtfName = null)
 		{
-			var vtfPath = Path.Combine(contentDir, textureName + ".vtf");
+			var vtfPath = Path.Combine(contentDir, (vtfName ?? textureName) + ".vtf");
 			var textureData = GetTextureData(vtfPath);
 			textureData.TextureStringOffsetIndex = CreateTextureDataStringTableEntry(textureName);
 

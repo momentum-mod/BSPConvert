@@ -70,7 +70,9 @@ namespace BSPConvert.Lib.GoldSrc
 		// Each miptex's pixels, or null where neither the BSP nor a WAD has them
 		private MipTexture?[] mipTextures;
 		private GoldSrcMaterialConverter materialConverter;
-		private readonly HashSet<string> convertedMaterials = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		private GoldSrcTextureFinder textureFinder;
+		// Converted material -> the material whose VTF it uses (itself, or an animation's first frame)
+		private readonly Dictionary<string, string> convertedMaterials = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 		private int[] sourceLeafForGoldSrcLeaf;
 		// The converted faces with lightmaps, with where theirs is in the GoldSrc lighting data and how big it is, for
 		// ConvertLighting to place it in Source's
@@ -227,8 +229,8 @@ namespace BSPConvert.Lib.GoldSrc
 				if (textureDataIndex < 0)
 				{
 					// Converted textures take their size and reflectivity from the VTF
-					textureDataIndex = convertedMaterials.Contains(materialName) ?
-						builder.AddTextureData(materialName) :
+					textureDataIndex = convertedMaterials.TryGetValue(materialName, out var vtfName) ?
+						builder.AddTextureData(materialName, vtfName) :
 						builder.AddTextureData(materialName, mipTex.width, mipTex.height, MissingTextureReflectivity);
 				}
 
@@ -259,12 +261,12 @@ namespace BSPConvert.Lib.GoldSrc
 
 		private void FindTextures()
 		{
-			var finder = new GoldSrcTextureFinder(gs, GetWadSearchDirs(), GetModName(), logger);
+			textureFinder = new GoldSrcTextureFinder(gs, GetWadSearchDirs(), GetModName(), logger);
 			mipTextures = new MipTexture?[gs.MipTextures.Length];
 			var missing = new List<string>();
 			for (var i = 0; i < mipTextures.Length; i++)
 			{
-				mipTextures[i] = finder.Find(i);
+				mipTextures[i] = textureFinder.Find(i);
 				var name = gs.MipTextures[i].name;
 				if (mipTextures[i] == null && !string.IsNullOrEmpty(name) && !IsToolTexture(name))
 					missing.Add(name);
@@ -317,21 +319,71 @@ namespace BSPConvert.Lib.GoldSrc
 			convertedMaterials.Clear();
 			for (var i = 0; i < mipTextures.Length; i++)
 			{
+				var name = gs.MipTextures[i].name;
 				var texture = mipTextures[i];
-				if (texture == null || IsToolTexture(gs.MipTextures[i].name))
+				if (texture == null || IsToolTexture(name))
 					continue;
 
-				var materialName = GetMaterialName(gs.MipTextures[i].name);
-				if (convertedMaterials.Contains(materialName))
+				var materialName = GetMaterialName(name);
+				if (convertedMaterials.ContainsKey(materialName) || ConvertAnimation(name))
 					continue;
 
 				if (materialConverter.Convert(materialName, texture))
-					convertedMaterials.Add(materialName);
+					convertedMaterials[materialName] = materialName;
 				else
 					logger.Log($"Warning: Failed to convert texture {texture.Name}");
 			}
 
 			logger.Log($"Converted {convertedMaterials.Count} textures");
+		}
+
+		// Converts the animation sequence a "+<frame><name>" texture belongs to: "+0name" to "+9name", or the
+		// alternate sequence "+aname" to "+jname" that triggered brush entities switch to. Frames are found by name,
+		// since a map only has to reference one of them. Returns false if the texture isn't part of a sequence with
+		// more than one frame.
+		// TODO: Switch brush entities between their primary and alternate sequence when they're triggered
+		private bool ConvertAnimation(string textureName)
+		{
+			if (textureName.Length < 3 || textureName[0] != '+')
+				return false;
+
+			var frameChar = char.ToLowerInvariant(textureName[1]);
+			char firstFrame;
+			if (frameChar is >= '0' and <= '9')
+				firstFrame = '0';
+			else if (frameChar is >= 'a' and <= 'j')
+				firstFrame = 'a';
+			else
+				return false;
+
+			var baseName = textureName.Substring(2);
+			var frames = new List<MipTexture>();
+			var frameMaterials = new List<string>();
+			for (var frame = 0; frame < 10; frame++)
+			{
+				// Like the engine, the sequence ends at the first missing frame
+				var frameName = "+" + (char)(firstFrame + frame) + baseName;
+				var texture = textureFinder.Find(frameName);
+				if (texture == null || (frames.Count > 0 && (texture.Width != frames[0].Width || texture.Height != frames[0].Height)))
+					break;
+
+				frames.Add(texture);
+				frameMaterials.Add(GetMaterialName(frameName));
+			}
+
+			if (frames.Count < 2)
+				return false;
+
+			if (!materialConverter.ConvertAnimated(frameMaterials, frames))
+			{
+				logger.Log($"Warning: Failed to convert animated texture {textureName}");
+				return false;
+			}
+
+			foreach (var frameMaterial in frameMaterials)
+				convertedMaterials[frameMaterial] = frameMaterials[0];
+
+			return true;
 		}
 
 		// Embeds the converted materials in the BSP, or with --nopak moves them to the output's materials folder

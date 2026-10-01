@@ -63,11 +63,23 @@ namespace BSPConvert.Lib.GoldSrc
 		// Returns the texture's pixels, or null if it isn't embedded and no WAD has it
 		public MipTexture? Find(int mipTexIndex)
 		{
-			var embedded = gs.GetEmbeddedMipTexture(mipTexIndex);
-			if (embedded != null)
-				return embedded;
+			return gs.GetEmbeddedMipTexture(mipTexIndex) ?? FindInWads(gs.MipTextures[mipTexIndex].name);
+		}
 
-			var name = gs.MipTextures[mipTexIndex].name;
+		// Looks a texture up by name, for textures the map doesn't reference directly (other animation frames)
+		public MipTexture? Find(string name)
+		{
+			for (var i = 0; i < gs.MipTextures.Length; i++)
+			{
+				if (gs.MipTextures[i].name.Equals(name, StringComparison.OrdinalIgnoreCase))
+					return Find(i);
+			}
+
+			return FindInWads(name);
+		}
+
+		private MipTexture? FindInWads(string name)
+		{
 			if (string.IsNullOrEmpty(name))
 				return null;
 

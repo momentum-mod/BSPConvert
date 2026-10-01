@@ -13,6 +13,8 @@ namespace BSPConvert.Lib.GoldSrc
 	{
 		// Palette index drawn transparent on '{' textures
 		private const byte TransparentIndex = 255;
+		// GoldSrc advances animated textures at a fixed 10 frames per second
+		private const int AnimationFrameRate = 10;
 
 		private static readonly VTF.CreationOptions VtfOptions = new VTF.CreationOptions
 		{
@@ -42,22 +44,82 @@ namespace BSPConvert.Lib.GoldSrc
 
 		public bool Convert(string materialName, MipTexture texture)
 		{
-			var basePath = Path.Combine(contentDir, materialName.Replace('/', Path.DirectorySeparatorChar));
-			Directory.CreateDirectory(Path.GetDirectoryName(basePath)!);
-
-			var isAlphaTested = texture.Name.StartsWith('{');
-			var pixels = DecodeRGBA(texture, isAlphaTested);
-
-			var vtfPath = basePath + ".vtf";
-			if (!VTF.Create(pixels, ImageFormat.RGBA8888, (ushort)texture.Width, (ushort)texture.Height, vtfPath, VtfOptions))
+			var isAlphaTested = IsAlphaTested(texture.Name);
+			var vtfPath = GetBasePath(materialName) + ".vtf";
+			if (!VTF.Create(DecodeRGBA(texture, isAlphaTested), ImageFormat.RGBA8888, (ushort)texture.Width, (ushort)texture.Height, vtfPath, VtfOptions))
 				return false;
 
-			var vmtPath = basePath + ".vmt";
-			File.WriteAllText(vmtPath, CreateVmt(materialName, texture, isAlphaTested));
+			writtenFiles.Add(vtfPath);
+			WriteVmt(materialName, materialName, texture, isAlphaTested, animated: false);
+			return true;
+		}
+
+		// An animated texture sequence ("+0name", "+1name", ...): the frames go into one VTF stored under the first
+		// frame's material, and every frame's material plays it at GoldSrc's 10 frames per second. GoldSrc picks the
+		// frame from the clock, not from the frame a surface uses, so all of them show the same frame at a time.
+		public bool ConvertAnimated(IReadOnlyList<string> frameMaterialNames, IReadOnlyList<MipTexture> frames)
+		{
+			var first = frames[0];
+			var isAlphaTested = IsAlphaTested(first.Name);
+			var vtfMaterialName = frameMaterialNames[0];
+			var vtfPath = GetBasePath(vtfMaterialName) + ".vtf";
+
+			using (var vtf = new VTF())
+			{
+				vtf.Version = VtfOptions.Version;
+				vtf.ImageWidthResizeMethod = VtfOptions.WidthResizeMethod;
+				vtf.ImageHeightResizeMethod = VtfOptions.HeightResizeMethod;
+				var width = (ushort)first.Width;
+				var height = (ushort)first.Height;
+				if (!vtf.SetImage(DecodeRGBA(first, isAlphaTested), ImageFormat.RGBA8888, width, height) ||
+					!vtf.SetFrameCount((ushort)frames.Count))
+					return false;
+
+				for (var i = 1; i < frames.Count; i++)
+				{
+					if (!vtf.SetImage(DecodeRGBA(frames[i], isAlphaTested), ImageFormat.RGBA8888, width, height, frame: (ushort)i))
+						return false;
+				}
+
+				vtf.ComputeReflectivity();
+				vtf.SetRecommendedMipCount();
+				vtf.ComputeMips();
+				vtf.SetFormat(VtfOptions.OutputFormat);
+				vtf.ComputeTransparencyFlags();
+				if (!vtf.Bake(vtfPath))
+					return false;
+			}
 
 			writtenFiles.Add(vtfPath);
-			writtenFiles.Add(vmtPath);
+			foreach (var materialName in frameMaterialNames)
+				WriteVmt(materialName, vtfMaterialName, first, isAlphaTested, animated: true);
+
 			return true;
+		}
+
+		private string GetBasePath(string materialName)
+		{
+			var basePath = Path.Combine(contentDir, materialName.Replace('/', Path.DirectorySeparatorChar));
+			Directory.CreateDirectory(Path.GetDirectoryName(basePath)!);
+			return basePath;
+		}
+
+		// GoldSrc texture name without an animation or random tiling frame prefix ("+0", "+a", "-0")
+		private static string GetBaseName(string textureName)
+		{
+			return textureName.Length > 2 && (textureName[0] == '+' || textureName[0] == '-') ? textureName.Substring(2) : textureName;
+		}
+
+		private static bool IsAlphaTested(string textureName)
+		{
+			return GetBaseName(textureName).StartsWith('{');
+		}
+
+		private void WriteVmt(string materialName, string baseTexture, MipTexture texture, bool isAlphaTested, bool animated)
+		{
+			var vmtPath = GetBasePath(materialName) + ".vmt";
+			File.WriteAllText(vmtPath, CreateVmt(baseTexture, texture, isAlphaTested, animated));
+			writtenFiles.Add(vmtPath);
 		}
 
 		private static byte[] DecodeRGBA(MipTexture texture, bool isAlphaTested)
@@ -140,20 +202,32 @@ namespace BSPConvert.Lib.GoldSrc
 			while (newlyFilled.Count > 0);
 		}
 
-		private static string CreateVmt(string materialName, MipTexture texture, bool isAlphaTested)
+		private static string CreateVmt(string baseTexture, MipTexture texture, bool isAlphaTested, bool animated)
 		{
 			// Water ('!') isn't lightmapped in GoldSrc
-			var shader = texture.Name.StartsWith('!') ? "UnlitGeneric" : "LightmappedGeneric";
+			var shader = GetBaseName(texture.Name).StartsWith('!') ? "UnlitGeneric" : "LightmappedGeneric";
 
 			var vmt = new StringBuilder();
 			vmt.AppendLine(CultureInfo.InvariantCulture, $"\"{shader}\"");
 			vmt.AppendLine("{");
-			vmt.AppendLine(CultureInfo.InvariantCulture, $"\t\"$basetexture\" \"{materialName}\"");
+			vmt.AppendLine(CultureInfo.InvariantCulture, $"\t\"$basetexture\" \"{baseTexture}\"");
 			// Texture coordinates are in texels of the original texture
 			vmt.AppendLine(CultureInfo.InvariantCulture, $"\t\"$mappingwidth\" \"{texture.Width}\"");
 			vmt.AppendLine(CultureInfo.InvariantCulture, $"\t\"$mappingheight\" \"{texture.Height}\"");
 			if (isAlphaTested)
 				vmt.AppendLine("\t\"$alphatest\" \"1\"");
+			if (animated)
+			{
+				vmt.AppendLine("\t\"Proxies\"");
+				vmt.AppendLine("\t{");
+				vmt.AppendLine("\t\t\"AnimatedTexture\"");
+				vmt.AppendLine("\t\t{");
+				vmt.AppendLine("\t\t\t\"animatedTextureVar\" \"$basetexture\"");
+				vmt.AppendLine("\t\t\t\"animatedTextureFrameNumVar\" \"$frame\"");
+				vmt.AppendLine(CultureInfo.InvariantCulture, $"\t\t\t\"animatedTextureFrameRate\" \"{AnimationFrameRate}\"");
+				vmt.AppendLine("\t\t}");
+				vmt.AppendLine("\t}");
+			}
 			vmt.AppendLine("}");
 
 			return vmt.ToString();
