@@ -71,8 +71,14 @@ namespace BSPConvert.Lib.GoldSrc
 		private MipTexture?[] mipTextures;
 		private GoldSrcMaterialConverter materialConverter;
 		private GoldSrcTextureFinder textureFinder;
-		// Converted material -> the material whose VTF it uses (itself, or an animation's first frame)
-		private readonly Dictionary<string, string> convertedMaterials = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+		private readonly Dictionary<string, ConvertedMaterial> convertedMaterials = new Dictionary<string, ConvertedMaterial>(StringComparer.OrdinalIgnoreCase);
+		// Brush models whose entity's rendermode blends them (see ConvertRenderMode), and the texinfos made for them
+		private readonly Dictionary<int, (BlendMode mode, float amount)> modelBlendModes = new Dictionary<int, (BlendMode, float)>();
+		private readonly Dictionary<(int texInfo, BlendMode mode, float amount), int> blendTexInfos = new Dictionary<(int, BlendMode, float), int>();
+
+		// A converted material: the material whose VTF it draws (itself, or an animation's first frame), that
+		// texture, and whether it animates
+		private record ConvertedMaterial(string VtfMaterial, MipTexture Texture, bool Animated);
 		private int[] sourceLeafForGoldSrcLeaf;
 		// The converted faces with lightmaps, with where theirs is in the GoldSrc lighting data and how big it is, for
 		// ConvertLighting to place it in Source's
@@ -99,6 +105,8 @@ namespace BSPConvert.Lib.GoldSrc
 			leafBrushes.Clear();
 			litFaces.Clear();
 			volumeModelContents.Clear();
+			modelBlendModes.Clear();
+			blendTexInfos.Clear();
 			volumeBrushRegions.Clear();
 			modelBrushes = new List<int>[gs.Models.Length];
 			for (var i = 0; i < modelBrushes.Length; i++)
@@ -162,6 +170,8 @@ namespace BSPConvert.Lib.GoldSrc
 				foreach (var key in gsEntity.Keys)
 					entity[key] = gsEntity[key];
 
+				ConvertRenderMode(entity);
+
 				switch (entity.ClassName)
 				{
 					case "worldspawn":
@@ -195,17 +205,69 @@ namespace BSPConvert.Lib.GoldSrc
 		// TODO: Moving water (func_water used as a door) stays where it starts
 		private void ConvertVolumeEntity(Entity entity)
 		{
-			var model = entity["model"];
-			if (!model.StartsWith('*') || !int.TryParse(model.Substring(1), out var modelIndex) || modelIndex <= 0 || modelIndex >= gs.Models.Length)
+			if (!TryGetBrushModel(entity, out var modelIndex))
 				return;
 
 			var contents = int.TryParse(entity["skin"], out var skin) && skin < 0 ? skin : GoldSrcBsp.CONTENTS_WATER;
 			volumeModelContents[modelIndex] = contents;
 
 			if (!string.IsNullOrEmpty(entity["targetname"]))
-				logger.Log($"Warning: {entity.ClassName} {model} ({entity["targetname"]}) is converted as static water and won't move.");
+				logger.Log($"Warning: {entity.ClassName} {entity["model"]} ({entity["targetname"]}) is converted as static water and won't move.");
 
 			entity.ClassName = "func_illusionary";
+		}
+
+		// GoldSrc rendermodes (const.h)
+		private const int RenderTransColor = 1;
+		private const int RenderTransTexture = 2;
+		private const int RenderTransAlpha = 4;
+		private const int RenderTransAdd = 5;
+
+		// A brush entity's rendermode is baked into the materials of its model's faces (see GetBlendTexInfo), so the
+		// entity itself renders normally. GoldSrc draws translucent and additive brush entities fullbright, blended
+		// by renderamt, which defaults to 0 and hides them (a common way to make an invisible func_wall).
+		// TODO: Changing rendermode/renderamt at runtime (env_render) won't affect the baked materials
+		private void ConvertRenderMode(Entity entity)
+		{
+			if (!TryGetBrushModel(entity, out var modelIndex))
+				return;
+
+			// Source tints a brush entity by its rendercolor. GoldSrc only uses it for the Color rendermode (approximated
+			// as Texture below) and glow sprites, and editors default it to "0 0 0", which turned brush entities black.
+			entity.Remove("rendercolor");
+
+			if (!int.TryParse(entity["rendermode"], out var renderMode))
+				return;
+
+			var amount = Math.Clamp(int.TryParse(entity["renderamt"], out var renderAmt) ? renderAmt : 0, 0, 255) / 255f;
+			switch (renderMode)
+			{
+				case RenderTransColor:
+				case RenderTransTexture:
+					modelBlendModes[modelIndex] = (BlendMode.Translucent, amount);
+					break;
+				case RenderTransAdd:
+					modelBlendModes[modelIndex] = (BlendMode.Additive, amount);
+					break;
+				case RenderTransAlpha:
+					// Alpha testing '{' textures is part of their material already
+					break;
+				default:
+					return;
+			}
+
+			entity["rendermode"] = "0";
+		}
+
+		private bool TryGetBrushModel(Entity entity, out int modelIndex)
+		{
+			modelIndex = -1;
+			var model = entity["model"];
+			if (!model.StartsWith('*') || !int.TryParse(model.Substring(1), out var index) || index <= 0 || index >= gs.Models.Length)
+				return false;
+
+			modelIndex = index;
+			return true;
 		}
 
 		// Copied index for index: nodes and clip nodes reference these planes
@@ -229,8 +291,8 @@ namespace BSPConvert.Lib.GoldSrc
 				if (textureDataIndex < 0)
 				{
 					// Converted textures take their size and reflectivity from the VTF
-					textureDataIndex = convertedMaterials.TryGetValue(materialName, out var vtfName) ?
-						builder.AddTextureData(materialName, vtfName) :
+					textureDataIndex = convertedMaterials.TryGetValue(materialName, out var converted) ?
+						builder.AddTextureData(materialName, converted.VtfMaterial) :
 						builder.AddTextureData(materialName, mipTex.width, mipTex.height, MissingTextureReflectivity);
 				}
 
@@ -241,22 +303,78 @@ namespace BSPConvert.Lib.GoldSrc
 			for (var i = 0; i < gs.TexInfos.Length; i++)
 			{
 				var texInfo = gs.TexInfos[i];
-				var mipTexName = texInfo.mipTex >= 0 && texInfo.mipTex < gs.MipTextures.Length ? gs.MipTextures[texInfo.mipTex].name : "";
 				var textureDataIndex = texInfo.mipTex >= 0 && texInfo.mipTex < texDataForMipTex.Length ? texDataForMipTex[texInfo.mipTex] : 0;
-
-				var uAxis = new Vector3(texInfo.s.X, texInfo.s.Y, texInfo.s.Z);
-				var vAxis = new Vector3(texInfo.t.X, texInfo.t.Y, texInfo.t.Z);
-
-				// GoldSrc lightmaps have one luxel per 16 texels
-				texInfoMap[i] = builder.AddTextureInfo(
-					uAxis, vAxis,
-					uAxis / LightmapLuxelSize, vAxis / LightmapLuxelSize,
-					GetSurfaceFlags(texInfo, mipTexName),
-					textureDataIndex,
-					GetMaterialName(mipTexName),
-					new Vector2(texInfo.s.W, texInfo.t.W),
-					new Vector2(texInfo.s.W / LightmapLuxelSize, texInfo.t.W / LightmapLuxelSize));
+				texInfoMap[i] = AddTexInfo(i, GetMaterialName(GetMipTexName(texInfo)), textureDataIndex);
 			}
+		}
+
+		private int AddTexInfo(int texInfoIndex, string materialName, int textureDataIndex, int extraSurfaceFlags = 0)
+		{
+			var texInfo = gs.TexInfos[texInfoIndex];
+			var uAxis = new Vector3(texInfo.s.X, texInfo.s.Y, texInfo.s.Z);
+			var vAxis = new Vector3(texInfo.t.X, texInfo.t.Y, texInfo.t.Z);
+
+			// GoldSrc lightmaps have one luxel per 16 texels
+			return builder.AddTextureInfo(
+				uAxis, vAxis,
+				uAxis / LightmapLuxelSize, vAxis / LightmapLuxelSize,
+				GetSurfaceFlags(texInfo, GetMipTexName(texInfo)) | extraSurfaceFlags,
+				textureDataIndex,
+				materialName,
+				new Vector2(texInfo.s.W, texInfo.t.W),
+				new Vector2(texInfo.s.W / LightmapLuxelSize, texInfo.t.W / LightmapLuxelSize));
+		}
+
+		private string GetMipTexName(GoldSrcBsp.TexInfo texInfo)
+		{
+			return texInfo.mipTex >= 0 && texInfo.mipTex < gs.MipTextures.Length ? gs.MipTextures[texInfo.mipTex].name : "";
+		}
+
+		// The texinfo for a face of a brush model whose rendermode blends it: the same mapping with a material
+		// that draws the texture translucent or additive, or nodraw where renderamt hides the entity
+		private int GetBlendTexInfo(int texInfoIndex, (BlendMode mode, float amount) blend)
+		{
+			var key = (texInfoIndex, blend.mode, blend.amount);
+			if (blendTexInfos.TryGetValue(key, out var blendTexInfo))
+				return blendTexInfo;
+
+			var mipTexName = GetMipTexName(gs.TexInfos[texInfoIndex]);
+			var baseMaterial = GetMaterialName(mipTexName);
+			if (blend.amount <= 0f)
+			{
+				blendTexInfo = AddTexInfo(texInfoIndex, NoDrawMaterial, GetNoDrawTextureData(),
+					(int)(SourceSurfaceFlags.SURF_NODRAW | SourceSurfaceFlags.SURF_NOLIGHT));
+			}
+			else if (!IsToolTexture(mipTexName) && convertedMaterials.TryGetValue(baseMaterial, out var converted))
+			{
+				var suffix = blend.mode == BlendMode.Additive ? "add" : "tex";
+				var material = $"{baseMaterial}_{suffix}{(int)MathF.Round(blend.amount * 255f)}";
+				if (!convertedMaterials.ContainsKey(material))
+				{
+					materialConverter.WriteBlendVariant(material, converted.VtfMaterial, converted.Texture, converted.Animated, blend.mode, blend.amount);
+					convertedMaterials[material] = converted;
+				}
+
+				var textureDataIndex = builder.LookupTextureData(material);
+				if (textureDataIndex < 0)
+					textureDataIndex = builder.AddTextureData(material, converted.VtfMaterial);
+
+				blendTexInfo = AddTexInfo(texInfoIndex, material, textureDataIndex);
+			}
+			else
+			{
+				// Tool and missing textures draw the same either way
+				blendTexInfo = texInfoMap[texInfoIndex];
+			}
+
+			blendTexInfos[key] = blendTexInfo;
+			return blendTexInfo;
+		}
+
+		private int GetNoDrawTextureData()
+		{
+			var index = builder.LookupTextureData(NoDrawMaterial);
+			return index >= 0 ? index : builder.AddTextureData(NoDrawMaterial, 64, 64, MissingTextureReflectivity);
 		}
 
 		private void FindTextures()
@@ -329,7 +447,7 @@ namespace BSPConvert.Lib.GoldSrc
 					continue;
 
 				if (materialConverter.Convert(materialName, texture))
-					convertedMaterials[materialName] = materialName;
+					convertedMaterials[materialName] = new ConvertedMaterial(materialName, texture, false);
 				else
 					logger.Log($"Warning: Failed to convert texture {texture.Name}");
 			}
@@ -381,7 +499,7 @@ namespace BSPConvert.Lib.GoldSrc
 			}
 
 			foreach (var frameMaterial in frameMaterials)
-				convertedMaterials[frameMaterial] = frameMaterials[0];
+				convertedMaterials[frameMaterial] = new ConvertedMaterial(frameMaterials[0], frames[0], true);
 
 			return true;
 		}
@@ -404,14 +522,16 @@ namespace BSPConvert.Lib.GoldSrc
 			sourceBsp.PakFile.SetZipArchive(archive, true);
 		}
 
+		private const string NoDrawMaterial = "tools/toolsnodraw";
+
 		// Compiler tool textures, drawn with the game's tool materials instead of being converted
 		private static readonly Dictionary<string, string> ToolMaterials = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 		{
 			["sky"] = "tools/toolsskybox",
 			["aaatrigger"] = "tools/toolstrigger",
 			["clip"] = "tools/toolsplayerclip",
-			["null"] = "tools/toolsnodraw",
-			["bevel"] = "tools/toolsnodraw",
+			["null"] = NoDrawMaterial,
+			["bevel"] = NoDrawMaterial,
 			["skip"] = "tools/toolsskip",
 			["hint"] = "tools/toolshint",
 			["origin"] = "tools/toolsorigin",
@@ -467,6 +587,14 @@ namespace BSPConvert.Lib.GoldSrc
 
 		private void ConvertFaces()
 		{
+			var faceBlendModes = new (BlendMode mode, float amount)?[gs.Faces.Length];
+			foreach (var (modelIndex, blend) in modelBlendModes)
+			{
+				var model = gs.Models[modelIndex];
+				for (var i = model.firstFace; i < model.firstFace + model.numFaces && i < faceBlendModes.Length; i++)
+					faceBlendModes[i] = blend;
+			}
+
 			for (var i = 0; i < gs.Faces.Length; i++)
 			{
 				var gsFace = gs.Faces[i];
@@ -479,7 +607,7 @@ namespace BSPConvert.Lib.GoldSrc
 				face.IsOnNode = true;
 				face.FirstEdgeIndexIndex = gsFace.firstEdge;
 				face.NumEdgeIndices = gsFace.numEdges;
-				face.TextureInfoIndex = texInfoMap[gsFace.texInfo];
+				face.TextureInfoIndex = faceBlendModes[i] is { } blend ? GetBlendTexInfo(gsFace.texInfo, blend) : texInfoMap[gsFace.texInfo];
 				face.DisplacementIndex = -1;
 				face.Area = (float)GetFaceArea(gsFace);
 

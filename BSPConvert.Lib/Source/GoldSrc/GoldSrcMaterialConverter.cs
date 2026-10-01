@@ -7,6 +7,16 @@ using System.Text;
 
 namespace BSPConvert.Lib.GoldSrc
 {
+	// How a brush entity's rendermode blends its surfaces
+	public enum BlendMode
+	{
+		Opaque,
+		// kRenderTransTexture (and kRenderTransColor, approximated): blended by renderamt
+		Translucent,
+		// kRenderTransAdd: added, scaled by renderamt
+		Additive
+	}
+
 	// Converts GoldSrc miptextures to a VTF and VMT each, written under the content directory as
 	// <contentDir>/<materialName>.vtf/.vmt (the layout SourceBspBuilder reads texdata from).
 	public class GoldSrcMaterialConverter
@@ -115,10 +125,18 @@ namespace BSPConvert.Lib.GoldSrc
 			return GetBaseName(textureName).StartsWith('{');
 		}
 
-		private void WriteVmt(string materialName, string baseTexture, MipTexture texture, bool isAlphaTested, bool animated)
+		// A material drawing an already converted texture (vtfMaterialName's VTF) the way a brush entity's rendermode
+		// does, e.g. translucent or additive. amount is the entity's renderamt as 0-1.
+		public void WriteBlendVariant(string materialName, string vtfMaterialName, MipTexture texture, bool animated, BlendMode blendMode, float amount)
+		{
+			WriteVmt(materialName, vtfMaterialName, texture, IsAlphaTested(texture.Name), animated, blendMode, amount);
+		}
+
+		private void WriteVmt(string materialName, string baseTexture, MipTexture texture, bool isAlphaTested, bool animated,
+			BlendMode blendMode = BlendMode.Opaque, float amount = 1f)
 		{
 			var vmtPath = GetBasePath(materialName) + ".vmt";
-			File.WriteAllText(vmtPath, CreateVmt(baseTexture, texture, isAlphaTested, animated));
+			File.WriteAllText(vmtPath, CreateVmt(baseTexture, texture, isAlphaTested, animated, blendMode, amount));
 			writtenFiles.Add(vmtPath);
 		}
 
@@ -202,10 +220,11 @@ namespace BSPConvert.Lib.GoldSrc
 			while (newlyFilled.Count > 0);
 		}
 
-		private static string CreateVmt(string baseTexture, MipTexture texture, bool isAlphaTested, bool animated)
+		private static string CreateVmt(string baseTexture, MipTexture texture, bool isAlphaTested, bool animated, BlendMode blendMode, float amount)
 		{
-			// Water ('!') isn't lightmapped in GoldSrc
-			var shader = GetBaseName(texture.Name).StartsWith('!') ? "UnlitGeneric" : "LightmappedGeneric";
+			// Water ('!') isn't lightmapped in GoldSrc, and neither are translucent or additive brush entities
+			var isUnlit = GetBaseName(texture.Name).StartsWith('!') || blendMode != BlendMode.Opaque;
+			var shader = isUnlit ? "UnlitGeneric" : "LightmappedGeneric";
 
 			var vmt = new StringBuilder();
 			vmt.AppendLine(CultureInfo.InvariantCulture, $"\"{shader}\"");
@@ -214,8 +233,27 @@ namespace BSPConvert.Lib.GoldSrc
 			// Texture coordinates are in texels of the original texture
 			vmt.AppendLine(CultureInfo.InvariantCulture, $"\t\"$mappingwidth\" \"{texture.Width}\"");
 			vmt.AppendLine(CultureInfo.InvariantCulture, $"\t\"$mappingheight\" \"{texture.Height}\"");
-			if (isAlphaTested)
-				vmt.AppendLine("\t\"$alphatest\" \"1\"");
+			switch (blendMode)
+			{
+				case BlendMode.Opaque:
+					if (isAlphaTested)
+						vmt.AppendLine("\t\"$alphatest\" \"1\"");
+					break;
+				case BlendMode.Translucent:
+					// Blends by the texture's alpha too, so '{' texels stay transparent
+					vmt.AppendLine("\t\"$translucent\" \"1\"");
+					if (amount < 1f)
+						vmt.AppendLine(CultureInfo.InvariantCulture, $"\t\"$alpha\" \"{amount:0.###}\"");
+					break;
+				case BlendMode.Additive:
+					// renderamt scales how much is added
+					vmt.AppendLine("\t\"$additive\" \"1\"");
+					if (isAlphaTested)
+						vmt.AppendLine("\t\"$alphatest\" \"1\"");
+					if (amount < 1f)
+						vmt.AppendLine(CultureInfo.InvariantCulture, $"\t\"$color\" \"[{amount:0.###} {amount:0.###} {amount:0.###}]\"");
+					break;
+			}
 			if (animated)
 			{
 				vmt.AppendLine("\t\"Proxies\"");
