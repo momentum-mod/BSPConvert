@@ -91,10 +91,12 @@ namespace BSPConvert.Lib
 
 		// Creates a texdata entry with an explicit texture size, for materials whose VTF isn't in the content
 		// directory (e.g. textures converted elsewhere or not converted at all). Registered like AddTextureData.
-		public int AddTextureData(string textureName, int width, int height)
+		// reflectivity is the texture's average linear color. Besides bounce lighting, Strata uses it to tint the
+		// replacement for a missing material (mat_error_texture_advanced), so black renders missing materials black.
+		public int AddTextureData(string textureName, int width, int height, Color reflectivity)
 		{
 			var textureData = CreateTextureData();
-			textureData.Reflectivity = new Color();
+			textureData.Reflectivity = reflectivity;
 			textureData.Size = new Vector2(width, height);
 			textureData.ViewSize = new Vector2(width, height);
 			textureData.TextureStringOffsetIndex = CreateTextureDataStringTableEntry(textureName);

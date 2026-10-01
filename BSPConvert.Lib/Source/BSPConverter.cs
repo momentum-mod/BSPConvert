@@ -2,6 +2,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using BSPConvert.Lib.GoldSrc;
 using BSPConvert.Lib.Zones;
 
 namespace BSPConvert.Lib
@@ -41,6 +42,7 @@ namespace BSPConvert.Lib
 
 		private ContentManager contentManager;
 		private Q3Converter? q3Converter;
+		private GoldSrcConverter? goldSrcConverter;
 
 		public BSPConverter(BSPConverterOptions options, ILogger logger)
 		{
@@ -80,7 +82,10 @@ namespace BSPConvert.Lib
 				engineConverter.Convert(bsp, builder);
 
 				WriteBSP(builder, bsp.MapName);
-				GenerateZones(builder, bsp.MapName);
+
+				// Only Defrag maps carry timer triggers the zone generator understands
+				if (bsp.MapType.IsSubtypeOf(MapType.Quake3))
+					GenerateZones(builder, bsp.MapName);
 			}
 
 			contentManager.Dispose();
@@ -92,6 +97,9 @@ namespace BSPConvert.Lib
 		{
 			if (mapType.IsSubtypeOf(MapType.Quake3))
 				return q3Converter ??= new Q3Converter(options, logger, contentManager);
+
+			if (mapType.IsSubtypeOf(MapType.GoldSrc))
+				return goldSrcConverter ??= new GoldSrcConverter(options, logger);
 
 			return null;
 		}

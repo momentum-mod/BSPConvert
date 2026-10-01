@@ -42,6 +42,31 @@
 			return PackColorRGBExp32(rf, gf, bf);
 		}
 
+		// GoldSrc lightmaps are plain 8-bit gamma-space RGB with no overbright.
+		// TODO: Calibrate the brightness against GoldSrc's lightgamma/brightness defaults in game
+		public static ColorRGBExp32 ConvertGoldSrcLightmapToColorRGBExp32(byte r, byte g, byte b)
+		{
+			return PackColorRGBExp32(GammaToLinear(r) * 4f, GammaToLinear(g) * 4f, GammaToLinear(b) * 4f);
+		}
+
+		// The average of a run of GoldSrc lightmap luxels (RGB triplets), taken in linear space like VRAD's
+		public static ColorRGBExp32 AverageGoldSrcLightmapColor(ReadOnlySpan<byte> rgb)
+		{
+			var count = rgb.Length / 3;
+			if (count == 0)
+				return PackColorRGBExp32(0f, 0f, 0f);
+
+			float r = 0f, g = 0f, b = 0f;
+			for (var i = 0; i < count * 3; i += 3)
+			{
+				r += GammaToLinear(rgb[i]);
+				g += GammaToLinear(rgb[i + 1]);
+				b += GammaToLinear(rgb[i + 2]);
+			}
+
+			return PackColorRGBExp32(r * 4f / count, g * 4f / count, b * 4f / count);
+		}
+
 		private static ColorRGBExp32 PackColorRGBExp32(float rf, float gf, float bf)
 		{
 			var color = new ColorRGBExp32();

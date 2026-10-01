@@ -100,6 +100,11 @@ namespace BSPConvert.Lib
 		CONTENTS_CURRENT_UP		=	0x400000,
 		CONTENTS_CURRENT_DOWN	=	0x800000,
 
+		// Strata reuses the current bits above as CONTENTS_UNUSED4/5. GoldSrc conversions put the player clip hull
+		// brushes on them so only player traces of the matching hull size collide with them (see GoldSrcConverter).
+		CONTENTS_GOLDSRC_HULL_STANDING = 0x400000,
+		CONTENTS_GOLDSRC_HULL_DUCKING = 0x800000,
+
 		CONTENTS_FOG			=	0x200000,
 		
 		CONTENTS_ORIGIN			=	0x1000000,	// removed before bsping an entity
