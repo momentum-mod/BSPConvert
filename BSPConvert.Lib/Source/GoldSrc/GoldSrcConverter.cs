@@ -167,16 +167,23 @@ namespace BSPConvert.Lib.GoldSrc
 			builder.SetLumpVersion(Lightmaps.GetIndexForLump(sourceBsp.MapType), 1);
 		}
 
-		// TODO: Convert GoldSrc entity logic to Source/Momentum (multi_manager, masters, ...)
 		private void ConvertEntities()
 		{
-			var entityConverter = new GoldSrcEntityConverter();
+			var entities = new List<Entity>();
 			foreach (var gsEntity in gs.Entities)
 			{
 				var entity = new Entity();
 				foreach (var key in gsEntity.Keys)
 					entity[key] = gsEntity[key];
 
+				entities.Add(entity);
+			}
+
+			var entityConverter = new GoldSrcEntityConverter(logger);
+			entityConverter.ConvertTargets(entities);
+
+			foreach (var entity in entities)
+			{
 				ConvertRenderMode(entity);
 				entityConverter.Convert(entity);
 

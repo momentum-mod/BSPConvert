@@ -1,6 +1,8 @@
 using LibBSP;
 using System;
+using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 
 using Vector3 = System.Numerics.Vector3;
 
@@ -42,6 +44,264 @@ namespace BSPConvert.Lib.GoldSrc
 		private const int SF_BUTTON_DAMAGE_ACTIVATES = 512;
 		private const int SF_BUTTON_USE_ACTIVATES = 1024;
 		private const int SF_BUTTON_SPARK_IF_OFF = 4096;
+
+		// GoldSrc entity spawnflags used by the target conversion
+		private const int SF_DOOR_NO_AUTO_RETURN = 32;
+		private const int SF_MULTIMAN_THREAD = 1;
+		private const int SF_RELAY_FIREONCE = 1;
+		private const int SF_AUTO_FIREONCE = 1;
+		private const int SF_TRIGGER_HURT_TARGETONCE = 1;
+		private const int SF_TRIGGER_HURT_CLIENTONLYFIRE = 16;
+
+		// Source logic_relay spawnflags
+		private const int SF_REMOVE_ON_FIRE = 1;
+		private const int SF_ALLOW_FAST_RETRIGGER = 2;
+
+		// A multi_manager fires at most this many targets
+		private const int MaxMultiManagerTargets = 16;
+
+		// Keys the engine stores in an entity's entvars before the entity sees them (gEntvarsDescription), so they
+		// never become a multi_manager's targets
+		private static readonly HashSet<string> EntvarsKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+		{
+			"absmax", "absmin", "aiment", "air_finished", "angle", "angles", "animtime", "armortype", "armorvalue",
+			"avelocity", "basevelocity", "blending", "body", "button", "chain", "classname", "colormap", "controller",
+			"deadflag", "dmg", "dmg_inflictor", "dmg_save", "dmg_take", "dmgtime", "effects", "enemy", "fixangle",
+			"flags", "frags", "frame", "framerate", "friction", "globalname", "gravity", "groundentity", "health",
+			"ideal_yaw", "idealpitch", "impulse", "light_level", "ltime", "max_health", "maxs", "message", "mins",
+			"model", "modelindex", "movedir", "movetype", "netname", "nextthink", "noise", "noise1", "noise2",
+			"noise3", "oldorigin", "origin", "owner", "pain_finished", "pitch_speed", "punchangle",
+			"radsuit_finished", "renderamt", "rendercolor", "renderfx", "rendermode", "scale", "sequence", "size",
+			"skin", "solid", "spawnflags", "speed", "takedamage", "target", "targetname", "team", "teleport_time",
+			"v_angle", "velocity", "view_ofs", "viewmodel", "waterlevel", "watertype", "weaponmodel", "weapons",
+			"yaw_speed",
+		};
+
+		// The useType GoldSrc passes to the entities it fires
+		private enum UseType
+		{
+			Off,
+			On,
+			Toggle
+		}
+
+		private readonly ILogger logger;
+		// GoldSrc classname of each entity with a targetname, by targetname, from before any class is converted
+		private ILookup<string, (Entity entity, string className)> targetsByName;
+		private int outputCount;
+
+		public GoldSrcEntityConverter(ILogger logger)
+		{
+			this.logger = logger;
+		}
+
+		// GoldSrc entities fire their "target" (SUB_UseTargets): after their "delay" they remove the entities named by
+		// their "killtarget" and call Use on every entity named by their "target". Source entities don't, so each
+		// place a GoldSrc entity fires its targets becomes an output, sending each target the input that does what
+		// its Use did. Entities that only exist to fire targets (multi_manager, trigger_relay, trigger_auto) become
+		// the Source logic entities that fire outputs. Needs every entity's GoldSrc keyvalues, so it runs before
+		// Convert.
+		// TODO: multisource masters, trigger_changetarget, game_counter, path_corner "message" targets
+		public void ConvertTargets(IReadOnlyList<Entity> entities)
+		{
+			targetsByName = entities
+				.Where(entity => !string.IsNullOrEmpty(entity["targetname"]))
+				.ToLookup(entity => entity["targetname"], entity => (entity, entity.ClassName));
+			outputCount = 0;
+
+			foreach (var entity in entities)
+			{
+				var gsFlags = GetSpawnFlags(entity);
+				switch (entity.ClassName)
+				{
+					case "trigger_multiple":
+					case "trigger_once":
+						AddTargetOutputs(entity, "OnTrigger", UseType.Toggle);
+						break;
+					case "trigger_hurt":
+						AddTargetOutputs(entity, (gsFlags & SF_TRIGGER_HURT_CLIENTONLYFIRE) != 0 ? "OnHurtPlayer" : "OnHurt", UseType.Toggle,
+							(gsFlags & SF_TRIGGER_HURT_TARGETONCE) != 0 ? 1 : -1);
+						break;
+					case "func_button":
+						// Fired once the button is pressed in, and toggle buttons fire again once they're back out
+						AddTargetOutputs(entity, "OnIn", UseType.Toggle);
+						if ((gsFlags & SF_BUTTON_TOGGLE) != 0)
+							AddTargetOutputs(entity, "OnOut", UseType.Toggle);
+						break;
+					case "func_door":
+					case "func_door_rotating":
+						// Fired once the door is fully open and once it's fully closed. "netname" is fired once it's closed.
+						AddTargetOutputs(entity, "OnFullyOpen", UseType.Toggle);
+						AddTargetOutputs(entity, "OnFullyClosed", UseType.Toggle);
+						AddUseOutputs(entity, "OnFullyClosed", entity["netname"], UseType.Toggle, 0f, -1);
+						entity.Remove("netname");
+						break;
+					case "func_breakable":
+						AddTargetOutputs(entity, "OnBreak", UseType.Toggle);
+						break;
+					case "multi_manager":
+						ConvertMultiManager(entity, gsFlags);
+						break;
+					case "trigger_relay":
+						// Fires immediately every time it's used
+						entity.ClassName = "logic_relay";
+						AddTargetOutputs(entity, "OnTrigger", GetTriggerState(entity));
+						SetSpawnFlags(entity, ((gsFlags & SF_RELAY_FIREONCE) != 0 ? SF_REMOVE_ON_FIRE : 0) | SF_ALLOW_FAST_RETRIGGER);
+						entity.Remove("triggerstate");
+						break;
+					case "trigger_auto":
+						// Source's logic_auto also only fires while its "globalstate" is on
+						entity.ClassName = "logic_auto";
+						AddTargetOutputs(entity, "OnMapSpawn", GetTriggerState(entity));
+						SetSpawnFlags(entity, (gsFlags & SF_AUTO_FIREONCE) != 0 ? SF_REMOVE_ON_FIRE : 0);
+						entity.Remove("triggerstate");
+						break;
+				}
+			}
+
+			logger.Log($"Converted GoldSrc targets into {outputCount} outputs");
+		}
+
+		// A multi_manager fires each of its targets after its own delay: every key that isn't an entvars field is a
+		// target ("name" or "name#n", to list a name more than once) whose value is the delay. Until it has fired them
+		// all it ignores being used again, like a logic_relay, unless it's multithreaded.
+		private void ConvertMultiManager(Entity entity, int gsFlags)
+		{
+			var targets = new List<(string key, string name, float delay)>();
+			foreach (var (key, value) in entity)
+			{
+				if (EntvarsKeys.Contains(key) || key == "wait" || key.StartsWith('_') || targets.Count >= MaxMultiManagerTargets)
+					continue;
+
+				var hashIndex = key.IndexOf('#', StringComparison.Ordinal);
+				targets.Add((key, hashIndex >= 0 ? key.Substring(0, hashIndex) : key, TryParseFloat(value, out var delay) ? delay : 0f));
+			}
+
+			entity.ClassName = "logic_relay";
+			foreach (var (key, name, delay) in targets)
+			{
+				entity.Remove(key);
+				AddUseOutputs(entity, "OnTrigger", name, UseType.Toggle, delay, -1);
+			}
+
+			entity.Remove("wait");
+			SetSpawnFlags(entity, (gsFlags & SF_MULTIMAN_THREAD) != 0 ? SF_ALLOW_FAST_RETRIGGER : 0);
+		}
+
+		// SUB_UseTargets: after the entity's delay, kills its killtarget and uses its target
+		private void AddTargetOutputs(Entity entity, string output, UseType useType, int timesToFire = -1)
+		{
+			var delay = TryParseFloat(entity["delay"], out var parsedDelay) ? parsedDelay : 0f;
+			AddUseOutputs(entity, output, entity["target"], useType, delay, timesToFire);
+
+			var killTarget = entity["killtarget"];
+			if (!string.IsNullOrEmpty(killTarget))
+				AddOutput(entity, output, killTarget, "Kill", "", delay, timesToFire);
+
+			entity.Remove("target");
+			entity.Remove("killtarget");
+			entity.Remove("delay");
+		}
+
+		// FireTargets: uses every entity named targetName
+		private void AddUseOutputs(Entity entity, string output, string targetName, UseType useType, float delay, int timesToFire)
+		{
+			if (string.IsNullOrEmpty(targetName))
+				return;
+
+			// Entities sharing a name can be different classes that need different inputs
+			var inputs = targetsByName[targetName]
+				.Select(target => GetUseInput(target.entity, target.className, useType))
+				.Where(input => input != null)
+				.Distinct();
+			foreach (var input in inputs)
+				AddOutput(entity, output, targetName, input!.Value.input, input.Value.param, delay, timesToFire);
+		}
+
+		// The input that does what the entity's Use does in GoldSrc, or null if its Use does nothing
+		private static (string input, string param)? GetUseInput(Entity target, string gsClassName, UseType useType)
+		{
+			switch (gsClassName)
+			{
+				case "func_door":
+				case "func_door_rotating":
+					// Use opens a closed door, and closes an open one only if it doesn't close by itself
+					return ((GetSpawnFlags(target) & SF_DOOR_NO_AUTO_RETURN) != 0 ? "Toggle" : "Open", "");
+				case "func_button":
+					return ("Press", "");
+				case "func_wall_toggle":
+				case "func_train":
+				case "func_rotating":
+				case "trigger_push":
+				case "trigger_hurt":
+					return ("Toggle", "");
+				case "func_conveyor":
+					return ("ToggleDirection", "");
+				case "func_breakable":
+					return ("Break", "");
+				case "multi_manager":
+				case "trigger_relay":
+					return ("Trigger", "");
+				case "ambient_generic":
+					return ("ToggleSound", "");
+				case "game_text":
+					return ("Display", "");
+				case "env_global":
+					// Sets the global state by its trigger mode, whatever it's used with
+					return (int.TryParse(target["triggermode"], out var triggerMode) ? triggerMode : 0) switch
+					{
+						1 => ("TurnOn", ""),
+						2 => ("Remove", ""),
+						3 => ("Toggle", ""),
+						_ => ("TurnOff", ""),
+					};
+				case "light":
+				case "light_spot":
+					return (useType switch { UseType.On => "TurnOn", UseType.Off => "TurnOff", _ => "Toggle" }, "");
+				case "env_sprite":
+					return (useType switch { UseType.On => "ShowSprite", UseType.Off => "HideSprite", _ => "ToggleSprite" }, "");
+				case "trigger_multiple":
+				case "trigger_once":
+				case "trigger_teleport":
+				case "info_target":
+				case "info_teleport_destination":
+				case "path_corner":
+				case "func_wall":
+				case "func_illusionary":
+				case "worldspawn":
+					return null;
+				default:
+					return ("Use", "");
+			}
+		}
+
+		// trigger_relay and trigger_auto's "triggerstate", which is off when it isn't set
+		private static UseType GetTriggerState(Entity entity)
+		{
+			if (!int.TryParse(entity["triggerstate"], out var triggerState))
+				return UseType.Off;
+
+			return triggerState switch
+			{
+				0 => UseType.Off,
+				2 => UseType.Toggle,
+				_ => UseType.On,
+			};
+		}
+
+		private void AddOutput(Entity entity, string output, string target, string input, string param, float delay, int timesToFire)
+		{
+			entity.connections.Add(new Entity.EntityConnection
+			{
+				name = output,
+				target = target,
+				action = input,
+				param = param,
+				delay = delay,
+				fireOnce = timesToFire,
+			});
+			outputCount++;
+		}
 
 		public void Convert(Entity entity)
 		{
