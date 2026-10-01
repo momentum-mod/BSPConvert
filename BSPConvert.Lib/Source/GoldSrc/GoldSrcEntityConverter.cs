@@ -56,6 +56,9 @@ namespace BSPConvert.Lib.GoldSrc
 		private const int SF_TRIGGER_HURT_TARGETONCE = 1;
 		private const int SF_TRIGGER_HURT_CLIENTONLYFIRE = 16;
 		private const int SF_CORNER_FIREONCE = 4;
+		private const int SF_GAMECOUNT_FIREONCE = 1;
+		private const int SF_GAMECOUNT_RESET = 2;
+		private const int SF_GAMECOUNTSET_FIREONCE = 1;
 		private const int SF_ROTBUTTON_NOTSOLID = 1;
 		private const int SF_DOOR_ROTATE_BACKWARDS = 2;
 		private const int SF_DOOR_ROTATE_Z = 64;
@@ -68,11 +71,14 @@ namespace BSPConvert.Lib.GoldSrc
 		// A multi_manager fires at most this many targets
 		private const int MaxMultiManagerTargets = 16;
 
+		// A game_counter's count has no bounds, where math_counter's stays between its min and max
+		private const string UnboundedCount = "1000000";
+
 		// Classes whose target the conversion turns into outputs (see AddTargetOutputs)
 		private static readonly HashSet<string> TargetFiringClasses = new HashSet<string>
 		{
 			"trigger_multiple", "trigger_once", "trigger_hurt", "func_button", "func_rot_button", "func_door",
-			"func_door_rotating", "func_breakable", "trigger_relay", "trigger_auto",
+			"func_door_rotating", "func_breakable", "trigger_relay", "trigger_auto", "game_counter", "game_counter_set",
 		};
 
 		// Classes that keep their target in Source, where it's the next path_corner or the teleport destination
@@ -107,7 +113,9 @@ namespace BSPConvert.Lib.GoldSrc
 		{
 			Off,
 			On,
-			Toggle
+			Toggle,
+			// Sets a game_counter's count to the value passed along
+			Set
 		}
 
 		private readonly ILogger logger;
@@ -131,7 +139,7 @@ namespace BSPConvert.Lib.GoldSrc
 		// its Use did. Entities that only exist to fire targets (multi_manager, trigger_relay, trigger_auto) become
 		// the Source logic entities that fire outputs. Needs every entity's GoldSrc keyvalues, so it runs before
 		// Convert.
-		// TODO: multisource masters, game_counter
+		// TODO: multisource masters
 		public void ConvertTargets(List<Entity> entities)
 		{
 			this.entities = entities;
@@ -202,6 +210,16 @@ namespace BSPConvert.Lib.GoldSrc
 					case "trigger_changetarget":
 						ConvertChangeTarget(entity);
 						break;
+					case "game_counter":
+						ConvertGameCounter(entity, gsFlags);
+						break;
+					case "game_counter_set":
+						// Sets the count of the game_counters it targets to its "frags"
+						entity.ClassName = "logic_relay";
+						AddTargetOutputs(entity, "OnTrigger", UseType.Set, value: GetInt(entity, "frags"));
+						SetSpawnFlags(entity, ((gsFlags & SF_GAMECOUNTSET_FIREONCE) != 0 ? SF_REMOVE_ON_FIRE : 0) | SF_ALLOW_FAST_RETRIGGER);
+						entity.Remove("frags");
+						break;
 				}
 			}
 
@@ -234,6 +252,32 @@ namespace BSPConvert.Lib.GoldSrc
 			SetSpawnFlags(entity, (gsFlags & SF_MULTIMAN_THREAD) != 0 ? SF_ALLOW_FAST_RETRIGGER : 0);
 		}
 
+		// game_counter counts up when it's used (down when it's used with off, or to the value a game_counter_set sets)
+		// and fires its target whenever the count reaches its limit: its "health", from its "frags". math_counter fires
+		// once it reaches its max (or min, counting down), though it doesn't count past it.
+		private void ConvertGameCounter(Entity entity, int gsFlags)
+		{
+			var initialCount = GetInt(entity, "frags");
+			var limit = GetInt(entity, "health");
+			var countsUp = limit >= initialCount;
+
+			entity.ClassName = "math_counter";
+			entity["startvalue"] = initialCount.ToString(CultureInfo.InvariantCulture);
+			entity["max"] = countsUp ? limit.ToString(CultureInfo.InvariantCulture) : UnboundedCount;
+			entity["min"] = countsUp ? "-" + UnboundedCount : limit.ToString(CultureInfo.InvariantCulture);
+			entity.Remove("frags");
+			entity.Remove("health");
+			SetSpawnFlags(entity, 0);
+
+			var output = countsUp ? "OnHitMax" : "OnHitMin";
+			AddTargetOutputs(entity, output, UseType.Toggle);
+			// SetValue rather than SetValueNoFire, which wouldn't let it fire at the limit again
+			if ((gsFlags & SF_GAMECOUNT_RESET) != 0)
+				AddOutput(entity, output, "!self", "SetValue", entity["startvalue"], 0f, -1);
+			if ((gsFlags & SF_GAMECOUNT_FIREONCE) != 0)
+				AddOutput(entity, output, "!self", "Kill", "", 0f, -1);
+		}
+
 		// trigger_changetarget sets the target of the entities named by its target. Entities that keep their target in
 		// Source get it with AddOutput. The others fire their target through a relay per target they can have
 		// (AddTargetOutputs), so it switches to the new target's relay.
@@ -263,20 +307,20 @@ namespace BSPConvert.Lib.GoldSrc
 		}
 
 		// SUB_UseTargets: after the entity's delay, kills its killtarget and uses its target
-		private void AddTargetOutputs(Entity entity, string output, UseType useType, int timesToFire = -1)
+		private void AddTargetOutputs(Entity entity, string output, UseType useType, int timesToFire = -1, int value = 0)
 		{
 			var delay = TryParseFloat(entity["delay"], out var parsedDelay) ? parsedDelay : 0f;
 			var targetName = entity["targetname"];
 			if (!string.IsNullOrEmpty(targetName) && newTargetsByName.TryGetValue(targetName, out var newTargets))
 			{
 				// trigger_changetarget can change the target, so fire every relay and let the current target's through
-				AddTargetRelays(entity, newTargets, useType);
+				AddTargetRelays(entity, newTargets, useType, value);
 				for (var i = 0; i <= newTargets.Count; i++)
 					AddOutput(entity, output, GetTargetRelayName(targetName, i, entity), "Trigger", "", delay, timesToFire);
 			}
 			else
 			{
-				AddUseOutputs(entity, entity, output, entity["target"], useType, delay, timesToFire);
+				AddUseOutputs(entity, entity, output, entity["target"], useType, delay, timesToFire, value);
 			}
 
 			var killTarget = entity["killtarget"];
@@ -290,7 +334,7 @@ namespace BSPConvert.Lib.GoldSrc
 
 		// A relay for each target an entity can have, its own first, that fires that target and is only enabled
 		// while it's the entity's target
-		private void AddTargetRelays(Entity entity, List<string> newTargets, UseType useType)
+		private void AddTargetRelays(Entity entity, List<string> newTargets, UseType useType, int value)
 		{
 			if (!entitiesWithTargetRelays.Add(entity))
 				return;
@@ -309,7 +353,7 @@ namespace BSPConvert.Lib.GoldSrc
 					relay["StartDisabled"] = "1";
 
 				// Fires as the entity, as far as the entities it fires can tell
-				AddUseOutputs(relay, entity, "OnTrigger", targets[i], useType, 0f, -1);
+				AddUseOutputs(relay, entity, "OnTrigger", targets[i], useType, 0f, -1, value);
 				entities.Add(relay);
 			}
 		}
@@ -323,25 +367,36 @@ namespace BSPConvert.Lib.GoldSrc
 		}
 
 		// FireTargets: uses every entity named targetName, as caller
-		private void AddUseOutputs(Entity entity, Entity caller, string output, string targetName, UseType useType, float delay, int timesToFire)
+		private void AddUseOutputs(Entity entity, Entity caller, string output, string targetName, UseType useType, float delay, int timesToFire,
+			int value = 0)
 		{
 			if (string.IsNullOrEmpty(targetName))
 				return;
 
 			// Entities sharing a name can be different classes that need different inputs
 			var inputs = targetsByName[targetName]
-				.Select(target => GetUseInput(target.entity, target.className, useType))
+				.Select(target => GetUseInput(target.entity, target.className, useType, value))
 				.Where(input => input != null)
 				.Distinct();
 			foreach (var input in inputs)
 				AddOutput(entity, output, targetName, input!.Value.input, input.Value.param, delay, timesToFire);
 		}
 
-		// The input that does what the entity's Use does in GoldSrc, or null if its Use does nothing
-		private static (string input, string param)? GetUseInput(Entity target, string gsClassName, UseType useType)
+		// The input that does what the entity's Use does in GoldSrc, or null if its Use does nothing. Entities other
+		// than game_counter treat a set like a toggle.
+		private static (string input, string param)? GetUseInput(Entity target, string gsClassName, UseType useType, int value)
 		{
 			switch (gsClassName)
 			{
+				case "game_counter":
+					return useType switch
+					{
+						UseType.Off => ("Subtract", "1"),
+						UseType.Set => ("SetValue", value.ToString(CultureInfo.InvariantCulture)),
+						_ => ("Add", "1"),
+					};
+				case "game_counter_set":
+					return ("Trigger", "");
 				case "func_door":
 				case "func_door_rotating":
 					// Use opens a closed door, and closes an open one only if it doesn't close by itself
@@ -574,6 +629,12 @@ namespace BSPConvert.Lib.GoldSrc
 				angles = new Vector3(90f, 0f, 0f);
 
 			entity[directionKey] = FormattableString.Invariant($"{angles.X:0.###} {angles.Y:0.###} {angles.Z:0.###}");
+		}
+
+		// A number stored in a float entvars field that the entity uses as a whole number (game_counter's counts)
+		private static int GetInt(Entity entity, string key)
+		{
+			return float.TryParse(entity[key], NumberStyles.Float, CultureInfo.InvariantCulture, out var value) ? (int)value : 0;
 		}
 
 		private static int GetSpawnFlags(Entity entity)
