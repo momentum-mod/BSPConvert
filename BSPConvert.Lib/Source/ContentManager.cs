@@ -48,12 +48,13 @@ namespace BSPConvert.Lib
 
 		private void LoadBSPFiles(string inputFile)
 		{
-			var ext = Path.GetExtension(inputFile);
+			var ext = Path.GetExtension(inputFile).ToLowerInvariant();
 			if (ext == ".bsp")
 				bspFiles = new BSP[] { new BSP(new FileInfo(inputFile)) };
-			else if (ext == ".pk3")
+			else if (ext == ".pk3" || ext == ".zip")
 			{
-				// Extract bsp's from pk3 archive
+				// Extract bsp's from the archive. Quake 3 pk3s are zips, and GoldSrc map downloads are usually zips laid
+				// out like the mod directory (maps/, gfx/env/, sound/, ...).
 				ZipFile.ExtractToDirectory(inputFile, contentDir);
 
 				var files = Directory.GetFiles(ContentDir, "*.bsp", SearchOption.AllDirectories);

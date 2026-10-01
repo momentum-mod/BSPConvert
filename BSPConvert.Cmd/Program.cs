@@ -83,7 +83,7 @@ namespace BSPConvert.Cmd
 			[Option("offmodeents", Required = false, Default = "cpm", HelpText = "For maps with different cpm/vq3 entities, choose which entities to use when played in non-defrag modes (e.g. --offmodeents vq3).")]
 			public string OffModeEntityFallback { get; set; }
 
-			[Value(0, MetaName = "input files", Required = true, HelpText = "Input Quake 3 BSP/PK3 file(s) to be converted.")]
+			[Value(0, MetaName = "input files", Required = true, HelpText = "Input Quake 3 BSP/PK3 or GoldSrc (Half-Life, CS 1.6) BSP/ZIP file(s) to be converted. Archives (.pk3/.zip) convert every BSP they contain.")]
 			public IEnumerable<string> InputFiles { get; set; }
 		}
 
