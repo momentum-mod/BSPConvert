@@ -23,6 +23,9 @@ namespace BSPConvert.Lib.GoldSrc
 		private const int SF_TRIGGER_ALLOW_CLIENTS = 1;
 		private const int SF_TRIG_PUSH_ONCE = 128;
 
+		// trigger_teleport VelocityMode (TeleportVelocityMode_t) that resets the velocity
+		private const string TeleportVelocityModeReset = "1";
+
 		// GoldSrc door spawnflags (doors.h). Bits 1-512 mean the same in Source, apart from 4 (unused in GoldSrc,
 		// "non-solid to player" in Source).
 		private const int GoldSrcDoorSharedFlags = 1 | 2 | 8 | 16 | 32 | 64 | 128 | 256 | 512;
@@ -333,9 +336,15 @@ namespace BSPConvert.Lib.GoldSrc
 					break;
 				case "trigger_multiple":
 				case "trigger_once":
+					ConvertAnglesToMoveDir(entity, null);
+					SetTriggerClientFlag(entity, (GetSpawnFlags(entity) & SF_TRIGGER_NOCLIENTS) == 0);
+					break;
 				case "trigger_teleport":
 					ConvertAnglesToMoveDir(entity, null);
 					SetTriggerClientFlag(entity, (GetSpawnFlags(entity) & SF_TRIGGER_NOCLIENTS) == 0);
+					// GoldSrc teleports stop whatever they teleport, and turn it to the destination's angles like
+					// Source's do by default
+					entity["VelocityMode"] = TeleportVelocityModeReset;
 					break;
 				case "trigger_push":
 					ConvertTriggerPush(entity);
