@@ -72,7 +72,7 @@ namespace BSPConvert.Cmd
 			[Option("animalpha", Required = false, Default = 1.0f, HelpText = "Translucency [0-1] for baked liquids. 1 (default) derives per-texel translucency from each texture's alpha/luminance; below 1 uses a flat constant alpha (lower = more see-through).")]
 			public float AnimAlpha { get; set; }
 
-			[Option("prefix", Required = false, Default = "df_", HelpText = "Prefix for the converted BSP's file name.")]
+			[Option("prefix", Required = false, HelpText = "Prefix for the converted BSP's file name.")]
 			public string Prefix { get; set; }
 
 			[Option("output", Required = false, HelpText = "Output game directory for converted BSP/materials.")]
