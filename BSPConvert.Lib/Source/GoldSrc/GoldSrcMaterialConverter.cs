@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Text;
 
 namespace BSPConvert.Lib.GoldSrc
@@ -35,6 +36,21 @@ namespace BSPConvert.Lib.GoldSrc
 		private const byte TransparentIndex = 255;
 		// GoldSrc advances animated textures at a fixed 10 frames per second
 		private const int AnimationFrameRate = 10;
+
+		// GoldSrc brightens the textures of BSPs, WADs and studio models as it loads them, apart from masked ones ('{'
+		// textures and masked model textures), to (c / 255)^(texgamma / gamma) with the default texgamma of 2 and gamma
+		// of 2.5 (BuildGammaTable, and Image_SetPalette's LUMP_TEXGAMMA in Xash). Its lightmaps go through a gamma table
+		// that's about the identity at the defaults, so they're converted without one.
+		private static readonly byte[] TexGammaTable = Enumerable.Range(0, 256)
+			.Select(i => (byte)Math.Clamp((int)(Math.Pow(i / 255.0, 2.0 / 2.5) * 255.0), 0, 255))
+			.ToArray();
+
+		// GoldSrc blends translucent surfaces in gamma space, where Strata, rendering in HDR, blends in linear space. That
+		// makes a dark translucent surface darken what's behind it much less, and a bright one brighten it more. So a
+		// translucent material's alpha makes the blend match GoldSrc's in front of mid grey, by its texture's average
+		// brightness (see GetLinearBlendAlpha).
+		private const float BlendReferenceBackground = 0.5f;
+		private const float DisplayGamma = 2.2f;
 
 		// GoldSrc maps water textures to repeat every 64 texels whatever their size, and ignores the face's texture
 		// offset (R_TextureCoord)
@@ -390,11 +406,18 @@ namespace BSPConvert.Lib.GoldSrc
 		{
 			var basePath = GetBasePath(materialName);
 			var isMasked = (texture.Flags & GoldSrcModel.STUDIO_NF_MASKED) != 0;
-			var pixels = texture.Pixels;
+			var pixels = (byte[])texture.Pixels.Clone();
 			if (isMasked)
 			{
-				pixels = (byte[])pixels.Clone();
 				BleedIntoTransparentPixels(pixels, texture.Width, texture.Height);
+			}
+			else
+			{
+				for (var i = 0; i < pixels.Length; i++)
+				{
+					if (i % 4 != 3)
+						pixels[i] = TexGammaTable[pixels[i]];
+				}
 			}
 
 			if (!VTF.Create(pixels, ImageFormat.RGBA8888, (ushort)texture.Width, (ushort)texture.Height, basePath + ".vtf", ModelVtfOptions))
@@ -490,9 +513,11 @@ namespace BSPConvert.Lib.GoldSrc
 			for (var i = 0; i < texture.Pixels.Length; i++)
 			{
 				var index = texture.Pixels[i];
-				pixels[i * 4] = palette[index * 3];
-				pixels[i * 4 + 1] = palette[index * 3 + 1];
-				pixels[i * 4 + 2] = palette[index * 3 + 2];
+				for (var c = 0; c < 3; c++)
+				{
+					var value = palette[index * 3 + c];
+					pixels[i * 4 + c] = isAlphaTested ? value : TexGammaTable[value];
+				}
 				pixels[i * 4 + 3] = isAlphaTested && index == TransparentIndex ? (byte)0 : (byte)255;
 			}
 
@@ -595,8 +620,9 @@ namespace BSPConvert.Lib.GoldSrc
 				case BlendMode.Translucent:
 					// Blends by the texture's alpha too, so '{' texels stay transparent
 					vmt.AppendLine("\t\"$translucent\" \"1\"");
-					if (amount < 1f)
-						vmt.AppendLine(CultureInfo.InvariantCulture, $"\t\"$alpha\" \"{amount:0.###}\"");
+					var alpha = GetLinearBlendAlpha(texture, isAlphaTested, amount);
+					if (alpha < 1f)
+						vmt.AppendLine(CultureInfo.InvariantCulture, $"\t\"$alpha\" \"{alpha:0.###}\"");
 					break;
 				case BlendMode.Additive:
 					// renderamt scales how much is added
@@ -657,6 +683,45 @@ namespace BSPConvert.Lib.GoldSrc
 			vmt.AppendLine("}");
 
 			return vmt.ToString();
+		}
+
+		// The alpha that blends a texture in linear space over mid grey the way GoldSrc blends it by amount in gamma space
+		// (see BlendReferenceBackground)
+		private static float GetLinearBlendAlpha(MipTexture texture, bool isAlphaTested, float amount)
+		{
+			if (amount >= 1f)
+				return 1f;
+
+			var surface = GetAverageBrightness(texture, isAlphaTested);
+			var background = BlendReferenceBackground;
+			var target = MathF.Pow(amount * surface + (1f - amount) * background, DisplayGamma);
+			var linearSurface = MathF.Pow(surface, DisplayGamma);
+			var linearBackground = MathF.Pow(background, DisplayGamma);
+
+			// A surface about as bright as the background looks the same at any alpha
+			if (MathF.Abs(linearBackground - linearSurface) < 0.01f)
+				return amount;
+
+			return Math.Clamp((linearBackground - target) / (linearBackground - linearSurface), 0f, 1f);
+		}
+
+		// The average brightness (0-1, gamma space) of a texture's visible texels as GoldSrc draws them
+		private static float GetAverageBrightness(MipTexture texture, bool isAlphaTested)
+		{
+			var palette = texture.Palette;
+			double sum = 0;
+			var count = 0;
+			foreach (var index in texture.Pixels)
+			{
+				if (isAlphaTested && index == TransparentIndex)
+					continue;
+
+				int Channel(int c) => isAlphaTested ? palette[index * 3 + c] : TexGammaTable[palette[index * 3 + c]];
+				sum += 0.2126 * Channel(0) + 0.7152 * Channel(1) + 0.0722 * Channel(2);
+				count++;
+			}
+
+			return count > 0 ? (float)(sum / count / 255.0) : BlendReferenceBackground;
 		}
 
 		// Plays a baked warp (see ConvertWarped): the time counts phase steps, the fraction of the current step picks
