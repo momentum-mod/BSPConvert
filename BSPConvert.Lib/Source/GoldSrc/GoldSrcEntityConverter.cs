@@ -164,6 +164,8 @@ namespace BSPConvert.Lib.GoldSrc
 		private Func<Entity, bool> hasAlternateTextures = _ => false;
 		// The env_texturetoggle switching the textures of the entities with each name
 		private readonly Dictionary<string, string> textureToggles = new Dictionary<string, string>();
+		// The logic_branch holding whether the model env_sprites with each name are shown (see GetModelSpriteBranch)
+		private readonly Dictionary<string, string> modelSpriteBranches = new Dictionary<string, string>();
 		private int outputCount;
 		// Whether an env_fog was converted (only the first one counts)
 		private bool fogConverted;
@@ -211,6 +213,7 @@ namespace BSPConvert.Lib.GoldSrc
 			laserNoiseAuto = null;
 			textureToggles.Clear();
 			TextureToggleEntities.Clear();
+			modelSpriteBranches.Clear();
 			outputCount = 0;
 			FindMultisources();
 			AddTextureToggles();
@@ -542,6 +545,29 @@ namespace BSPConvert.Lib.GoldSrc
 			}
 		}
 
+		// Using an env_sprite shows it if it's hidden and hides it if it's shown (ShouldToggle). One drawing a studio
+		// model becomes a prop_dynamic, which can only be turned on and off, so a logic_branch named after it holds
+		// whether it's shown and turns it on or off, made once something uses it. A named env_sprite starts hidden unless
+		// it's flagged to start on. Returns null for an env_sprite drawing a sprite.
+		private string? GetModelSpriteBranch(Entity sprite)
+		{
+			var name = sprite["targetname"];
+			if (!sprite["model"].Trim().EndsWith(".mdl", StringComparison.OrdinalIgnoreCase))
+				return null;
+			if (modelSpriteBranches.TryGetValue(name, out var branchName))
+				return branchName;
+
+			var branch = new Entity();
+			branch.ClassName = "logic_branch";
+			branch["targetname"] = name + "__shown";
+			branch["InitialValue"] = (GetSpawnFlags(sprite) & SF_SPRITE_STARTON) != 0 ? "1" : "0";
+			AddOutput(branch, "OnTrue", name, "TurnOn", "", 0f, -1);
+			AddOutput(branch, "OnFalse", name, "TurnOff", "", 0f, -1);
+			entities.Add(branch);
+			modelSpriteBranches[name] = branch["targetname"];
+			return branch["targetname"];
+		}
+
 		// A button switches to its alternate textures once it's pressed in, and back once it starts moving out: "wait"
 		// seconds later (1 if it's 0), or for a toggle button when it's pressed again (approximated by when it's back
 		// out). A button that stays pushed (a wait of -1) never switches back.
@@ -732,6 +758,19 @@ namespace BSPConvert.Lib.GoldSrc
 						};
 					}
 					yield break;
+				case "env_sprite":
+					// A model env_sprite is shown and hidden by its branch
+					if (GetModelSpriteBranch(target) is string spriteBranch)
+					{
+						yield return useType switch
+						{
+							UseType.On => (spriteBranch, "SetValueTest", "1"),
+							UseType.Off => (spriteBranch, "SetValueTest", "0"),
+							_ => (spriteBranch, "ToggleTest", ""),
+						};
+						yield break;
+					}
+					break;
 				case "multisource":
 					// Turns the caller's input on or off, whatever it's used with
 					if (GetMultisourceInputBranch(target, caller) is string branch)
@@ -813,10 +852,6 @@ namespace BSPConvert.Lib.GoldSrc
 				case "env_laser":
 					return (useType switch { UseType.On => "TurnOn", UseType.Off => "TurnOff", _ => "Toggle" }, "");
 				case "env_sprite":
-					// One drawing a studio model becomes a prop_dynamic, which can't toggle
-					// TODO: Toggling a model env_sprite off
-					if (target["model"].Trim().EndsWith(".mdl", StringComparison.OrdinalIgnoreCase))
-						return (useType == UseType.Off ? "TurnOff" : "TurnOn", "");
 					return (useType switch { UseType.On => "ShowSprite", UseType.Off => "HideSprite", _ => "ToggleSprite" }, "");
 				case "trigger_multiple":
 				case "trigger_once":
@@ -953,6 +988,7 @@ namespace BSPConvert.Lib.GoldSrc
 		private const float BeamWidthScale = 0.1f;
 		private const float BeamNoiseScale = 0.01f;
 		private const int SF_BEAM_STARTON = 1;
+		private const int SF_SPRITE_STARTON = 1;
 
 		private static void ScaleKey(Entity entity, string key, float scale)
 		{
