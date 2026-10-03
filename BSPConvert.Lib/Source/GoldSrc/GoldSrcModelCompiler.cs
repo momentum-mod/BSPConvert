@@ -11,7 +11,7 @@ namespace BSPConvert.Lib.GoldSrc
 {
 	// Compiles GoldSrc studio models into Source models with the game's studiomdl. Each model is written as SMDs and a
 	// QC and compiled into a game folder of its own under the work directory, so nothing is written to the game. Its
-	// textures become materials under materials/models/goldsrc/<model>/.
+	// textures become materials under materials/models/goldsrc/<map>/<model>/.
 	//
 	// GoldSrc's studiomdl rotated the models by 90 degrees about z when they were compiled, which Source's studiomdl
 	// would do again, so the QC turns its rotation off ($origin).
@@ -27,6 +27,8 @@ namespace BSPConvert.Lib.GoldSrc
 		private readonly string studiomdlPath;
 		private readonly string workDir;
 		private readonly string gameDir;
+		// The map's asset folder ("goldsrc/<map>"), which its models go in under models/
+		private readonly string assetDir;
 		private readonly GoldSrcMaterialConverter materialConverter;
 		private readonly ILogger logger;
 		private readonly Dictionary<string, ModelEntry> models = new Dictionary<string, ModelEntry>(StringComparer.OrdinalIgnoreCase);
@@ -45,10 +47,11 @@ namespace BSPConvert.Lib.GoldSrc
 			public (Vector3 Mins, Vector3 Maxs)? CollisionBox;
 		}
 
-		public GoldSrcModelCompiler(string studiomdlPath, string workDir, GoldSrcMaterialConverter materialConverter, ILogger logger)
+		public GoldSrcModelCompiler(string studiomdlPath, string workDir, string assetDir, GoldSrcMaterialConverter materialConverter, ILogger logger)
 		{
 			this.studiomdlPath = studiomdlPath;
 			this.workDir = workDir;
+			this.assetDir = assetDir;
 			this.materialConverter = materialConverter;
 			this.logger = logger;
 
@@ -58,10 +61,10 @@ namespace BSPConvert.Lib.GoldSrc
 				"\"GameInfo\"\n{\n\tgame \"BSPConvert\"\n\tFileSystem\n\t{\n\t\tSearchPaths\n\t\t{\n\t\t\tgame |gameinfo_path|.\n\t\t}\n\t}\n}\n");
 		}
 
-		// The compiled models' files: their paths in the game ("models/goldsrc/x.mdl") and where they are
+		// The compiled models' files: their paths in the game ("models/goldsrc/<map>/x.mdl") and where they are
 		public IReadOnlyList<(string path, string file)> CompiledFiles => compiledFiles;
 
-		// Adds a model by its path in the mod ("models/x.mdl"), returning its path in the game ("models/goldsrc/x.mdl")
+		// Adds a model by its path in the mod ("models/x.mdl"), returning its path in the game ("models/goldsrc/<map>/x.mdl")
 		public string AddModel(string modelPath, GoldSrcModel model)
 		{
 			var name = GetSourceModelName(modelPath);
@@ -77,15 +80,15 @@ namespace BSPConvert.Lib.GoldSrc
 			return name;
 		}
 
-		// "models/FLasH/Grass5.mdl" -> "models/goldsrc/flash/grass5.mdl"
-		private static string GetSourceModelName(string modelPath)
+		// "models/FLasH/Grass5.mdl" -> "models/goldsrc/<map>/flash/grass5.mdl"
+		private string GetSourceModelName(string modelPath)
 		{
 			var path = modelPath.ToLowerInvariant();
 			if (path.StartsWith("models/", StringComparison.Ordinal))
 				path = path.Substring("models/".Length);
 
 			var parts = Path.ChangeExtension(path, null).Split('/', StringSplitOptions.RemoveEmptyEntries).Select(part => SanitizeName(part, "model"));
-			return "models/goldsrc/" + string.Join('/', parts) + ".mdl";
+			return $"models/{assetDir}/{string.Join('/', parts)}.mdl";
 		}
 
 		// The sequence an entity plays a model's sequence with when GoldSrc's client animates it at framerate times the

@@ -125,6 +125,10 @@ namespace BSPConvert.Lib.GoldSrc
 		// Compiles the studio models entities use (see ConvertStudioModels), in a temp folder of its own
 		private GoldSrcModelCompiler? modelCompiler;
 		private string? modelWorkDir;
+		// The folder the map's converted assets go in under materials, models and sound ("goldsrc/<map>"). Maps keep
+		// theirs apart because Strata keeps assets loaded across maps by name, and GoldSrc maps often have different
+		// textures, models and sounds of the same name.
+		private string assetDir = "goldsrc";
 
 		public GoldSrcConverter(BSPConverterOptions options, ILogger logger, ContentManager contentManager)
 		{
@@ -136,6 +140,7 @@ namespace BSPConvert.Lib.GoldSrc
 		public void Convert(BSP inputBsp, SourceBspBuilder output)
 		{
 			gs = GoldSrcBsp.Read(inputBsp);
+			assetDir = "goldsrc/" + SanitizeAssetName(inputBsp.MapName);
 			builder = output;
 			sourceBsp = output.Bsp;
 			leafBrushes.Clear();
@@ -750,7 +755,8 @@ namespace BSPConvert.Lib.GoldSrc
 		private static readonly string[] SkyboxSuffixes = { "rt", "bk", "lf", "ft", "up", "dn" };
 
 		// Converts the sky drawn on "sky" faces. GoldSrc loads gfx/env/<skyname><suffix>.tga (or .bmp) and Source
-		// loads materials/skybox/<skyname><suffix>.vmt, with the same suffixes and face orientation.
+		// loads materials/skybox/<skyname><suffix>.vmt, with the same suffixes and face orientation. The sky name
+		// becomes GoldSrc's in the map's asset folder.
 		private void ConvertSkybox()
 		{
 			if (!gs.MipTextures.Any(mipTex => mipTex.name.Equals("sky", StringComparison.OrdinalIgnoreCase)))
@@ -779,16 +785,17 @@ namespace BSPConvert.Lib.GoldSrc
 				return;
 			}
 
+			var sourceSkyName = $"{assetDir}/{skyName}";
 			for (var i = 0; i < SkyboxSuffixes.Length; i++)
 			{
-				if (!materialConverter.ConvertSkyboxFace($"skybox/{skyName}{SkyboxSuffixes[i]}", images[i]!))
+				if (!materialConverter.ConvertSkyboxFace($"skybox/{sourceSkyName}{SkyboxSuffixes[i]}", images[i]!))
 				{
 					logger.Log($"Warning: Failed to convert sky image {images[i]}");
 					return;
 				}
 			}
 
-			worldspawn["skyname"] = skyName;
+			worldspawn["skyname"] = sourceSkyName;
 			logger.Log($"Converted skybox {skyName}");
 		}
 
@@ -836,7 +843,8 @@ namespace BSPConvert.Lib.GoldSrc
 		};
 
 		// Finds the files of the sounds the entities play, in the map's archive or the mod's and Half-Life's sound
-		// folders, so they can go with the map. Paths are made lowercase with forward slashes, as they're stored.
+		// folders, so they can go with the map in its asset folder. Paths are made lowercase with forward slashes, as
+		// they're stored. Sounds that aren't found keep their path, which the game may have.
 		private void FindSounds()
 		{
 			var missing = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -853,14 +861,16 @@ namespace BSPConvert.Lib.GoldSrc
 					if (sound.Length == 0 || sound.StartsWith('!'))
 						continue;
 
-					entity[key] = sound;
-					if (soundFiles.ContainsKey(sound) || missing.Contains(sound))
-						continue;
+					var sourceSound = $"{assetDir}/{sound}";
+					if (!soundFiles.ContainsKey(sourceSound) && !missing.Contains(sound))
+					{
+						if (assetFinder.Find("sound/" + sound) is string file)
+							soundFiles[sourceSound] = ResampleIfNeeded(sound, file, ref resampled);
+						else
+							missing.Add(sound);
+					}
 
-					if (assetFinder.Find("sound/" + sound) is string file)
-						soundFiles[sound] = ResampleIfNeeded(sound, file, ref resampled);
-					else
-						missing.Add(sound);
+					entity[key] = soundFiles.ContainsKey(sourceSound) ? sourceSound : sound;
 				}
 			}
 
@@ -900,9 +910,9 @@ namespace BSPConvert.Lib.GoldSrc
 		};
 
 		// Sprite entities draw .spr sprites, and beams are textured with them. They become Sprite materials under
-		// sprites/goldsrc/ (apart from the game's own sprites of the same name), which Source draws sprites and beams
-		// with. Sprites are drawn the same way, apart from what's handled here: GoldSrc draws them alpha tested even in
-		// the normal rendermode, and takes a black rendercolor (the editors' default) as white.
+		// sprites/ in the map's asset folder, which Source draws sprites and beams with. Sprites are drawn the same way,
+		// apart from what's handled here: GoldSrc draws them alpha tested even in the normal rendermode, and takes a
+		// black rendercolor (the editors' default) as white.
 		private void ConvertSprites()
 		{
 			var sprites = new Dictionary<string, GoldSrcSprite?>(StringComparer.OrdinalIgnoreCase);
@@ -956,14 +966,14 @@ namespace BSPConvert.Lib.GoldSrc
 			return materialConverter.ConvertSprite(GetSpriteMaterialName(model), sprite) ? sprite : null;
 		}
 
-		// "sprites/glow01.spr" -> "sprites/goldsrc/glow01"
-		private static string GetSpriteMaterialName(string model)
+		// "sprites/glow01.spr" -> "sprites/goldsrc/<map>/glow01"
+		private string GetSpriteMaterialName(string model)
 		{
 			var name = Path.ChangeExtension(model, null);
 			if (name.StartsWith("sprites/", StringComparison.Ordinal))
 				name = name.Substring("sprites/".Length);
 
-			return "sprites/goldsrc/" + name;
+			return $"sprites/{assetDir}/{name}";
 		}
 
 		private static void ConvertSpriteRendering(Entity entity, GoldSrcSprite sprite)
@@ -1074,7 +1084,7 @@ namespace BSPConvert.Lib.GoldSrc
 			}
 
 			modelWorkDir = Path.Combine(Path.GetTempPath(), "BSPConvert_models_" + Path.GetRandomFileName());
-			modelCompiler = new GoldSrcModelCompiler(studiomdl, modelWorkDir, materialConverter, logger);
+			modelCompiler = new GoldSrcModelCompiler(studiomdl, modelWorkDir, assetDir, materialConverter, logger);
 			return true;
 		}
 
@@ -1286,16 +1296,22 @@ namespace BSPConvert.Lib.GoldSrc
 			return ToolMaterials.ContainsKey(mipTexName);
 		}
 
-		private static string GetMaterialName(string mipTexName)
+		private string GetMaterialName(string mipTexName)
 		{
 			if (ToolMaterials.TryGetValue(mipTexName, out var toolMaterial))
 				return toolMaterial;
 
-			var name = mipTexName.ToLowerInvariant();
+			return $"{assetDir}/{SanitizeAssetName(mipTexName)}";
+		}
+
+		// A name as a lowercase file name
+		private static string SanitizeAssetName(string name)
+		{
+			name = name.ToLowerInvariant();
 			foreach (var c in Path.GetInvalidFileNameChars())
 				name = name.Replace(c, '_');
 
-			return "goldsrc/" + name;
+			return name;
 		}
 
 		private static int GetSurfaceFlags(GoldSrcBsp.TexInfo texInfo, string mipTexName)
