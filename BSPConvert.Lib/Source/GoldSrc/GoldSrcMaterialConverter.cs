@@ -441,6 +441,53 @@ namespace BSPConvert.Lib.GoldSrc
 			return true;
 		}
 
+		// An infodecal's texture as a Source decal material, the size GoldSrc draws it (a unit per texel). GoldSrc
+		// blends decals over the surface by their alpha before its lightmap lights them, like a lightmapped translucent
+		// decal. A decal from decals.wad whose last palette color isn't the transparent blue is a gradient: that color,
+		// with each texel's palette index as its alpha (LUMP_GRADIENT in Xash). Others are masked like '{' textures.
+		// Neither gets texture gamma.
+		public bool ConvertDecal(string materialName, MipTexture texture, bool fromDecalWad)
+		{
+			var palette = texture.Palette;
+			var isGradient = fromDecalWad && !(palette[255 * 3] == 0 && palette[255 * 3 + 1] == 0 && palette[255 * 3 + 2] == 255);
+			byte[] pixels;
+			if (isGradient)
+			{
+				pixels = new byte[texture.Width * texture.Height * 4];
+				for (var i = 0; i < texture.Pixels.Length; i++)
+				{
+					pixels[i * 4] = palette[255 * 3];
+					pixels[i * 4 + 1] = palette[255 * 3 + 1];
+					pixels[i * 4 + 2] = palette[255 * 3 + 2];
+					pixels[i * 4 + 3] = texture.Pixels[i];
+				}
+			}
+			else
+			{
+				pixels = DecodeRGBA(texture, fromDecalWad || IsAlphaTested(texture.Name));
+			}
+
+			var basePath = GetBasePath(materialName);
+			if (!VTF.Create(pixels, ImageFormat.RGBA8888, (ushort)texture.Width, (ushort)texture.Height, basePath + ".vtf", VtfOptions))
+				return false;
+
+			writtenFiles.Add(basePath + ".vtf");
+
+			var vmt = new StringBuilder();
+			vmt.AppendLine("\"LightmappedGeneric\"");
+			vmt.AppendLine("{");
+			vmt.AppendLine(CultureInfo.InvariantCulture, $"\t\"$basetexture\" \"{materialName}\"");
+			vmt.AppendLine(CultureInfo.InvariantCulture, $"\t\"$mappingwidth\" \"{texture.Width}\"");
+			vmt.AppendLine(CultureInfo.InvariantCulture, $"\t\"$mappingheight\" \"{texture.Height}\"");
+			vmt.AppendLine("\t\"$decal\" \"1\"");
+			vmt.AppendLine("\t\"$translucent\" \"1\"");
+			vmt.AppendLine("}");
+			File.WriteAllText(basePath + ".vmt", vmt.ToString());
+			writtenFiles.Add(basePath + ".vmt");
+
+			return true;
+		}
+
 		// A skybox face from a sky image (TGA or BMP), drawn fullbright like GoldSrc's sky
 		public bool ConvertSkyboxFace(string materialName, string imagePath)
 		{

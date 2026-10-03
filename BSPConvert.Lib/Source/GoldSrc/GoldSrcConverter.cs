@@ -179,6 +179,7 @@ namespace BSPConvert.Lib.GoldSrc
 				ConvertTexInfos();
 				ConvertSkybox();
 				ConvertSprites();
+				ConvertDecals();
 				ConvertStudioModels();
 				ConvertVertices();
 				ConvertFaces();
@@ -906,6 +907,58 @@ namespace BSPConvert.Lib.GoldSrc
 		}
 
 		private const int SF_SPRITE_STARTON = 1;
+
+		// infodecals draw a decal from the mod's decals.wad (Half-Life's if the mod has none), by its name in
+		// "texture", or failing that one of the map's textures. They become Source decal materials under decals/ in the
+		// map's asset folder, which Source's infodecal puts on the surface it's against the same way.
+		private void ConvertDecals()
+		{
+			var decalWad = assetFinder.Find("decals.wad") is string decalWadPath ? Wad3File.Open(decalWadPath) : null;
+			var decals = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+			var missing = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+			foreach (var entity in sourceBsp.Entities)
+			{
+				if (entity.ClassName != "infodecal")
+					continue;
+
+				var name = entity["texture"].Trim();
+				if (!decals.TryGetValue(name, out var material))
+				{
+					material = ConvertDecal(name, decalWad);
+					decals[name] = material;
+					if (material == null)
+						missing.Add(name);
+				}
+
+				if (material != null)
+					entity["texture"] = material;
+			}
+
+			if (decals.Count > 0)
+				logger.Log($"Converted {decals.Count - missing.Count}/{decals.Count} decals");
+			if (missing.Count > 0)
+				logger.Log($"Warning: Decals not found (pass the folder of the mod that has them with --wads): {string.Join(", ", missing)}");
+		}
+
+		private string? ConvertDecal(string name, Wad3File? decalWad)
+		{
+			if (name.Length == 0)
+				return null;
+
+			var fromDecalWad = decalWad != null && decalWad.Contains(name);
+			var texture = fromDecalWad ? decalWad!.ReadMipTexture(name) : textureFinder.Find(name);
+			if (texture == null)
+				return null;
+
+			var material = $"{assetDir}/decals/{SanitizeAssetName(name.TrimStart('{'))}";
+			if (!materialConverter.ConvertDecal(material, texture, fromDecalWad))
+			{
+				logger.Log($"Warning: Failed to convert decal {name}");
+				return null;
+			}
+
+			return material;
+		}
 
 		// The entity keys that name a sprite, by classname
 		private static readonly Dictionary<string, string[]> SpriteKeys = new Dictionary<string, string[]>
