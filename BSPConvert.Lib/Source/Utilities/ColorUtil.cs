@@ -67,6 +67,16 @@
 			return PackColorRGBExp32(r * 4f / count, g * 4f / count, b * 4f / count);
 		}
 
+		// Light on a GoldSrc model (0-255, through the same gamma as lightmaps) as an ambient cube color as bright as a
+		// lightmap of that value. The engine reads ambient cube colors 255 times brighter than lightmaps.
+		public static ColorRGBExp32 ConvertGoldSrcLightToAmbientColorRGBExp32(float r, float g, float b)
+		{
+			return PackColorRGBExp32(
+				GammaToLinear(Math.Clamp(r, 0f, 255f)) * 4f / 255f,
+				GammaToLinear(Math.Clamp(g, 0f, 255f)) * 4f / 255f,
+				GammaToLinear(Math.Clamp(b, 0f, 255f)) * 4f / 255f);
+		}
+
 		private static ColorRGBExp32 PackColorRGBExp32(float rf, float gf, float bf)
 		{
 			var color = new ColorRGBExp32();

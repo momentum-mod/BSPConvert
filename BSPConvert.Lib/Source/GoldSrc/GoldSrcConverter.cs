@@ -171,6 +171,7 @@ namespace BSPConvert.Lib.GoldSrc
 				WriteLeafBrushes();
 				ConvertModels();
 				ConvertVisibility();
+				new GoldSrcModelLighting(gs, sourceBsp, sourceLeafForGoldSrcLeaf).Convert();
 
 				builder.AddPlaceholderArea();
 				builder.AddPlaceholderAreaPortal();
@@ -877,9 +878,8 @@ namespace BSPConvert.Lib.GoldSrc
 		private static readonly HashSet<string> StudioModelClasses = new HashSet<string> { "cycler_sprite", "cycler", "env_sprite", "item_generic" };
 
 		// Studio models (.mdl) of entities are compiled into Source models (see GoldSrcModelCompiler), and the entities
-		// drawing them become non-solid prop_dynamics playing the sequence the way GoldSrc's client does.
-		// TODO: GoldSrc lights models by the lightmap below them, and Source by the leaves' ambient lighting, which
-		// converted maps don't have (Strata lights them flat gray without it)
+		// drawing them become non-solid prop_dynamics playing the sequence the way GoldSrc's client does. They're lit
+		// like GoldSrc lights them by the leaves' ambient lighting (see GoldSrcModelLighting).
 		// cycler_sprite is solid in GoldSrc but has no size (SET_MODEL gives studio models none), which player movement
 		// skips (SV_AddLinksToPM), so the props aren't solid.
 		// TODO: cycler is a solid 32x32x72 box at its origin
