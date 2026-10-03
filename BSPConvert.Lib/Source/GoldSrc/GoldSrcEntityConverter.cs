@@ -940,6 +940,9 @@ namespace BSPConvert.Lib.GoldSrc
 				case "func_rot_button":
 					ConvertButtonSound(entity);
 					break;
+				case "func_train":
+					ConvertTrainSounds(entity);
+					break;
 			}
 
 			return true;
@@ -1065,9 +1068,36 @@ namespace BSPConvert.Lib.GoldSrc
 			}
 		}
 
-		// The silent sound GoldSrc plays where an entity has no sound. Source's doors play default sounds where theirs
-		// aren't set, which aren't silent.
+		// The silent sound GoldSrc plays where an entity has no sound. Source's doors and trains play default sounds
+		// where theirs aren't set, which aren't silent for doors.
 		private const string NullSound = "common/null.wav";
+
+		// GoldSrc plats and trains pick their moving and stopping sounds from these by "movesnd" and "stopsnd"
+		// (CBasePlatTrain::Precache)
+		private static readonly string[] TrainMoveSounds =
+		{
+			"plats/bigmove1.wav", "plats/bigmove2.wav", "plats/elevmove1.wav", "plats/elevmove2.wav", "plats/elevmove3.wav",
+			"plats/freightmove1.wav", "plats/freightmove2.wav", "plats/heavymove1.wav", "plats/rackmove1.wav", "plats/railmove1.wav",
+			"plats/squeekmove1.wav", "plats/talkmove1.wav", "plats/talkmove2.wav",
+		};
+		private static readonly string[] TrainStopSounds =
+		{
+			"plats/bigstop1.wav", "plats/bigstop2.wav", "plats/freightstop1.wav", "plats/heavystop2.wav", "plats/rackstop1.wav",
+			"plats/railstop1.wav", "plats/squeekstop1.wav", "plats/talkstop1.wav",
+		};
+
+		// Source's func_train plays "noise1" while moving and "noise2" when it stops, at the same default volume. Its
+		// "sounds" picked preset sounds in Quake, which GoldSrc ignores.
+		private static void ConvertTrainSounds(Entity entity)
+		{
+			var moveSound = GetInt(entity, "movesnd");
+			var stopSound = GetInt(entity, "stopsnd");
+			entity["noise1"] = moveSound >= 1 && moveSound <= TrainMoveSounds.Length ? TrainMoveSounds[moveSound - 1] : NullSound;
+			entity["noise2"] = stopSound >= 1 && stopSound <= TrainStopSounds.Length ? TrainStopSounds[stopSound - 1] : NullSound;
+			entity.Remove("movesnd");
+			entity.Remove("stopsnd");
+			entity.Remove("sounds");
+		}
 
 		// A GoldSrc button's "sounds" picks its sound. Source's picks one of the game's button sounds the same way, so
 		// the GoldSrc sound is given as Momentum's custom sound instead.
