@@ -166,6 +166,8 @@ namespace BSPConvert.Lib.GoldSrc
 		private readonly Dictionary<string, string> textureToggles = new Dictionary<string, string>();
 		// The logic_branch holding whether the model env_sprites with each name are shown (see GetModelSpriteBranch)
 		private readonly Dictionary<string, string> modelSpriteBranches = new Dictionary<string, string>();
+		// The trigger_cameras something uses (see ConvertCamera)
+		private readonly HashSet<Entity> usedCameras = new HashSet<Entity>();
 		private int outputCount;
 		// Whether an env_fog was converted (only the first one counts)
 		private bool fogConverted;
@@ -214,6 +216,7 @@ namespace BSPConvert.Lib.GoldSrc
 			textureToggles.Clear();
 			TextureToggleEntities.Clear();
 			modelSpriteBranches.Clear();
+			usedCameras.Clear();
 			outputCount = 0;
 			FindMultisources();
 			AddTextureToggles();
@@ -758,6 +761,9 @@ namespace BSPConvert.Lib.GoldSrc
 						};
 					}
 					yield break;
+				case "trigger_camera":
+					usedCameras.Add(target);
+					break;
 				case "env_sprite":
 					// A model env_sprite is shown and hidden by its branch
 					if (GetModelSpriteBranch(target) is string spriteBranch)
@@ -851,6 +857,9 @@ namespace BSPConvert.Lib.GoldSrc
 				case "env_beam":
 				case "env_laser":
 					return (useType switch { UseType.On => "TurnOn", UseType.Off => "TurnOff", _ => "Toggle" }, "");
+				case "trigger_camera":
+					// Using it toggles it, but it turns itself off after its wait, which a toggle mostly comes after
+					return (useType == UseType.Off ? "Disable" : "Enable", "");
 				case "env_sprite":
 					return (useType switch { UseType.On => "ShowSprite", UseType.Off => "HideSprite", _ => "ToggleSprite" }, "");
 				case "trigger_multiple":
@@ -899,8 +908,13 @@ namespace BSPConvert.Lib.GoldSrc
 		// Converts an entity's keyvalues. Returns false if it has no Source counterpart and should be dropped.
 		public bool Convert(Entity entity)
 		{
+			if (UnusedClasses.Contains(entity.ClassName))
+				return false;
+
 			switch (entity.ClassName)
 			{
+				case "trigger_camera":
+					return ConvertCamera(entity);
 				case "env_fog":
 					return ConvertFog(entity);
 				case "env_rain":
@@ -1070,6 +1084,27 @@ namespace BSPConvert.Lib.GoldSrc
 			foreach (var key in new[] { "density", "rendercolor", "startdist", "enddist" })
 				entity.Remove(key);
 
+			return true;
+		}
+
+		// Entities Momentum has no use for: Counter-Strike's game modes (bomb, hostage, VIP and escape maps, buy zones,
+		// weapons on the ground and its map settings), and ones only the compile tools read
+		private static readonly HashSet<string> UnusedClasses = new HashSet<string>
+		{
+			"func_bomb_target", "info_bomb_target", "func_buyzone", "func_hostage_rescue", "info_hostage_rescue", "hostage_entity",
+			"func_vip_safetyzone", "info_vip_start", "func_escapezone", "armoury_entity", "info_map_parameters", "info_overview_point",
+			"info_texlights", "info_compile_parameters", "gchimp_info",
+		};
+
+		// A trigger_camera shows a player the view from it, looking at its target, while it's on, like Source's
+		// point_viewcontrol, which has the same keys and flags. Counter-Strike also uses the ones nothing triggers as
+		// spectator views, which Momentum doesn't have, so those are dropped.
+		private bool ConvertCamera(Entity entity)
+		{
+			if (!usedCameras.Contains(entity))
+				return false;
+
+			entity.ClassName = "point_viewcontrol";
 			return true;
 		}
 
