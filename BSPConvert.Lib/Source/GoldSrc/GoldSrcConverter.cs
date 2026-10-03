@@ -997,16 +997,18 @@ namespace BSPConvert.Lib.GoldSrc
 		// like GoldSrc lights them by the leaves' ambient lighting (see GoldSrcModelLighting).
 		// cycler_sprite is solid in GoldSrc but has no size (SET_MODEL gives studio models none), which player movement
 		// skips (SV_AddLinksToPM), so the props aren't solid.
+		// func_trains drawing a model (made with zhlt_usemodel) become props too (see ConvertModelTrain).
 		// TODO: cycler is a solid 32x32x72 box at its origin
-		// TODO: func_trains drawing a model (zhlt_usemodel), which moving or spinning models are made with
 		private void ConvertStudioModels()
 		{
 			var users = new List<(Entity entity, string sourceModel, string sequence)>();
 			var models = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
 			var missing = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+			var movingTrains = 0;
 			foreach (var entity in sourceBsp.Entities)
 			{
-				if (!StudioModelClasses.Contains(entity.ClassName))
+				var isTrain = entity.ClassName == "func_train";
+				if (!StudioModelClasses.Contains(entity.ClassName) && !isTrain)
 					continue;
 
 				var modelPath = entity["model"].Trim().Replace('\\', '/').TrimStart('/').ToLowerInvariant();
@@ -1026,7 +1028,10 @@ namespace BSPConvert.Lib.GoldSrc
 					continue;
 
 				var (sequence, framerate) = GetStudioModelSequence(entity);
-				users.Add((entity, sourceModel, modelCompiler!.GetSequence(sourceModel, sequence, framerate)));
+				var spinSpeed = isTrain ? GetTrainSpinSpeed(entity) : 0f;
+				users.Add((entity, sourceModel, spinSpeed != 0f ?
+					modelCompiler!.GetSpinningSequence(sourceModel, sequence, spinSpeed) :
+					modelCompiler!.GetSequence(sourceModel, sequence, framerate)));
 			}
 
 			if (models.Count == 0)
@@ -1041,11 +1046,18 @@ namespace BSPConvert.Lib.GoldSrc
 
 			foreach (var (entity, sourceModel, sequence) in users)
 			{
-				if (compiled.Contains(sourceModel))
-					ConvertStudioModelEntity(entity, sourceModel, sequence);
+				if (!compiled.Contains(sourceModel))
+					continue;
+
+				if (entity.ClassName == "func_train" && !ConvertModelTrain(entity))
+					movingTrains++;
+
+				ConvertStudioModelEntity(entity, sourceModel, sequence);
 			}
 
 			logger.Log($"Converted {compiled.Count}/{models.Count} models");
+			if (movingTrains > 0)
+				logger.Log($"Warning: {movingTrains} func_trains drawing a model stay at the start of their paths");
 			if (missing.Count > 0)
 				logger.Log($"Warning: Models not found (pass the folder of the mod that has them with --wads): {string.Join(", ", missing)}");
 		}
@@ -1122,6 +1134,52 @@ namespace BSPConvert.Lib.GoldSrc
 			}
 
 			return (sequence, framerate);
+		}
+
+		// How fast a func_train drawing a model spins about its z axis in degrees per second: its avelocity, which GoldSrc
+		// turns it by as it moves (SV_Physics_Pusher). Models are spun in their sequence (see GetSpinningSequence), which
+		// only turns about the model's own z axis, so it's only the yaw of a train that's upright.
+		// TODO: Spinning about other axes
+		private static float GetTrainSpinSpeed(Entity entity)
+		{
+			if (!TryParseVector(entity["avelocity"], out var angularVelocity) || angularVelocity.X != 0f || angularVelocity.Z != 0f)
+				return 0f;
+
+			var angles = TryParseVector(entity["angles"], out var parsedAngles) ? parsedAngles : Vector3.Zero;
+			return MathF.Abs(angles.X) < 0.01f && MathF.Abs(angles.Z) < 0.01f ? angularVelocity.Y : 0f;
+		}
+
+		// A func_train drawing a model is placed where GoldSrc moves it when it starts, its first path_corner (with its
+		// origin there, since studio models have no size), and becomes a prop like the other model entities. It's the
+		// way GoldSrc maps spin a model (with a path a fraction of a unit long), and Source's func_train can't draw one.
+		// Returns false if its path goes anywhere, which the prop doesn't follow.
+		// TODO: Trains moving a model along their path
+		private bool ConvertModelTrain(Entity train)
+		{
+			var corner = sourceBsp.Entities.FirstOrDefault(entity => entity.ClassName == "path_corner" &&
+				!string.IsNullOrEmpty(train["target"]) && entity["targetname"] == train["target"]);
+			var stays = true;
+			if (corner != null)
+			{
+				train["origin"] = corner["origin"];
+
+				// Follow the path to see whether it goes anywhere
+				var start = TryParseVector(corner["origin"], out var startOrigin) ? startOrigin : Vector3.Zero;
+				var visited = new HashSet<Entity>();
+				for (var next = corner; next != null && visited.Add(next);)
+				{
+					if (TryParseVector(next["origin"], out var origin) && Vector3.Distance(origin, start) > 1f)
+						stays = false;
+
+					next = sourceBsp.Entities.FirstOrDefault(entity => entity.ClassName == "path_corner" &&
+						!string.IsNullOrEmpty(next["target"]) && entity["targetname"] == next["target"]);
+				}
+			}
+
+			foreach (var key in new[] { "target", "speed", "avelocity", "dmg", "noise1", "noise2", "volume", "zhlt_usemodel" })
+				train.Remove(key);
+
+			return stays;
 		}
 
 		private void ConvertStudioModelEntity(Entity entity, string sourceModel, string sequence)

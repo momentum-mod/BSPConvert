@@ -19,6 +19,8 @@ namespace BSPConvert.Lib.GoldSrc
 	{
 		// Frame rate of the sequences that hold a single frame
 		private const float StillFps = 30f;
+		// Frames per turn of a spinning sequence (see GetSpinningSequence), 5 degrees apart
+		private const int SpinFrames = 72;
 		// How long a model may take to compile before studiomdl is assumed to be stuck
 		private const int StudiomdlTimeoutMs = 120000;
 
@@ -30,8 +32,9 @@ namespace BSPConvert.Lib.GoldSrc
 		private readonly Dictionary<string, ModelEntry> models = new Dictionary<string, ModelEntry>(StringComparer.OrdinalIgnoreCase);
 		private readonly List<(string path, string file)> compiledFiles = new List<(string, string)>();
 
-		// A sequence played the way an entity plays it: at a multiple of its frame rate, or holding one frame
-		private record SequenceVariant(int Sequence, float Fps, int? StillFrame);
+		// A sequence played the way an entity plays it: at a multiple of its frame rate, or holding one frame, which may
+		// spin about the model's z axis at SpinSpeed degrees per second
+		private record SequenceVariant(int Sequence, float Fps, int? StillFrame, float SpinSpeed = 0f);
 
 		private class ModelEntry
 		{
@@ -111,6 +114,20 @@ namespace BSPConvert.Lib.GoldSrc
 
 			var rateName = rate.ToString("0.##", CultureInfo.InvariantCulture).Replace('.', 'p');
 			return AddVariant(entry, $"{name}_x{rateName}", new SequenceVariant(sequence, gsSequence.Fps * rate, null));
+		}
+
+		// The sequence an entity plays when it holds the first frame of a model's sequence while spinning about the
+		// model's z axis at speed degrees per second (anticlockwise seen from above), as a func_train drawing a model
+		// turns by its avelocity. Returns the name of the sequence the Source model has for it.
+		public string GetSpinningSequence(string sourceModel, int sequence, float speed)
+		{
+			var entry = models[sourceModel];
+			if (sequence < 0 || sequence >= entry.Model.Sequences.Count)
+				sequence = 0;
+
+			var speedName = MathF.Abs(speed).ToString("0.##", CultureInfo.InvariantCulture).Replace('.', 'p');
+			var name = $"{entry.SequenceNames[sequence]}_spin{(speed < 0f ? "cw" : "")}{speedName}";
+			return AddVariant(entry, name, new SequenceVariant(sequence, SpinFrames * MathF.Abs(speed) / 360f, 0, speed));
 		}
 
 		private static string AddVariant(ModelEntry entry, string name, SequenceVariant variant)
@@ -196,7 +213,13 @@ namespace BSPConvert.Lib.GoldSrc
 			foreach (var (name, variant) in entry.Variants)
 			{
 				var sequence = model.Sequences[variant.Sequence];
-				if (variant.StillFrame is int frame)
+				if (variant.SpinSpeed != 0f)
+				{
+					var smdName = name + ".smd";
+					WriteSpinningSmd(Path.Combine(srcDir, smdName), model, boneNames, sequence, variant.StillFrame ?? 0, variant.SpinSpeed);
+					qc.AppendLine(CultureInfo.InvariantCulture, $"$sequence \"{name}\" \"{smdName}\" fps {variant.Fps:0.######} loop");
+				}
+				else if (variant.StillFrame is int frame)
 				{
 					var smdName = $"sequence{variant.Sequence}_frame{frame}.smd";
 					WriteAnimationSmd(Path.Combine(srcDir, smdName), model, boneNames, sequence, frame, 1);
@@ -321,6 +344,34 @@ namespace BSPConvert.Lib.GoldSrc
 			var smd = new StringBuilder();
 			WriteSkeleton(smd, model, boneNames, sequence.Positions.Skip(firstFrame).Take(frameCount).ToArray(),
 				sequence.Rotations.Skip(firstFrame).Take(frameCount).ToArray());
+			File.WriteAllText(path, smd.ToString());
+		}
+
+		// A frame of a sequence turning once about the model's z axis, ending where it starts so it loops. The root
+		// bones turn about the origin: SMD rotations apply about x, then y, then z, so turning about z adds to the last.
+		private static void WriteSpinningSmd(string path, GoldSrcModel model, string[] boneNames, GoldSrcModel.Sequence sequence, int frame, float speed)
+		{
+			var positions = new Vector3[SpinFrames + 1][];
+			var rotations = new Vector3[SpinFrames + 1][];
+			for (var i = 0; i <= SpinFrames; i++)
+			{
+				var angle = MathF.CopySign(2f * MathF.PI * i / SpinFrames, speed);
+				var (sin, cos) = MathF.SinCos(angle);
+				positions[i] = (Vector3[])sequence.Positions[frame].Clone();
+				rotations[i] = (Vector3[])sequence.Rotations[frame].Clone();
+				for (var bone = 0; bone < model.Bones.Count; bone++)
+				{
+					if (model.Bones[bone].Parent >= 0)
+						continue;
+
+					var position = positions[i][bone];
+					positions[i][bone] = new Vector3(position.X * cos - position.Y * sin, position.X * sin + position.Y * cos, position.Z);
+					rotations[i][bone].Z += angle;
+				}
+			}
+
+			var smd = new StringBuilder();
+			WriteSkeleton(smd, model, boneNames, positions, rotations);
 			File.WriteAllText(path, smd.ToString());
 		}
 
