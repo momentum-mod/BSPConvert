@@ -866,35 +866,50 @@ namespace BSPConvert.Lib.GoldSrc
 
 		private const int SF_SPRITE_STARTON = 1;
 
-		// Sprite entities draw .spr sprites, which become Sprite materials under sprites/goldsrc/ (apart from the game's
-		// own sprites of the same name). Sprites are drawn the same way, apart from what's handled here: GoldSrc draws
-		// them alpha tested even in the normal rendermode, and takes a black rendercolor (the editors' default) as white.
+		// The entity keys that name a sprite, by classname
+		private static readonly Dictionary<string, string[]> SpriteKeys = new Dictionary<string, string[]>
+		{
+			["env_sprite"] = new[] { "model" },
+			["env_glow"] = new[] { "model" },
+			// Beam textures, and the sprite at the end of a laser
+			["env_beam"] = new[] { "texture" },
+			["env_laser"] = new[] { "texture", "EndSprite" },
+		};
+
+		// Sprite entities draw .spr sprites, and beams are textured with them. They become Sprite materials under
+		// sprites/goldsrc/ (apart from the game's own sprites of the same name), which Source draws sprites and beams
+		// with. Sprites are drawn the same way, apart from what's handled here: GoldSrc draws them alpha tested even in
+		// the normal rendermode, and takes a black rendercolor (the editors' default) as white.
 		private void ConvertSprites()
 		{
 			var sprites = new Dictionary<string, GoldSrcSprite?>(StringComparer.OrdinalIgnoreCase);
 			var missing = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
 			foreach (var entity in sourceBsp.Entities)
 			{
-				if (entity.ClassName != "env_sprite" && entity.ClassName != "env_glow")
+				if (!SpriteKeys.TryGetValue(entity.ClassName, out var keys))
 					continue;
 
-				var model = entity["model"].Trim().Replace('\\', '/').TrimStart('/').ToLowerInvariant();
-				if (!model.EndsWith(".spr", StringComparison.Ordinal))
-					continue;
-
-				if (!sprites.TryGetValue(model, out var sprite))
+				foreach (var key in keys)
 				{
-					sprite = ConvertSprite(model);
-					sprites[model] = sprite;
+					var model = entity[key].Trim().Replace('\\', '/').TrimStart('/').ToLowerInvariant();
+					if (!model.EndsWith(".spr", StringComparison.Ordinal))
+						continue;
+
+					if (!sprites.TryGetValue(model, out var sprite))
+					{
+						sprite = ConvertSprite(model);
+						sprites[model] = sprite;
+						if (sprite == null)
+							missing.Add(model);
+					}
+
 					if (sprite == null)
-						missing.Add(model);
+						continue;
+
+					entity[key] = GetSpriteMaterialName(model) + ".vmt";
+					if (key == "model")
+						ConvertSpriteRendering(entity, sprite);
 				}
-
-				if (sprite == null)
-					continue;
-
-				entity["model"] = GetSpriteMaterialName(model) + ".vmt";
-				ConvertSpriteRendering(entity, sprite);
 			}
 
 			if (sprites.Count > 0)

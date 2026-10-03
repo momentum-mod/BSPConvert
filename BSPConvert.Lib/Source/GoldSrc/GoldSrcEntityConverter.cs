@@ -167,6 +167,8 @@ namespace BSPConvert.Lib.GoldSrc
 		private int outputCount;
 		// Whether an env_fog was converted (only the first one counts)
 		private bool fogConverted;
+		// Sets the noise of env_lasers whose noise env_laser's keyvalue can't hold (see ConvertLaserNoise)
+		private Entity? laserNoiseAuto;
 
 		// A multisource: its inputs (the entities that target it, in the order the engine registers them) and the
 		// global state it also needs on
@@ -206,6 +208,7 @@ namespace BSPConvert.Lib.GoldSrc
 			entitiesWithTargetRelays.Clear();
 			startLocked.Clear();
 			addedNames.Clear();
+			laserNoiseAuto = null;
 			textureToggles.Clear();
 			TextureToggleEntities.Clear();
 			outputCount = 0;
@@ -283,6 +286,9 @@ namespace BSPConvert.Lib.GoldSrc
 						break;
 					case "multisource":
 						ConvertMultisource(entity);
+						break;
+					case "env_laser":
+						ConvertLaserNoise(entity, gsFlags);
 						break;
 				}
 			}
@@ -803,6 +809,9 @@ namespace BSPConvert.Lib.GoldSrc
 				case "light":
 				case "light_spot":
 					return (useType switch { UseType.On => "TurnOn", UseType.Off => "TurnOff", _ => "Toggle" }, "");
+				case "env_beam":
+				case "env_laser":
+					return (useType switch { UseType.On => "TurnOn", UseType.Off => "TurnOff", _ => "Toggle" }, "");
 				case "env_sprite":
 					// One drawing a studio model becomes a prop_dynamic, which can't toggle
 					// TODO: Toggling a model env_sprite off
@@ -859,6 +868,13 @@ namespace BSPConvert.Lib.GoldSrc
 			{
 				case "env_fog":
 					return ConvertFog(entity);
+				case "env_beam":
+					ScaleKey(entity, "BoltWidth", BeamWidthScale);
+					ScaleKey(entity, "NoiseAmplitude", BeamNoiseScale);
+					break;
+				case "env_laser":
+					ScaleKey(entity, "width", BeamWidthScale);
+					break;
 				case "func_door":
 					ConvertAnglesToMoveDir(entity, "movedir");
 					ConvertDoorSpawnFlags(entity, IsNamedInGoldSrc(entity));
@@ -927,6 +943,45 @@ namespace BSPConvert.Lib.GoldSrc
 			}
 
 			return true;
+		}
+
+		// GoldSrc's client scales a beam entity's width (its scale) by 0.1 (delta.lst) and its noise (its body) by 0.01,
+		// where Source's uses them as they are. Both scale the texture scroll speed by 0.1.
+		private const float BeamWidthScale = 0.1f;
+		private const float BeamNoiseScale = 0.01f;
+		private const int SF_BEAM_STARTON = 1;
+
+		private static void ScaleKey(Entity entity, string key, float scale)
+		{
+			if (TryParseFloat(entity[key], out var value))
+				entity[key] = (value * scale).ToString("0.###", CultureInfo.InvariantCulture);
+		}
+
+		// env_laser reads its noise amplitude as a whole number, which drops the fraction GoldSrc's noise has once it's
+		// scaled (see BeamNoiseScale). So the noise is set by its Noise input when the map spawns instead. A laser
+		// without a name, which always starts on, gets one, so it's flagged to start on.
+		private void ConvertLaserNoise(Entity laser, int gsFlags)
+		{
+			var noise = TryParseFloat(laser["NoiseAmplitude"], out var parsedNoise) ? parsedNoise * BeamNoiseScale : 0f;
+			laser["NoiseAmplitude"] = "0";
+			if (noise <= 0f)
+				return;
+
+			if (string.IsNullOrEmpty(laser["targetname"]))
+			{
+				laser["targetname"] = FormattableString.Invariant($"__laser{entities.IndexOf(laser)}");
+				addedNames.Add(laser);
+				SetSpawnFlags(laser, gsFlags | SF_BEAM_STARTON);
+			}
+
+			if (laserNoiseAuto == null)
+			{
+				laserNoiseAuto = new Entity();
+				laserNoiseAuto.ClassName = "logic_auto";
+				entities.Add(laserNoiseAuto);
+			}
+
+			AddOutput(laserNoiseAuto, "OnMapSpawn", laser["targetname"], "Noise", noise.ToString("0.###", CultureInfo.InvariantCulture), 0f, -1);
 		}
 
 		private const int SF_FOG_MASTER = 1;
