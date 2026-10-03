@@ -122,6 +122,69 @@ namespace BSPConvert.Lib.GoldSrc
 			return true;
 		}
 
+		// A sprite as a Sprite material with a frame per sprite frame, which env_sprite plays at its framerate. Its
+		// rendermode comes from the entity, as in GoldSrc.
+		public bool ConvertSprite(string materialName, GoldSrcSprite sprite)
+		{
+			var basePath = GetBasePath(materialName);
+			using (var vtf = new VTF())
+			{
+				vtf.Version = VtfOptions.Version;
+				vtf.ImageWidthResizeMethod = VtfOptions.WidthResizeMethod;
+				vtf.ImageHeightResizeMethod = VtfOptions.HeightResizeMethod;
+				var width = (ushort)sprite.Width;
+				var height = (ushort)sprite.Height;
+				for (var i = 0; i < sprite.Frames.Count; i++)
+				{
+					var pixels = sprite.Frames[i];
+					// Transparent texels take the color of their neighbors, so filtering doesn't darken the edges
+					if (sprite.TextureFormat != SpriteTextureFormat.Additive)
+						BleedIntoTransparentPixels(pixels, sprite.Width, sprite.Height);
+
+					// The first frame sets the size the frames are allocated with
+					if (!vtf.SetImage(pixels, ImageFormat.RGBA8888, width, height, frame: (ushort)i) ||
+						(i == 0 && !vtf.SetFrameCount((ushort)sprite.Frames.Count)))
+						return false;
+				}
+
+				// Sprites are drawn once, so their edges shouldn't wrap around
+				vtf.AddFlags(VTF.Flags.V0_CLAMP_S | VTF.Flags.V0_CLAMP_T);
+				vtf.ComputeReflectivity();
+				vtf.SetRecommendedMipCount();
+				vtf.ComputeMips();
+				vtf.SetFormat(VtfOptions.OutputFormat);
+				vtf.ComputeTransparencyFlags();
+				if (!vtf.Bake(basePath + ".vtf"))
+					return false;
+			}
+
+			writtenFiles.Add(basePath + ".vtf");
+
+			var vmt = new StringBuilder();
+			vmt.AppendLine("\"Sprite\"");
+			vmt.AppendLine("{");
+			vmt.AppendLine(CultureInfo.InvariantCulture, $"\t\"$basetexture\" \"{materialName}\"");
+			vmt.AppendLine(CultureInfo.InvariantCulture, $"\t\"$spriteorientation\" \"{GetSpriteOrientation(sprite.Type)}\"");
+			vmt.AppendLine(CultureInfo.InvariantCulture, $"\t\"$spriteorigin\" \"[{sprite.OriginX:0.####} {sprite.OriginY:0.####}]\"");
+			vmt.AppendLine("}");
+			File.WriteAllText(basePath + ".vmt", vmt.ToString());
+			writtenFiles.Add(basePath + ".vmt");
+
+			return true;
+		}
+
+		private static string GetSpriteOrientation(SpriteType type)
+		{
+			return type switch
+			{
+				SpriteType.FacingUpright => "facing_upright",
+				SpriteType.Parallel => "vp_parallel",
+				SpriteType.Oriented => "oriented",
+				SpriteType.ParallelOriented => "vp_parallel_oriented",
+				_ => "parallel_upright",
+			};
+		}
+
 		// A skybox face from a sky image (TGA or BMP), drawn fullbright like GoldSrc's sky
 		public bool ConvertSkyboxFace(string materialName, string imagePath)
 		{

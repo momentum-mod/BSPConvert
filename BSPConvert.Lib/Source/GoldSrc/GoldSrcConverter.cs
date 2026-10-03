@@ -105,6 +105,8 @@ namespace BSPConvert.Lib.GoldSrc
 		private Dictionary<int, ConvexRegion> volumeBrushRegions = new Dictionary<int, ConvexRegion>();
 		// Brush models of func_ladders, whose brushes become world ladder brushes (see ConvertLadder)
 		private readonly HashSet<int> ladderModels = new HashSet<int>();
+		// Finds the sounds and sprites the entities use
+		private GoldSrcAssetFinder assetFinder;
 		// The sounds the entities play (path under sound/) and their files, which go with the map (see FindSounds)
 		private readonly Dictionary<string, string> soundFiles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
@@ -139,10 +141,12 @@ namespace BSPConvert.Lib.GoldSrc
 			SetLumpVersions();
 
 			ConvertEntities();
+			assetFinder = new GoldSrcAssetFinder(GetAssetSearchDirs(), GetModName());
 			FindSounds();
 			ConvertPlanes();
 			ConvertTexInfos();
 			ConvertSkybox();
+			ConvertSprites();
 			ConvertVertices();
 			ConvertFaces();
 			ConvertLighting();
@@ -732,7 +736,6 @@ namespace BSPConvert.Lib.GoldSrc
 		// folders, so they can go with the map. Paths are made lowercase with forward slashes, as they're stored.
 		private void FindSounds()
 		{
-			var soundFinder = new GoldSrcSoundFinder(GetAssetSearchDirs(), GetModName());
 			var missing = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
 			foreach (var entity in sourceBsp.Entities)
 			{
@@ -750,7 +753,7 @@ namespace BSPConvert.Lib.GoldSrc
 					if (soundFiles.ContainsKey(sound) || missing.Contains(sound))
 						continue;
 
-					if (soundFinder.Find(sound) is string file)
+					if (assetFinder.Find("sound/" + sound) is string file)
 						soundFiles[sound] = file;
 					else
 						missing.Add(sound);
@@ -761,6 +764,94 @@ namespace BSPConvert.Lib.GoldSrc
 				logger.Log($"Found {soundFiles.Count}/{soundFiles.Count + missing.Count} sounds");
 			if (missing.Count > 0)
 				logger.Log($"Warning: Sounds not found (pass the folder of the mod that has them with --wads): {string.Join(", ", missing)}");
+		}
+
+		private const int SF_SPRITE_STARTON = 1;
+
+		// Sprite entities draw .spr sprites, which become Sprite materials under sprites/goldsrc/ (apart from the game's
+		// own sprites of the same name). Sprites are drawn the same way, apart from what's handled here: GoldSrc draws
+		// them alpha tested even in the normal rendermode, and takes a black rendercolor (the editors' default) as white.
+		// TODO: .mdl models of sprite entities and cycler_sprite
+		private void ConvertSprites()
+		{
+			var sprites = new Dictionary<string, GoldSrcSprite?>(StringComparer.OrdinalIgnoreCase);
+			var missing = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+			foreach (var entity in sourceBsp.Entities)
+			{
+				if (entity.ClassName != "env_sprite" && entity.ClassName != "env_glow")
+					continue;
+
+				var model = entity["model"].Trim().Replace('\\', '/').TrimStart('/').ToLowerInvariant();
+				if (!model.EndsWith(".spr", StringComparison.Ordinal))
+					continue;
+
+				if (!sprites.TryGetValue(model, out var sprite))
+				{
+					sprite = ConvertSprite(model);
+					sprites[model] = sprite;
+					if (sprite == null)
+						missing.Add(model);
+				}
+
+				if (sprite == null)
+					continue;
+
+				entity["model"] = GetSpriteMaterialName(model) + ".vmt";
+				ConvertSpriteRendering(entity, sprite);
+			}
+
+			if (sprites.Count > 0)
+				logger.Log($"Converted {sprites.Count - missing.Count}/{sprites.Count} sprites");
+			if (missing.Count > 0)
+				logger.Log($"Warning: Sprites not found (pass the folder of the mod that has them with --wads): {string.Join(", ", missing)}");
+		}
+
+		private GoldSrcSprite? ConvertSprite(string model)
+		{
+			if (assetFinder.Find(model) is not string file)
+				return null;
+
+			var sprite = GoldSrcSprite.Read(file);
+			if (sprite == null)
+			{
+				logger.Log($"Warning: {file} isn't a sprite this can read");
+				return null;
+			}
+
+			return materialConverter.ConvertSprite(GetSpriteMaterialName(model), sprite) ? sprite : null;
+		}
+
+		// "sprites/glow01.spr" -> "sprites/goldsrc/glow01"
+		private static string GetSpriteMaterialName(string model)
+		{
+			var name = Path.ChangeExtension(model, null);
+			if (name.StartsWith("sprites/", StringComparison.Ordinal))
+				name = name.Substring("sprites/".Length);
+
+			return "sprites/goldsrc/" + name;
+		}
+
+		private static void ConvertSpriteRendering(Entity entity, GoldSrcSprite sprite)
+		{
+			// env_glow is always on in GoldSrc, where Source's starts off when it has a name, like env_sprite
+			if (entity.ClassName == "env_glow")
+			{
+				var flags = int.TryParse(entity["spawnflags"], out var parsedFlags) ? parsedFlags : 0;
+				entity["spawnflags"] = (flags | SF_SPRITE_STARTON).ToString(CultureInfo.InvariantCulture);
+			}
+
+			// Source's normal rendermode draws the sprite opaque. Alpha blending at full renderamt draws its cutout.
+			var renderMode = int.TryParse(entity["rendermode"], out var parsedRenderMode) ? parsedRenderMode : 0;
+			if (renderMode == 0 && sprite.TextureFormat is SpriteTextureFormat.AlphaTest or SpriteTextureFormat.IndexAlpha)
+			{
+				renderMode = RenderTransAlpha;
+				entity["rendermode"] = RenderTransAlpha.ToString(CultureInfo.InvariantCulture);
+				entity["renderamt"] = "255";
+			}
+
+			// GoldSrc doesn't color sprites in the normal rendermode, and draws a black one white
+			if (renderMode == 0 || !TryParseVector(entity["rendercolor"], out var color) || color == Vector3.Zero)
+				entity["rendercolor"] = "255 255 255";
 		}
 
 		// The mod the map is for: the folder above its maps folder (without a _downloads or similar suffix), or
