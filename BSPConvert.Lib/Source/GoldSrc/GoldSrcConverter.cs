@@ -129,6 +129,11 @@ namespace BSPConvert.Lib.GoldSrc
 		// theirs apart because Strata keeps assets loaded across maps by name, and GoldSrc maps often have different
 		// textures, models and sounds of the same name.
 		private string assetDir = "goldsrc";
+		// The func_precipitation the map's weather became, which covers the whole map (see AddPrecipitationVolume)
+		private Entity? precipitation;
+		// The grid the space under cover is found on, and how many func_precipitation_blockers cover it at most
+		private const float PrecipitationBlockerCellSize = 32f;
+		private const int MaxPrecipitationBlockers = 128;
 
 		public GoldSrcConverter(BSPConverterOptions options, ILogger logger, ContentManager contentManager)
 		{
@@ -185,6 +190,7 @@ namespace BSPConvert.Lib.GoldSrc
 				ConvertClipHull(DuckingHull, DuckingHullExtents, SourceContentsFlags.CONTENTS_GOLDSRC_HULL_DUCKING);
 				WriteLeafBrushes();
 				ConvertModels();
+				AddPrecipitationVolume();
 				ConvertVisibility();
 				new GoldSrcModelLighting(gs, sourceBsp, sourceLeafForGoldSrcLeaf).Convert();
 
@@ -267,6 +273,8 @@ namespace BSPConvert.Lib.GoldSrc
 
 				sourceBsp.Entities.Add(entity);
 			}
+
+			precipitation = entityConverter.Precipitation;
 		}
 
 		// GoldSrc water is a brush entity whose "skin" holds its contents. Source's func_water needs the model's vphysics
@@ -1895,6 +1903,36 @@ namespace BSPConvert.Lib.GoldSrc
 				builder.SetModelBrushes(sourceBsp.Models.Count, modelBrushes[i]);
 				sourceBsp.Models.Add(model);
 			}
+		}
+
+		// Gives the func_precipitation the map's weather became (see GoldSrcEntityConverter.ConvertWeather) a box brush
+		// model around the whole world, and stops it under cover with func_precipitation_blockers (see GoldSrcSkyCover).
+		// They're added before the leaves' ambient lighting is written, as each brush model adds a leaf.
+		private void AddPrecipitationVolume()
+		{
+			if (precipitation == null)
+				return;
+
+			var world = gs.Models[0];
+			precipitation["model"] = "*" + builder.AddBoxTriggerModel(world.mins, world.maxs).ToString(CultureInfo.InvariantCulture);
+
+			// Each blocker is an entity sent to every client, so coarser cells are used until there are few enough
+			var skyCover = new GoldSrcSkyCover(gs);
+			List<(Vector3 mins, Vector3 maxs)> boxes;
+			var cellSize = PrecipitationBlockerCellSize;
+			while ((boxes = skyCover.FindCoveredBoxes(cellSize)).Count > MaxPrecipitationBlockers)
+				cellSize *= 2f;
+
+			foreach (var (mins, maxs) in boxes)
+			{
+				var blocker = new Entity();
+				blocker.ClassName = "func_precipitation_blocker";
+				blocker["model"] = "*" + builder.AddBoxTriggerModel(mins, maxs).ToString(CultureInfo.InvariantCulture);
+				sourceBsp.Entities.Add(blocker);
+			}
+
+			if (boxes.Count > 0)
+				logger.Log($"Added {boxes.Count} func_precipitation_blockers under cover ({cellSize} unit cells)");
 		}
 
 		// GoldSrc stores one compressed PVS row per world leaf (leaf N is cluster N - 1), which is the same

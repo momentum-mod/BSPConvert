@@ -903,6 +903,11 @@ namespace BSPConvert.Lib.GoldSrc
 			{
 				case "env_fog":
 					return ConvertFog(entity);
+				case "env_rain":
+				case "func_rain":
+				case "env_snow":
+				case "func_snow":
+					return ConvertWeather(entity);
 				case "env_beam":
 					ScaleKey(entity, "BoltWidth", BeamWidthScale);
 					ScaleKey(entity, "NoiseAmplitude", BeamNoiseScale);
@@ -1060,6 +1065,43 @@ namespace BSPConvert.Lib.GoldSrc
 			entity["farz"] = "-1";
 			SetSpawnFlags(entity, SF_FOG_MASTER);
 			foreach (var key in new[] { "density", "rendercolor", "startdist", "enddist" })
+				entity.Remove(key);
+
+			return true;
+		}
+
+		// The func_precipitation the map's weather entities became, or null if it has none (see ConvertWeather)
+		public Entity? Precipitation { get; private set; }
+
+		// Source's func_precipitation types
+		private const string PrecipitationRain = "0";
+		private const string PrecipitationSnow = "1";
+		// Its density, as a percentage in renderamt
+		private const string PrecipitationDensity = "100";
+
+		// Counter-Strike rains on the whole map when it has any env_rain or func_rain, or else snows when it has an
+		// env_snow or func_snow (CBasePlayer::SendWeatherInfo), whatever the entity's shape or keys: its client draws
+		// drops around the player wherever the sky is above them. Source's func_precipitation rains within its brush's
+		// bounds where nothing but sky is up to 512 units above the player. So the first weather entity becomes one that
+		// covers the whole map, with func_precipitation_blockers where there's cover higher up (given their brushes once
+		// brush models are converted, see GoldSrcConverter.AddPrecipitationVolume), and the rest are dropped.
+		private bool ConvertWeather(Entity entity)
+		{
+			var isRain = entity.ClassName is "env_rain" or "func_rain";
+			if (Precipitation != null)
+			{
+				// Rain wins over snow
+				if (isRain)
+					Precipitation["preciptype"] = PrecipitationRain;
+
+				return false;
+			}
+
+			Precipitation = entity;
+			entity.ClassName = "func_precipitation";
+			entity["preciptype"] = isRain ? PrecipitationRain : PrecipitationSnow;
+			entity["renderamt"] = PrecipitationDensity;
+			foreach (var key in new[] { "model", "origin", "angles", "spawnflags", "rendercolor", "rendermode", "enddist" })
 				entity.Remove(key);
 
 			return true;
