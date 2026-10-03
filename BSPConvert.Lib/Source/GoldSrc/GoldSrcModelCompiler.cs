@@ -41,6 +41,8 @@ namespace BSPConvert.Lib.GoldSrc
 			public GoldSrcModel Model = null!;
 			public string[] SequenceNames = Array.Empty<string>();
 			public Dictionary<string, SequenceVariant> Variants = new Dictionary<string, SequenceVariant>(StringComparer.OrdinalIgnoreCase);
+			// The box entities with SOLID_BBOX collide with, or null for the model's own
+			public (Vector3 Mins, Vector3 Maxs)? CollisionBox;
 		}
 
 		public GoldSrcModelCompiler(string studiomdlPath, string workDir, GoldSrcMaterialConverter materialConverter, ILogger logger)
@@ -116,6 +118,13 @@ namespace BSPConvert.Lib.GoldSrc
 			return AddVariant(entry, $"{name}_x{rateName}", new SequenceVariant(sequence, gsSequence.Fps * rate, null));
 		}
 
+		// Sets the box a model collides with as an entity with SOLID_BBOX ($bbox), in place of its bounds. It doesn't
+		// change how it's drawn.
+		public void SetCollisionBox(string sourceModel, Vector3 mins, Vector3 maxs)
+		{
+			models[sourceModel].CollisionBox = (mins, maxs);
+		}
+
 		// The sequence an entity plays when it holds the first frame of a model's sequence while spinning about the
 		// model's z axis at speed degrees per second (anticlockwise seen from above), as a func_train drawing a model
 		// turns by its avelocity. Returns the name of the sequence the Source model has for it.
@@ -169,6 +178,8 @@ namespace BSPConvert.Lib.GoldSrc
 			qc.AppendLine(CultureInfo.InvariantCulture, $"$cdmaterials \"{materialDir}/\"");
 			qc.AppendLine("$origin 0 0 0 -90");
 			qc.AppendLine("$surfaceprop \"default\"");
+			if (entry.CollisionBox is var (mins, maxs))
+				qc.AppendLine(CultureInfo.InvariantCulture, $"$bbox {Format(mins)} {Format(maxs)}");
 
 			var hasTriangles = false;
 			for (var i = 0; i < model.BodyParts.Count; i++)

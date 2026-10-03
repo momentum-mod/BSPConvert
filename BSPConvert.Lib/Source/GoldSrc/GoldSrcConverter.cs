@@ -996,9 +996,8 @@ namespace BSPConvert.Lib.GoldSrc
 		// drawing them become non-solid prop_dynamics playing the sequence the way GoldSrc's client does. They're lit
 		// like GoldSrc lights them by the leaves' ambient lighting (see GoldSrcModelLighting).
 		// cycler_sprite is solid in GoldSrc but has no size (SET_MODEL gives studio models none), which player movement
-		// skips (SV_AddLinksToPM), so the props aren't solid.
+		// skips (SV_AddLinksToPM), so the props aren't solid. cycler sets a size, so it's a solid box (see CyclerMins).
 		// func_trains drawing a model (made with zhlt_usemodel) become props too (see ConvertModelTrain).
-		// TODO: cycler is a solid 32x32x72 box at its origin
 		private void ConvertStudioModels()
 		{
 			var users = new List<(Entity entity, string sourceModel, string sequence)>();
@@ -1026,6 +1025,9 @@ namespace BSPConvert.Lib.GoldSrc
 
 				if (sourceModel == null)
 					continue;
+
+				if (entity.ClassName == "cycler")
+					modelCompiler!.SetCollisionBox(sourceModel, CyclerMins, CyclerMaxs);
 
 				var (sequence, framerate) = GetStudioModelSequence(entity);
 				var spinSpeed = isTrain ? GetTrainSpinSpeed(entity) : 0f;
@@ -1182,8 +1184,16 @@ namespace BSPConvert.Lib.GoldSrc
 			return stays;
 		}
 
+		// The box a cycler is, whatever its model (GenericCyclerSpawn). It becomes a prop colliding as a box
+		// (SOLID_BBOX), which is its model's collision box (see SetCollisionBox), and like GoldSrc's ignores its angles.
+		private static readonly Vector3 CyclerMins = new Vector3(-16f, -16f, 0f);
+		private static readonly Vector3 CyclerMaxs = new Vector3(16f, 16f, 72f);
+		private const string SolidBbox = "2";
+
 		private void ConvertStudioModelEntity(Entity entity, string sourceModel, string sequence)
 		{
+			var isCycler = entity.ClassName == "cycler";
+
 			// An env_sprite with a name starts off unless it's flagged to start on, like a sprite
 			var startsOff = entity.ClassName == "env_sprite" && !string.IsNullOrEmpty(entity["targetname"]) &&
 				((int.TryParse(entity["spawnflags"], out var flags) ? flags : 0) & SF_SPRITE_STARTON) == 0;
@@ -1191,7 +1201,7 @@ namespace BSPConvert.Lib.GoldSrc
 			entity.ClassName = "prop_dynamic";
 			entity["model"] = sourceModel;
 			entity["DefaultAnim"] = sequence;
-			entity["solid"] = "0";
+			entity["solid"] = isCycler ? SolidBbox : "0";
 			if (startsOff)
 				entity["StartDisabled"] = "1";
 
