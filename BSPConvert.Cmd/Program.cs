@@ -87,6 +87,9 @@ namespace BSPConvert.Cmd
 			[Option("wads", Required = false, Separator = ',', HelpText = "GoldSrc only: comma-separated folders to search (recursively) for the WAD files the map takes its textures from and its sky images (gfx/env), e.g. your Half-Life install or a folder of community WADs. The input's own folder and a default Steam Half-Life install are always searched.")]
 			public IEnumerable<string> WadDirs { get; set; }
 
+			[Option("studiomdl", Required = false, HelpText = "GoldSrc only: path to the studiomdl.exe that compiles the models entities use (in Momentum Mod's bin/win64 folder). Found next to the output game folder or in a default Steam Momentum Mod install if not given.")]
+			public string StudiomdlPath { get; set; }
+
 			[Value(0, MetaName = "input files", Required = true, HelpText = "Input Quake 3 BSP/PK3 or GoldSrc (Half-Life, CS 1.6) BSP/ZIP file(s) to be converted. Archives (.pk3/.zip) convert every BSP they contain.")]
 			public IEnumerable<string> InputFiles { get; set; }
 		}
@@ -142,7 +145,8 @@ namespace BSPConvert.Cmd
 					scale = options.Scale,
 					goldSrc = new GoldSrcConverterOptions()
 					{
-						wadDirs = options.WadDirs?.ToArray()
+						wadDirs = options.WadDirs?.ToArray(),
+						studiomdlPath = options.StudiomdlPath
 					},
 					q3 = new Q3ConverterOptions()
 					{

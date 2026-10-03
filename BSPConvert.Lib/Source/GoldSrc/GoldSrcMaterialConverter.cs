@@ -56,6 +56,21 @@ namespace BSPConvert.Lib.GoldSrc
 			ComputeReflectivity = 1,
 		};
 
+		// Model textures are mapped from 0 to 1 whatever their size, so they can be resized to the powers of two block
+		// compression needs
+		private static readonly VTF.CreationOptions ModelVtfOptions = new VTF.CreationOptions
+		{
+			Version = 6,
+			CompressionLevel = 0,
+			OutputFormat = ImageFormat.STRATA_BC7,
+			WidthResizeMethod = ImageConversion.ResizeMethod.POWER_OF_TWO_BIGGER,
+			HeightResizeMethod = ImageConversion.ResizeMethod.POWER_OF_TWO_BIGGER,
+			ComputeMips = 1,
+			ComputeThumbnail = 1,
+			ComputeReflectivity = 1,
+			ComputeTransparencyFlags = 1,
+		};
+
 		private readonly string contentDir;
 		private readonly List<string> writtenFiles = new List<string>();
 
@@ -183,6 +198,41 @@ namespace BSPConvert.Lib.GoldSrc
 				SpriteType.ParallelOriented => "vp_parallel_oriented",
 				_ => "parallel_upright",
 			};
+		}
+
+		// A studio model's texture, lit like a model unless it's fullbright. Masked textures are alpha tested and
+		// additive ones added, as GoldSrc draws them whatever the entity's rendermode.
+		// TODO: Chrome textures, which GoldSrc maps by the view direction
+		public bool ConvertModelTexture(string materialName, GoldSrcModel.Texture texture)
+		{
+			var basePath = GetBasePath(materialName);
+			var isMasked = (texture.Flags & GoldSrcModel.STUDIO_NF_MASKED) != 0;
+			var pixels = texture.Pixels;
+			if (isMasked)
+			{
+				pixels = (byte[])pixels.Clone();
+				BleedIntoTransparentPixels(pixels, texture.Width, texture.Height);
+			}
+
+			if (!VTF.Create(pixels, ImageFormat.RGBA8888, (ushort)texture.Width, (ushort)texture.Height, basePath + ".vtf", ModelVtfOptions))
+				return false;
+
+			writtenFiles.Add(basePath + ".vtf");
+
+			var isFullbright = (texture.Flags & GoldSrcModel.STUDIO_NF_FULLBRIGHT) != 0;
+			var vmt = new StringBuilder();
+			vmt.AppendLine(isFullbright ? "\"UnlitGeneric\"" : "\"VertexLitGeneric\"");
+			vmt.AppendLine("{");
+			vmt.AppendLine(CultureInfo.InvariantCulture, $"\t\"$basetexture\" \"{materialName}\"");
+			if (isMasked)
+				vmt.AppendLine("\t\"$alphatest\" \"1\"");
+			if ((texture.Flags & GoldSrcModel.STUDIO_NF_ADDITIVE) != 0)
+				vmt.AppendLine("\t\"$additive\" \"1\"");
+			vmt.AppendLine("}");
+			File.WriteAllText(basePath + ".vmt", vmt.ToString());
+			writtenFiles.Add(basePath + ".vmt");
+
+			return true;
 		}
 
 		// A skybox face from a sky image (TGA or BMP), drawn fullbright like GoldSrc's sky

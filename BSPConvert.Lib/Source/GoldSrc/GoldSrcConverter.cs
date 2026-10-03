@@ -19,6 +19,9 @@ namespace BSPConvert.Lib.GoldSrc
 		// images, e.g. a Half-Life install or a folder of community WADs. Searched after the input file's own
 		// directories and before the default Steam Half-Life install.
 		public string[] wadDirs;
+		// The studiomdl.exe that compiles the models entities use. Found next to the output game folder or in a default
+		// Steam Momentum Mod install if not given.
+		public string studiomdlPath;
 	}
 
 	// Converts GoldSrc (Half-Life / Counter-Strike 1.6) BSPs (see IEngineConverter).
@@ -58,6 +61,9 @@ namespace BSPConvert.Lib.GoldSrc
 		// Where Steam installs Half-Life by default, searched for WADs last
 		private static readonly string DefaultHalfLifeDir = Path.Combine(
 			Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Steam", "steamapps", "common", "Half-Life");
+		// Where Steam installs Momentum Mod by default, whose studiomdl compiles the models
+		private static readonly string DefaultMomentumDir = Path.Combine(
+			Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Steam", "steamapps", "common", "Momentum Mod Playtest");
 
 		private readonly BSPConverterOptions options;
 		private readonly ILogger logger;
@@ -109,6 +115,9 @@ namespace BSPConvert.Lib.GoldSrc
 		private GoldSrcAssetFinder assetFinder;
 		// The sounds the entities play (path under sound/) and their files, which go with the map (see FindSounds)
 		private readonly Dictionary<string, string> soundFiles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+		// Compiles the studio models entities use (see ConvertStudioModels), in a temp folder of its own
+		private GoldSrcModelCompiler? modelCompiler;
+		private string? modelWorkDir;
 
 		public GoldSrcConverter(BSPConverterOptions options, ILogger logger, ContentManager contentManager)
 		{
@@ -131,6 +140,7 @@ namespace BSPConvert.Lib.GoldSrc
 			volumeBrushRegions.Clear();
 			ladderModels.Clear();
 			soundFiles.Clear();
+			modelCompiler = null;
 			modelBrushes = new List<int>[gs.Models.Length];
 			for (var i = 0; i < modelBrushes.Length; i++)
 				modelBrushes[i] = new List<int>();
@@ -140,30 +150,40 @@ namespace BSPConvert.Lib.GoldSrc
 
 			SetLumpVersions();
 
-			ConvertEntities();
-			assetFinder = new GoldSrcAssetFinder(GetAssetSearchDirs(), GetModName());
-			FindSounds();
-			ConvertPlanes();
-			ConvertTexInfos();
-			ConvertSkybox();
-			ConvertSprites();
-			ConvertVertices();
-			ConvertFaces();
-			ConvertLighting();
-			ConvertNodes();
-			ConvertHull0();
-			AddVolumeBrushesToWorld();
-			ConvertClipHull(StandingHull, StandingHullExtents, SourceContentsFlags.CONTENTS_GOLDSRC_HULL_STANDING);
-			ConvertClipHull(DuckingHull, DuckingHullExtents, SourceContentsFlags.CONTENTS_GOLDSRC_HULL_DUCKING);
-			WriteLeafBrushes();
-			ConvertModels();
-			ConvertVisibility();
+			try
+			{
+				ConvertEntities();
+				assetFinder = new GoldSrcAssetFinder(GetAssetSearchDirs(), GetModName());
+				FindSounds();
+				ConvertPlanes();
+				ConvertTexInfos();
+				ConvertSkybox();
+				ConvertSprites();
+				ConvertStudioModels();
+				ConvertVertices();
+				ConvertFaces();
+				ConvertLighting();
+				ConvertNodes();
+				ConvertHull0();
+				AddVolumeBrushesToWorld();
+				ConvertClipHull(StandingHull, StandingHullExtents, SourceContentsFlags.CONTENTS_GOLDSRC_HULL_STANDING);
+				ConvertClipHull(DuckingHull, DuckingHullExtents, SourceContentsFlags.CONTENTS_GOLDSRC_HULL_DUCKING);
+				WriteLeafBrushes();
+				ConvertModels();
+				ConvertVisibility();
 
-			builder.AddPlaceholderArea();
-			builder.AddPlaceholderAreaPortal();
-			builder.AddPlaceholderWorldLight();
+				builder.AddPlaceholderArea();
+				builder.AddPlaceholderAreaPortal();
+				builder.AddPlaceholderWorldLight();
 
-			WriteContent();
+				WriteContent();
+			}
+			finally
+			{
+				if (modelWorkDir != null && Directory.Exists(modelWorkDir))
+					Directory.Delete(modelWorkDir, true);
+				modelWorkDir = null;
+			}
 		}
 
 		// Matches the lump versions the Q3 converter writes for the same lumps
@@ -771,7 +791,6 @@ namespace BSPConvert.Lib.GoldSrc
 		// Sprite entities draw .spr sprites, which become Sprite materials under sprites/goldsrc/ (apart from the game's
 		// own sprites of the same name). Sprites are drawn the same way, apart from what's handled here: GoldSrc draws
 		// them alpha tested even in the normal rendermode, and takes a black rendercolor (the editors' default) as white.
-		// TODO: .mdl models of sprite entities and cycler_sprite
 		private void ConvertSprites()
 		{
 			var sprites = new Dictionary<string, GoldSrcSprite?>(StringComparer.OrdinalIgnoreCase);
@@ -854,6 +873,175 @@ namespace BSPConvert.Lib.GoldSrc
 				entity["rendercolor"] = "255 255 255";
 		}
 
+		// Entities that draw a studio model, which become prop_dynamics
+		private static readonly HashSet<string> StudioModelClasses = new HashSet<string> { "cycler_sprite", "cycler", "env_sprite", "item_generic" };
+
+		// Studio models (.mdl) of entities are compiled into Source models (see GoldSrcModelCompiler), and the entities
+		// drawing them become non-solid prop_dynamics playing the sequence the way GoldSrc's client does.
+		// TODO: GoldSrc lights models by the lightmap below them, and Source by the leaves' ambient lighting, which
+		// converted maps don't have (Strata lights them flat gray without it)
+		// cycler_sprite is solid in GoldSrc but has no size (SET_MODEL gives studio models none), which player movement
+		// skips (SV_AddLinksToPM), so the props aren't solid.
+		// TODO: cycler is a solid 32x32x72 box at its origin
+		// TODO: func_trains drawing a model (zhlt_usemodel), which moving or spinning models are made with
+		private void ConvertStudioModels()
+		{
+			var users = new List<(Entity entity, string sourceModel, string sequence)>();
+			var models = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+			var missing = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+			foreach (var entity in sourceBsp.Entities)
+			{
+				if (!StudioModelClasses.Contains(entity.ClassName))
+					continue;
+
+				var modelPath = entity["model"].Trim().Replace('\\', '/').TrimStart('/').ToLowerInvariant();
+				if (!modelPath.EndsWith(".mdl", StringComparison.Ordinal))
+					continue;
+
+				if (modelCompiler == null && !CreateModelCompiler())
+					return;
+
+				if (!models.TryGetValue(modelPath, out var sourceModel))
+				{
+					sourceModel = AddStudioModel(modelPath, missing);
+					models[modelPath] = sourceModel;
+				}
+
+				if (sourceModel == null)
+					continue;
+
+				var (sequence, framerate) = GetStudioModelSequence(entity);
+				users.Add((entity, sourceModel, modelCompiler!.GetSequence(sourceModel, sequence, framerate)));
+			}
+
+			if (models.Count == 0)
+				return;
+
+			var compiled = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+			foreach (var sourceModel in users.Select(user => user.sourceModel).Distinct(StringComparer.OrdinalIgnoreCase))
+			{
+				if (modelCompiler!.Compile(sourceModel))
+					compiled.Add(sourceModel);
+			}
+
+			foreach (var (entity, sourceModel, sequence) in users)
+			{
+				if (compiled.Contains(sourceModel))
+					ConvertStudioModelEntity(entity, sourceModel, sequence);
+			}
+
+			logger.Log($"Converted {compiled.Count}/{models.Count} models");
+			if (missing.Count > 0)
+				logger.Log($"Warning: Models not found (pass the folder of the mod that has them with --wads): {string.Join(", ", missing)}");
+		}
+
+		private bool CreateModelCompiler()
+		{
+			var studiomdl = FindStudiomdl();
+			if (studiomdl == null)
+			{
+				logger.Log("Warning: Models aren't converted because studiomdl.exe wasn't found. Pass the one in Momentum Mod's bin/win64 folder with --studiomdl.");
+				return false;
+			}
+
+			modelWorkDir = Path.Combine(Path.GetTempPath(), "BSPConvert_models_" + Path.GetRandomFileName());
+			modelCompiler = new GoldSrcModelCompiler(studiomdl, modelWorkDir, materialConverter, logger);
+			return true;
+		}
+
+		// The given studiomdl, or the one of the game the output folder is in, or of a default Steam Momentum Mod install
+		private string? FindStudiomdl()
+		{
+			if (!string.IsNullOrEmpty(options.goldSrc.studiomdlPath))
+				return File.Exists(options.goldSrc.studiomdlPath) ? options.goldSrc.studiomdlPath : null;
+
+			var candidates = new List<string>();
+			if (Path.GetDirectoryName(Path.GetFullPath(options.outputDir)) is string gameDir)
+				candidates.Add(Path.Combine(gameDir, "bin", "win64", "studiomdl.exe"));
+			candidates.Add(Path.Combine(DefaultMomentumDir, "bin", "win64", "studiomdl.exe"));
+
+			return candidates.FirstOrDefault(File.Exists);
+		}
+
+		// Reads a model and adds it to the compiler, returning its path in the game, or null if it can't be read
+		private string? AddStudioModel(string modelPath, ISet<string> missing)
+		{
+			if (assetFinder.Find(modelPath) is not string file)
+			{
+				missing.Add(modelPath);
+				return null;
+			}
+
+			// Its texture and sequence group files are next to it, or elsewhere in the mod
+			var modelDir = Path.GetDirectoryName(modelPath)?.Replace('\\', '/') ?? "";
+			string? FindModelFile(string fileName)
+			{
+				var nextTo = Path.Combine(Path.GetDirectoryName(file)!, fileName);
+				return File.Exists(nextTo) ? nextTo : assetFinder.Find(modelDir.Length > 0 ? modelDir + "/" + fileName : fileName);
+			}
+
+			var model = GoldSrcModel.Read(file, FindModelFile, out var error);
+			if (model == null)
+			{
+				logger.Log($"Warning: Couldn't read {modelPath}: {error}");
+				return null;
+			}
+
+			return modelCompiler!.AddModel(modelPath, model);
+		}
+
+		// The sequence an entity plays and its frame rate. cycler_sprite and env_sprite play theirs at their framerate,
+		// which they don't change. cycler animates itself at the normal rate, but only if it plays sequence 0.
+		private static (int sequence, float framerate) GetStudioModelSequence(Entity entity)
+		{
+			var sequence = int.TryParse(entity["sequence"], out var parsedSequence) ? parsedSequence : 0;
+			var framerate = float.TryParse(entity["framerate"], NumberStyles.Float, CultureInfo.InvariantCulture, out var parsedFramerate) ? parsedFramerate : 0f;
+			switch (entity.ClassName)
+			{
+				case "cycler":
+					framerate = sequence == 0 ? 1f : 0f;
+					break;
+				case "item_generic":
+					framerate = 1f;
+					break;
+			}
+
+			return (sequence, framerate);
+		}
+
+		private void ConvertStudioModelEntity(Entity entity, string sourceModel, string sequence)
+		{
+			// An env_sprite with a name starts off unless it's flagged to start on, like a sprite
+			var startsOff = entity.ClassName == "env_sprite" && !string.IsNullOrEmpty(entity["targetname"]) &&
+				((int.TryParse(entity["spawnflags"], out var flags) ? flags : 0) & SF_SPRITE_STARTON) == 0;
+
+			entity.ClassName = "prop_dynamic";
+			entity["model"] = sourceModel;
+			entity["DefaultAnim"] = sequence;
+			entity["solid"] = "0";
+			if (startsOff)
+				entity["StartDisabled"] = "1";
+
+			// GoldSrc draws studio models with their pitch flipped (StudioSetUpTransform)
+			var angles = TryParseVector(entity["angles"], out var parsedAngles) ? parsedAngles : Vector3.Zero;
+			if (!TryParseVector(entity["angles"], out _) && float.TryParse(entity["angle"], NumberStyles.Float, CultureInfo.InvariantCulture, out var yaw))
+				angles.Y = yaw;
+			entity["angles"] = string.Create(CultureInfo.InvariantCulture, $"{(angles.X == 0f ? 0f : -angles.X):0.###} {angles.Y:0.###} {angles.Z:0.###}");
+
+			foreach (var key in new[] { "sequence", "sequencename", "framerate", "spawnflags", "angle" })
+				entity.Remove(key);
+
+			// Source tints models by their rendercolor, which GoldSrc doesn't, and editors default it to black
+			entity.Remove("rendercolor");
+
+			// GoldSrc blends models in any rendermode but the normal and additive ones by renderamt. Fully opaque ones
+			// are drawn normally, so they aren't sorted with translucent objects.
+			var renderMode = int.TryParse(entity["rendermode"], out var parsedRenderMode) ? parsedRenderMode : 0;
+			var renderAmt = int.TryParse(entity["renderamt"], out var parsedRenderAmt) ? parsedRenderAmt : 0;
+			if (renderMode is RenderTransColor or RenderTransTexture or RenderTransAlpha)
+				entity["rendermode"] = renderAmt >= 255 ? "0" : RenderTransTexture.ToString(CultureInfo.InvariantCulture);
+		}
+
 		// The mod the map is for: the folder above its maps folder (without a _downloads or similar suffix), or
 		// Counter-Strike's when the map isn't in one, since that's what KZ and bhop maps are for
 		private string GetModName()
@@ -867,17 +1055,20 @@ namespace BSPConvert.Lib.GoldSrc
 			return suffixIndex > 0 ? modDir.Substring(0, suffixIndex) : modDir;
 		}
 
-		// Embeds the converted materials and the sounds in the BSP, or with --nopak puts them in the output's
-		// materials and sound folders
+		// Embeds the converted materials, sounds and models in the BSP, or with --nopak puts them in the output's
+		// materials, sound and models folders
 		private void WriteContent()
 		{
 			var materialFiles = materialConverter.WrittenFiles;
+			var modelFiles = modelCompiler?.CompiledFiles ?? Array.Empty<(string, string)>();
 			if (options.noPak)
 			{
 				foreach (var file in materialFiles)
 					FileUtil.MoveFile(file, Path.Combine(options.outputDir, "materials", Path.GetRelativePath(contentManager.ContentDir, file)));
 				foreach (var (sound, file) in soundFiles)
 					FileUtil.CopyFile(file, Path.Combine(options.outputDir, "sound", sound.Replace('/', Path.DirectorySeparatorChar)));
+				foreach (var (modelPath, file) in modelFiles)
+					FileUtil.CopyFile(file, Path.Combine(options.outputDir, modelPath.Replace('/', Path.DirectorySeparatorChar)));
 				return;
 			}
 
@@ -887,6 +1078,8 @@ namespace BSPConvert.Lib.GoldSrc
 				archive.AddEntry("materials/" + Path.GetRelativePath(contentManager.ContentDir, file).Replace(Path.DirectorySeparatorChar, '/'), new FileInfo(file));
 			foreach (var (sound, file) in soundFiles)
 				archive.AddEntry("sound/" + sound, new FileInfo(file));
+			foreach (var (modelPath, file) in modelFiles)
+				archive.AddEntry(modelPath, new FileInfo(file));
 			sourceBsp.PakFile.SetZipArchive(archive, true);
 		}
 

@@ -719,6 +719,10 @@ namespace BSPConvert.Lib.GoldSrc
 				case "light_spot":
 					return (useType switch { UseType.On => "TurnOn", UseType.Off => "TurnOff", _ => "Toggle" }, "");
 				case "env_sprite":
+					// One drawing a studio model becomes a prop_dynamic, which can't toggle
+					// TODO: Toggling a model env_sprite off
+					if (target["model"].Trim().EndsWith(".mdl", StringComparison.OrdinalIgnoreCase))
+						return (useType == UseType.Off ? "TurnOff" : "TurnOn", "");
 					return (useType switch { UseType.On => "ShowSprite", UseType.Off => "HideSprite", _ => "ToggleSprite" }, "");
 				case "trigger_multiple":
 				case "trigger_once":
