@@ -849,6 +849,7 @@ namespace BSPConvert.Lib.GoldSrc
 			["func_button"] = new[] { "customsound" },
 			["func_rot_button"] = new[] { "customsound" },
 			["func_train"] = new[] { "noise1", "noise2" },
+			["func_rotating"] = new[] { "message" },
 		};
 
 		// Finds the files of the sounds the entities play, in the map's archive or the mod's and Half-Life's sound

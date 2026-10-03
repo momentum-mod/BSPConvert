@@ -983,6 +983,9 @@ namespace BSPConvert.Lib.GoldSrc
 				case "func_train":
 					ConvertTrainSounds(entity);
 					break;
+				case "func_rotating":
+					ConvertRotatingSound(entity);
+					break;
 			}
 
 			return true;
@@ -1174,6 +1177,17 @@ namespace BSPConvert.Lib.GoldSrc
 			entity["noise2"] = stopSound >= 1 && stopSound <= TrainStopSounds.Length ? TrainStopSounds[stopSound - 1] : NullSound;
 			entity.Remove("movesnd");
 			entity.Remove("stopsnd");
+			entity.Remove("sounds");
+		}
+
+		// A func_rotating plays the sound in "message", or else the fan sound "sounds" picks, or nothing
+		// (CFuncRotating::Precache). Source's plays the sound in "message" too.
+		private static void ConvertRotatingSound(Entity entity)
+		{
+			var sound = GetInt(entity, "sounds");
+			if (string.IsNullOrWhiteSpace(entity["message"]))
+				entity["message"] = sound is >= 1 and <= 5 ? FormattableString.Invariant($"fans/fan{sound}.wav") : NullSound;
+
 			entity.Remove("sounds");
 		}
 
