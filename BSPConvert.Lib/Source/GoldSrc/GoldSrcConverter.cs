@@ -241,7 +241,8 @@ namespace BSPConvert.Lib.GoldSrc
 			foreach (var entity in entities)
 			{
 				ConvertRenderMode(entity);
-				entityConverter.Convert(entity);
+				if (!entityConverter.Convert(entity))
+					continue;
 
 				switch (entity.ClassName)
 				{

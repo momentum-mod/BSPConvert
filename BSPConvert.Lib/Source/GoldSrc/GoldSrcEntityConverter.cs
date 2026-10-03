@@ -165,6 +165,8 @@ namespace BSPConvert.Lib.GoldSrc
 		// The env_texturetoggle switching the textures of the entities with each name
 		private readonly Dictionary<string, string> textureToggles = new Dictionary<string, string>();
 		private int outputCount;
+		// Whether an env_fog was converted (only the first one counts)
+		private bool fogConverted;
 
 		// A multisource: its inputs (the entities that target it, in the order the engine registers them) and the
 		// global state it also needs on
@@ -850,10 +852,13 @@ namespace BSPConvert.Lib.GoldSrc
 			outputCount++;
 		}
 
-		public void Convert(Entity entity)
+		// Converts an entity's keyvalues. Returns false if it has no Source counterpart and should be dropped.
+		public bool Convert(Entity entity)
 		{
 			switch (entity.ClassName)
 			{
+				case "env_fog":
+					return ConvertFog(entity);
 				case "func_door":
 					ConvertAnglesToMoveDir(entity, "movedir");
 					ConvertDoorSpawnFlags(entity, IsNamedInGoldSrc(entity));
@@ -920,6 +925,50 @@ namespace BSPConvert.Lib.GoldSrc
 					ConvertButtonSound(entity);
 					break;
 			}
+
+			return true;
+		}
+
+		private const int SF_FOG_MASTER = 1;
+		// Densities above this turn Counter-Strike's fog off
+		private const float MaxFogDensity = 0.01f;
+		// Where a linear fog ramp starts and ends, times the density, to follow GoldSrc's exponentially squared fog
+		// (see ConvertFog)
+		private const float FogStartDensityDistance = 0.15f;
+		private const float FogEndDensityDistance = 1.58f;
+
+		// Counter-Strike's env_fog (CClientFog): the client fogs the world, but not the sky, with the first env_fog's
+		// rendercolor, by its density (0 to 0.01, anything else turns the fog off) as OpenGL's exponentially squared
+		// fog (1 - e^-(density * distance)^2 of the fog color), and ignores its other keys. Source's
+		// env_fog_controller fogs linearly from fogstart to fogend, so it gets the ramp that best fits that curve,
+		// within 4% of it at every distance. Fog doesn't change at runtime in either.
+		private bool ConvertFog(Entity entity)
+		{
+			if (fogConverted)
+				return false;
+
+			fogConverted = true;
+			var density = TryParseFloat(entity["density"], out var parsedDensity) ? parsedDensity : 0f;
+			if (density <= 0f || density > MaxFogDensity)
+				return false;
+
+			var color = entity["rendercolor"].Split(' ', StringSplitOptions.RemoveEmptyEntries)
+				.Select(part => int.TryParse(part, out var value) ? Math.Clamp(value, 0, 255) : 0)
+				.Concat(new[] { 0, 0, 0 })
+				.Take(3);
+
+			entity.ClassName = "env_fog_controller";
+			entity["fogenable"] = "1";
+			entity["fogcolor"] = string.Join(' ', color);
+			entity["fogstart"] = (FogStartDensityDistance / density).ToString("0", CultureInfo.InvariantCulture);
+			entity["fogend"] = (FogEndDensityDistance / density).ToString("0", CultureInfo.InvariantCulture);
+			entity["fogmaxdensity"] = "1";
+			entity["farz"] = "-1";
+			SetSpawnFlags(entity, SF_FOG_MASTER);
+			foreach (var key in new[] { "density", "rendercolor", "startdist", "enddist" })
+				entity.Remove(key);
+
+			return true;
 		}
 
 		// GoldSrc ambient_generic's radius flags pick its attenuation (medium without one). Source's takes a radius,
