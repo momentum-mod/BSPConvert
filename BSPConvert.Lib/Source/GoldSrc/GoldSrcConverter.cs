@@ -89,12 +89,19 @@ namespace BSPConvert.Lib.GoldSrc
 		// texture, and whether it animates
 		private record ConvertedMaterial(string VtfMaterial, MipTexture Texture, bool Animated);
 
-		// How a brush entity draws its faces: blended by its rendermode (Amount is renderamt as 0-1), and scrolling its
-		// "scroll" textures at ScrollSpeed texels per second
-		private record struct SurfaceStyle(BlendMode Mode, float Amount, float ScrollSpeed)
+		// How a brush entity draws its faces: blended by its rendermode (Amount is renderamt as 0-1), scrolling its
+		// "scroll" textures at ScrollSpeed texels per second, and switching textures to their alternate frames when the
+		// entity's texture frame index is 1 (see GoldSrcEntityConverter.AddTextureToggles)
+		private record struct SurfaceStyle(BlendMode Mode, float Amount, float ScrollSpeed, bool ToggleTextures = false)
 		{
 			public static readonly SurfaceStyle World = new SurfaceStyle(BlendMode.Opaque, 1f, 0f);
 		}
+		// Brush models whose entity switches their textures to their alternate frames
+		private readonly HashSet<int> textureToggleModels = new HashSet<int>();
+		// The BSP's texture names, which include every frame of the animations its faces use
+		private HashSet<string> mipTexNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		// Each texture's VTF holding its frame and its alternate frame, or null where it couldn't be made
+		private readonly Dictionary<string, ConvertedMaterial?> toggledTextures = new Dictionary<string, ConvertedMaterial?>(StringComparer.OrdinalIgnoreCase);
 		private int[] sourceLeafForGoldSrcLeaf;
 		// Number of converted faces before each GoldSrc face, and of marksurfaces referencing them before each
 		// GoldSrc marksurface (one past the end too), to remap face ranges once nodraw faces are dropped
@@ -137,6 +144,9 @@ namespace BSPConvert.Lib.GoldSrc
 			modelStyles.Clear();
 			styleTexInfos.Clear();
 			noDrawTexInfos.Clear();
+			textureToggleModels.Clear();
+			toggledTextures.Clear();
+			mipTexNames = new HashSet<string>(gs.MipTextures.Select(mipTex => mipTex.name), StringComparer.OrdinalIgnoreCase);
 			volumeBrushRegions.Clear();
 			ladderModels.Clear();
 			soundFiles.Clear();
@@ -221,7 +231,12 @@ namespace BSPConvert.Lib.GoldSrc
 			}
 
 			var entityConverter = new GoldSrcEntityConverter(logger);
-			entityConverter.ConvertTargets(entities);
+			entityConverter.ConvertTargets(entities, HasAlternateTextures);
+			foreach (var entity in entityConverter.TextureToggleEntities)
+			{
+				if (TryGetBrushModel(entity, out var modelIndex))
+					textureToggleModels.Add(modelIndex);
+			}
 
 			foreach (var entity in entities)
 			{
@@ -318,7 +333,7 @@ namespace BSPConvert.Lib.GoldSrc
 			if (!TryGetBrushModel(entity, out var modelIndex))
 				return;
 
-			var style = new SurfaceStyle(BlendMode.Opaque, 1f, GetScrollSpeed(entity));
+			var style = new SurfaceStyle(BlendMode.Opaque, 1f, GetScrollSpeed(entity), textureToggleModels.Contains(modelIndex));
 
 			// Source tints a brush entity by its rendercolor. GoldSrc only uses it for the Color rendermode (approximated
 			// as Texture below), glow sprites and conveyor speeds, and editors default it to "0 0 0", which turned
@@ -370,6 +385,60 @@ namespace BSPConvert.Lib.GoldSrc
 			}
 
 			return (backwards ? -speedCode : speedCode) / 16f;
+		}
+
+		// Whether a brush entity's faces have a texture that switches to an alternate one (see GetAlternateTexture)
+		private bool HasAlternateTextures(Entity entity)
+		{
+			if (!TryGetBrushModel(entity, out var modelIndex))
+				return false;
+
+			var model = gs.Models[modelIndex];
+			for (var i = model.firstFace; i < model.firstFace + model.numFaces && i < gs.Faces.Length; i++)
+			{
+				var texInfo = gs.Faces[i].texInfo;
+				if (texInfo >= 0 && texInfo < gs.TexInfos.Length && GetAlternateTexture(GetMipTexName(gs.TexInfos[texInfo])) != null)
+					return true;
+			}
+
+			return false;
+		}
+
+		// The texture a "+0name" texture switches to while its entity's frame is 1 ("+aname"), and the other way
+		// around. Only for textures whose primary and alternate sequences are single frames: animated ones keep playing
+		// their primary sequence.
+		// TODO: Switching animated sequences
+		private string? GetAlternateTexture(string mipTexName)
+		{
+			if (mipTexName.Length < 3 || mipTexName[0] != '+')
+				return null;
+
+			var baseName = mipTexName.Substring(2);
+			var frame = char.ToLowerInvariant(mipTexName[1]);
+			if (frame != '0' && frame != 'a')
+				return null;
+			if (mipTexNames.Contains("+1" + baseName) || mipTexNames.Contains("+b" + baseName))
+				return null;
+
+			var alternate = (frame == '0' ? "+a" : "+0") + baseName;
+			return mipTexNames.TryGetValue(alternate, out var actualName) ? actualName : null;
+		}
+
+		// The VTF of a texture's frame followed by its alternate frame, which ToggleTexture materials pick from
+		private ConvertedMaterial? GetToggledTexture(string mipTexName, string alternateName)
+		{
+			var vtfMaterial = GetMaterialName(mipTexName) + "_toggle";
+			if (toggledTextures.TryGetValue(vtfMaterial, out var toggled))
+				return toggled;
+
+			toggled = null;
+			if (convertedMaterials.TryGetValue(GetMaterialName(mipTexName), out var primary) && !primary.Animated &&
+				convertedMaterials.TryGetValue(GetMaterialName(alternateName), out var alternate) && !alternate.Animated &&
+				materialConverter.ConvertToggled(vtfMaterial, primary.Texture, alternate.Texture))
+				toggled = new ConvertedMaterial(vtfMaterial, primary.Texture, false);
+
+			toggledTextures[vtfMaterial] = toggled;
+			return toggled;
 		}
 
 		private bool TryGetBrushModel(Entity entity, out int modelIndex)
@@ -450,6 +519,9 @@ namespace BSPConvert.Lib.GoldSrc
 			var mipTexName = GetMipTexName(gs.TexInfos[texInfoIndex]);
 			if (!IsScrollTexture(mipTexName))
 				style = style with { ScrollSpeed = 0f };
+			ConvertedMaterial? toggled = null;
+			if (style.ToggleTextures && (GetAlternateTexture(mipTexName) is not string alternate || (toggled = GetToggledTexture(mipTexName, alternate)) == null))
+				style = style with { ToggleTextures = false };
 			if (style == SurfaceStyle.World)
 				return texInfoMap[texInfoIndex];
 
@@ -464,11 +536,13 @@ namespace BSPConvert.Lib.GoldSrc
 			}
 			else if (!IsToolTexture(mipTexName) && convertedMaterials.TryGetValue(baseMaterial, out var converted))
 			{
+				// A toggled texture draws its VTF of both frames
+				converted = toggled ?? converted;
 				var material = baseMaterial + GetStyleSuffix(style);
 				if (!convertedMaterials.ContainsKey(material))
 				{
 					materialConverter.WriteVariant(material, converted.VtfMaterial, converted.Texture, converted.Animated, style.Mode, style.Amount,
-						style.ScrollSpeed);
+						style.ScrollSpeed, toggled != null);
 					convertedMaterials[material] = converted;
 				}
 
@@ -499,6 +573,8 @@ namespace BSPConvert.Lib.GoldSrc
 			};
 			if (style.ScrollSpeed != 0f)
 				suffix += FormattableString.Invariant($"_scroll{style.ScrollSpeed:0.##}");
+			if (style.ToggleTextures)
+				suffix += "_toggle";
 
 			return suffix;
 		}
@@ -619,7 +695,7 @@ namespace BSPConvert.Lib.GoldSrc
 		// alternate sequence "+aname" to "+jname" that triggered brush entities switch to. Frames are found by name,
 		// since a map only has to reference one of them. Returns false if the texture isn't part of a sequence with
 		// more than one frame.
-		// TODO: Switch brush entities between their primary and alternate sequence when they're triggered
+		// Brush entities switching between single frame primary and alternate textures draw both (see GetToggledTexture).
 		private bool ConvertAnimation(string textureName)
 		{
 			if (textureName.Length < 3 || textureName[0] != '+')

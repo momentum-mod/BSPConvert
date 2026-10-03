@@ -137,6 +137,40 @@ namespace BSPConvert.Lib.GoldSrc
 			return true;
 		}
 
+		// A texture and the alternate texture its brush entity switches to, as the two frames of one VTF that
+		// ToggleTexture materials pick from (see WriteVariant). Returns false if they aren't the same size.
+		public bool ConvertToggled(string vtfMaterialName, MipTexture texture, MipTexture alternate)
+		{
+			if (texture.Width != alternate.Width || texture.Height != alternate.Height)
+				return false;
+
+			var isAlphaTested = IsAlphaTested(texture.Name);
+			var vtfPath = GetBasePath(vtfMaterialName) + ".vtf";
+			using (var vtf = new VTF())
+			{
+				vtf.Version = VtfOptions.Version;
+				vtf.ImageWidthResizeMethod = VtfOptions.WidthResizeMethod;
+				vtf.ImageHeightResizeMethod = VtfOptions.HeightResizeMethod;
+				var width = (ushort)texture.Width;
+				var height = (ushort)texture.Height;
+				if (!vtf.SetImage(DecodeRGBA(texture, isAlphaTested), ImageFormat.RGBA8888, width, height) ||
+					!vtf.SetFrameCount(2) ||
+					!vtf.SetImage(DecodeRGBA(alternate, IsAlphaTested(alternate.Name)), ImageFormat.RGBA8888, width, height, frame: 1))
+					return false;
+
+				vtf.ComputeReflectivity();
+				vtf.SetRecommendedMipCount();
+				vtf.ComputeMips();
+				vtf.SetFormat(VtfOptions.OutputFormat);
+				vtf.ComputeTransparencyFlags();
+				if (!vtf.Bake(vtfPath))
+					return false;
+			}
+
+			writtenFiles.Add(vtfPath);
+			return true;
+		}
+
 		// A sprite as a Sprite material with a frame per sprite frame, which env_sprite plays at its framerate. Its
 		// rendermode comes from the entity, as in GoldSrc.
 		public bool ConvertSprite(string materialName, GoldSrcSprite sprite)
@@ -284,18 +318,19 @@ namespace BSPConvert.Lib.GoldSrc
 		}
 
 		// A material drawing an already converted texture (vtfMaterialName's VTF) the way a brush entity does: blended
-		// by its rendermode (amount is its renderamt as 0-1) and scrolling at scrollSpeed, a func_conveyor's speed
+		// by its rendermode (amount is its renderamt as 0-1), scrolling at scrollSpeed, a func_conveyor's speed, and if
+		// toggled, drawing the frame of the VTF (see ConvertToggled) that the entity's texture frame index picks
 		public void WriteVariant(string materialName, string vtfMaterialName, MipTexture texture, bool animated, BlendMode blendMode, float amount,
-			float scrollSpeed)
+			float scrollSpeed, bool toggled)
 		{
-			WriteVmt(materialName, vtfMaterialName, texture, IsAlphaTested(texture.Name), animated, blendMode, amount, scrollSpeed);
+			WriteVmt(materialName, vtfMaterialName, texture, IsAlphaTested(texture.Name), animated, blendMode, amount, scrollSpeed, toggled);
 		}
 
 		private void WriteVmt(string materialName, string baseTexture, MipTexture texture, bool isAlphaTested, bool animated,
-			BlendMode blendMode = BlendMode.Opaque, float amount = 1f, float scrollSpeed = 0f)
+			BlendMode blendMode = BlendMode.Opaque, float amount = 1f, float scrollSpeed = 0f, bool toggled = false)
 		{
 			var vmtPath = GetBasePath(materialName) + ".vmt";
-			File.WriteAllText(vmtPath, CreateVmt(baseTexture, texture, isAlphaTested, animated, blendMode, amount, scrollSpeed));
+			File.WriteAllText(vmtPath, CreateVmt(baseTexture, texture, isAlphaTested, animated, blendMode, amount, scrollSpeed, toggled));
 			writtenFiles.Add(vmtPath);
 		}
 
@@ -380,7 +415,7 @@ namespace BSPConvert.Lib.GoldSrc
 		}
 
 		private static string CreateVmt(string baseTexture, MipTexture texture, bool isAlphaTested, bool animated, BlendMode blendMode, float amount,
-			float scrollSpeed)
+			float scrollSpeed, bool toggled)
 		{
 			// Water isn't lightmapped in GoldSrc, and neither are translucent or additive brush entities
 			var isUnlit = IsTurbulent(GetBaseName(texture.Name)) || blendMode != BlendMode.Opaque;
@@ -414,10 +449,20 @@ namespace BSPConvert.Lib.GoldSrc
 						vmt.AppendLine(CultureInfo.InvariantCulture, $"\t\"$color\" \"[{amount:0.###} {amount:0.###} {amount:0.###}]\"");
 					break;
 			}
-			if (animated || scrollSpeed != 0f)
+			if (animated || scrollSpeed != 0f || toggled)
 			{
 				vmt.AppendLine("\t\"Proxies\"");
 				vmt.AppendLine("\t{");
+				if (toggled)
+				{
+					// The frame index wraps, so env_texturetoggle's IncrementTextureIndex flips between the frames
+					vmt.AppendLine("\t\t\"ToggleTexture\"");
+					vmt.AppendLine("\t\t{");
+					vmt.AppendLine("\t\t\t\"toggleTextureVar\" \"$basetexture\"");
+					vmt.AppendLine("\t\t\t\"toggleTextureFrameNumVar\" \"$frame\"");
+					vmt.AppendLine("\t\t\t\"toggleShouldWrap\" \"1\"");
+					vmt.AppendLine("\t\t}");
+				}
 				if (animated)
 				{
 					vmt.AppendLine("\t\t\"AnimatedTexture\"");

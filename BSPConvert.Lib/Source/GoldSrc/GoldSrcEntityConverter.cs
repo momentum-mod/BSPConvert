@@ -157,8 +157,13 @@ namespace BSPConvert.Lib.GoldSrc
 		private Dictionary<string, bool> multisourceGlobalStates;
 		// Doors and buttons whose master isn't triggered when they spawn, locked once their spawnflags are converted
 		private readonly HashSet<Entity> startLocked = new HashSet<Entity>();
-		// Entities given a name so their master can lock them, which GoldSrc didn't name
-		private readonly HashSet<Entity> namedForMaster = new HashSet<Entity>();
+		// Entities the conversion gave a name (so their master can lock them, or their textures can switch), which
+		// GoldSrc didn't name
+		private readonly HashSet<Entity> addedNames = new HashSet<Entity>();
+		// Whether a brush entity's faces have alternate textures (see AddTextureToggles)
+		private Func<Entity, bool> hasAlternateTextures = _ => false;
+		// The env_texturetoggle switching the textures of the entities with each name
+		private readonly Dictionary<string, string> textureToggles = new Dictionary<string, string>();
 		private int outputCount;
 
 		// A multisource: its inputs (the entities that target it, in the order the engine registers them) and the
@@ -184,9 +189,11 @@ namespace BSPConvert.Lib.GoldSrc
 		// its Use did. Entities that only exist to fire targets (multi_manager, trigger_relay, trigger_auto) become
 		// the Source logic entities that fire outputs. Needs every entity's GoldSrc keyvalues, so it runs before
 		// Convert.
-		public void ConvertTargets(List<Entity> entities)
+		// hasAlternateTextures tells whether a brush entity's faces have alternate textures (see AddTextureToggles).
+		public void ConvertTargets(List<Entity> entities, Func<Entity, bool> hasAlternateTextures)
 		{
 			this.entities = entities;
+			this.hasAlternateTextures = hasAlternateTextures;
 			targetsByName = entities
 				.Where(entity => !string.IsNullOrEmpty(entity["targetname"]))
 				.ToLookup(entity => entity["targetname"], entity => (entity, entity.ClassName));
@@ -196,9 +203,12 @@ namespace BSPConvert.Lib.GoldSrc
 				.ToDictionary(group => group.Key, group => group.Select(entity => entity["m_iszNewTarget"]).Distinct().ToList());
 			entitiesWithTargetRelays.Clear();
 			startLocked.Clear();
-			namedForMaster.Clear();
+			addedNames.Clear();
+			textureToggles.Clear();
+			TextureToggleEntities.Clear();
 			outputCount = 0;
 			FindMultisources();
+			AddTextureToggles();
 
 			// Converting adds the relays for changeable targets to the list
 			foreach (var entity in entities.ToList())
@@ -218,6 +228,7 @@ namespace BSPConvert.Lib.GoldSrc
 					case "func_rot_button":
 						// Fired once the button is pressed in, and toggle buttons fire again once they're back out
 						AddButtonReturnOutputs(entity);
+						AddTextureToggleOutputs(entity, gsFlags);
 						AddTargetOutputs(entity, "OnIn", UseType.Toggle);
 						if ((gsFlags & SF_BUTTON_TOGGLE) != 0)
 							AddTargetOutputs(entity, "OnOut", UseType.Toggle);
@@ -437,7 +448,7 @@ namespace BSPConvert.Lib.GoldSrc
 				if (string.IsNullOrEmpty(user["targetname"]))
 				{
 					user["targetname"] = FormattableString.Invariant($"{name}__user{i}");
-					namedForMaster.Add(user);
+					addedNames.Add(user);
 				}
 
 				AddOutput(entity, "OnAllTrue", user["targetname"], unlockInput!, "", 0f, -1);
@@ -483,6 +494,66 @@ namespace BSPConvert.Lib.GoldSrc
 		}
 
 		// A button that returns uses the multisources it targets again (ButtonBackHome)
+		// The brush entities whose textures switch between their primary and alternate frames (see AddTextureToggles)
+		public HashSet<Entity> TextureToggleEntities { get; } = new HashSet<Entity>();
+
+		// Brush entities draw a texture's alternate frames ("+a" for "+0" and back) while their frame is 1, which buttons
+		// set while they're pressed in and func_walls toggle when they're used. Source draws the frame of a material's
+		// texture that the entity's texture frame index picks (the ToggleTexture proxy), which env_texturetoggle sets.
+		// So each of those entities whose faces have alternate textures gets an env_texturetoggle, named after it
+		// (buttons without a name get one). func_walls without a name can't be used, so they never switch.
+		private void AddTextureToggles()
+		{
+			for (var i = 0; i < entities.Count; i++)
+			{
+				var entity = entities[i];
+				var isButton = entity.ClassName is "func_button" or "func_rot_button";
+				if ((!isButton && entity.ClassName != "func_wall") || !hasAlternateTextures(entity))
+					continue;
+
+				if (string.IsNullOrEmpty(entity["targetname"]))
+				{
+					if (!isButton)
+						continue;
+
+					entity["targetname"] = FormattableString.Invariant($"__button{i}");
+					addedNames.Add(entity);
+				}
+
+				TextureToggleEntities.Add(entity);
+				var name = entity["targetname"];
+				if (textureToggles.ContainsKey(name))
+					continue;
+
+				var textureToggle = new Entity();
+				textureToggle.ClassName = "env_texturetoggle";
+				textureToggle["targetname"] = name + "__texture";
+				textureToggle["target"] = name;
+				entities.Add(textureToggle);
+				textureToggles[name] = textureToggle["targetname"];
+			}
+		}
+
+		// A button switches to its alternate textures once it's pressed in, and back once it starts moving out: "wait"
+		// seconds later (1 if it's 0), or for a toggle button when it's pressed again (approximated by when it's back
+		// out). A button that stays pushed (a wait of -1) never switches back.
+		private void AddTextureToggleOutputs(Entity button, int gsFlags)
+		{
+			if (!TextureToggleEntities.Contains(button) || !textureToggles.TryGetValue(button["targetname"], out var textureToggle))
+				return;
+
+			AddOutput(button, "OnIn", textureToggle, "SetTextureIndex", "1", 0f, -1);
+
+			var wait = TryParseFloat(button["wait"], out var parsedWait) ? parsedWait : 0f;
+			if (wait == -1f)
+				return;
+
+			if ((gsFlags & SF_BUTTON_TOGGLE) != 0)
+				AddOutput(button, "OnOut", textureToggle, "SetTextureIndex", "0", 0f, -1);
+			else
+				AddOutput(button, "OnIn", textureToggle, "SetTextureIndex", "0", wait == 0f ? 1f : wait, -1);
+		}
+
 		private void AddButtonReturnOutputs(Entity button)
 		{
 			var targetName = button["target"];
@@ -641,6 +712,18 @@ namespace BSPConvert.Lib.GoldSrc
 		{
 			switch (gsClassName)
 			{
+				case "func_wall":
+					// Switches its textures between their primary and alternate frames
+					if (textureToggles.TryGetValue(target["targetname"], out var textureToggle))
+					{
+						yield return useType switch
+						{
+							UseType.On => (textureToggle, "SetTextureIndex", "1"),
+							UseType.Off => (textureToggle, "SetTextureIndex", "0"),
+							_ => (textureToggle, "IncrementTextureIndex", ""),
+						};
+					}
+					yield break;
 				case "multisource":
 					// Turns the caller's input on or off, whatever it's used with
 					if (GetMultisourceInputBranch(target, caller) is string branch)
@@ -930,7 +1013,7 @@ namespace BSPConvert.Lib.GoldSrc
 
 		private bool IsNamedInGoldSrc(Entity entity)
 		{
-			return !string.IsNullOrEmpty(entity["targetname"]) && !namedForMaster.Contains(entity);
+			return !string.IsNullOrEmpty(entity["targetname"]) && !addedNames.Contains(entity);
 		}
 
 		private void LockIfMasterOff(Entity entity, int lockedFlag)
