@@ -836,6 +836,7 @@ namespace BSPConvert.Lib.GoldSrc
 		private void FindSounds()
 		{
 			var missing = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+			var resampled = 0;
 			foreach (var entity in sourceBsp.Entities)
 			{
 				if (!SoundKeys.TryGetValue(entity.ClassName, out var keys))
@@ -853,7 +854,7 @@ namespace BSPConvert.Lib.GoldSrc
 						continue;
 
 					if (assetFinder.Find("sound/" + sound) is string file)
-						soundFiles[sound] = file;
+						soundFiles[sound] = ResampleIfNeeded(sound, file, ref resampled);
 					else
 						missing.Add(sound);
 				}
@@ -861,8 +862,25 @@ namespace BSPConvert.Lib.GoldSrc
 
 			if (soundFiles.Count + missing.Count > 0)
 				logger.Log($"Found {soundFiles.Count}/{soundFiles.Count + missing.Count} sounds");
+			if (resampled > 0)
+				logger.Log($"Resampled {resampled} sounds to sample rates Source plays");
 			if (missing.Count > 0)
 				logger.Log($"Warning: Sounds not found (pass the folder of the mod that has them with --wads): {string.Join(", ", missing)}");
+		}
+
+		// The file to embed for a sound: a copy resampled under the content directory if Source can't play its sample
+		// rate (see GoldSrcWave), or else the sound itself
+		private string ResampleIfNeeded(string sound, string file, ref int resampled)
+		{
+			if (!GoldSrcWave.NeedsResampling(file))
+				return file;
+
+			var resampledFile = Path.Combine(contentManager.ContentDir, "_resampled_sounds", sound.Replace('/', Path.DirectorySeparatorChar));
+			if (!GoldSrcWave.Resample(file, resampledFile))
+				return file;
+
+			resampled++;
+			return resampledFile;
 		}
 
 		private const int SF_SPRITE_STARTON = 1;
