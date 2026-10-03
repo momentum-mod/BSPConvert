@@ -46,11 +46,7 @@ namespace BSPConvert.Lib
 			if (!LoadLightGrid())
 				return;
 
-			// TODO: support MapType.Source20
-			SetLumpVersionNumber(LeafAmbientLighting.GetIndexForLump(sourceBsp.MapType), 1);
-			SetLumpVersionNumber(LeafAmbientLighting.GetIndexForHDRLump(sourceBsp.MapType), 1);
-			SetLumpVersionNumber(LeafAmbientIndex.GetIndexForLump(sourceBsp.MapType), 1);
-			SetLumpVersionNumber(LeafAmbientIndex.GetIndexForHDRLump(sourceBsp.MapType), 1);
+			LeafAmbientLightingWriter.SetLumpVersions(sourceBsp);
 
 			// TODO: handle too many leaf samples
 			var leafSamples = BuildLeafSamples();
@@ -58,8 +54,7 @@ namespace BSPConvert.Lib
 			if (!leafSamples.Any(x => x.Count > 0))
 				return;
 
-			var nearestLitLeaves = FindNearestLitLeaves(leafSamples);
-			WriteAmbientLumps(leafSamples, nearestLitLeaves);
+			LeafAmbientLightingWriter.Write(sourceBsp, leafSamples);
 		}
 
 		// see: R_LoadLightGrid
@@ -144,7 +139,6 @@ namespace BSPConvert.Lib
 
 		private List<List<LeafAmbientLighting>> BuildLeafSamples()
 		{
-			var lightingLump = sourceBsp.LeafAmbientLighting;
 			var leafSamples = new List<List<LeafAmbientLighting>>(sourceBsp.Leaves.Count);
 
 			for (var i = 0; i < sourceBsp.Leaves.Count; i++)
@@ -178,13 +172,7 @@ namespace BSPConvert.Lib
 							if (!SampleGrid(position, out var ambient, out var directed, out var lightDir))
 								continue;
 
-							var data = new byte[LeafAmbientLighting.GetStructLength(sourceBsp.MapType, lightingLump.LumpInfo.version)];
-							var sample = new LeafAmbientLighting(data, lightingLump)
-							{
-								X = (byte)(x * 255f + 0.5f),
-								Y = (byte)(y * 255f + 0.5f),
-								Z = (byte)(z * 255f + 0.5f)
-							};
+							var sample = LeafAmbientLightingWriter.CreateSample(sourceBsp, x, y, z);
 							SetAmbientCube(sample, ambient, directed, lightDir);
 							samples.Add(sample);
 						}
@@ -354,92 +342,6 @@ namespace BSPConvert.Lib
 				sample.SetColor(i, Color.FromArgb(color.r, color.g, color.b));
 				sample.SetExponent(i, color.exponent);
 			}
-		}
-
-		private int[] FindNearestLitLeaves(List<List<LeafAmbientLighting>> leafSamples)
-		{
-			var litLeaves = new List<(int index, Vector3 center)>();
-			for (var i = 1; i < leafSamples.Count; i++)
-			{
-				if (leafSamples[i].Count > 0)
-				{
-					var leaf = sourceBsp.Leaves[i];
-					litLeaves.Add((i, (leaf.Minimums + leaf.Maximums) * 0.5f));
-				}
-			}
-
-			var nearestLitLeaves = new int[leafSamples.Count];
-			for (var i = 1; i < leafSamples.Count; i++)
-			{
-				if (leafSamples[i].Count > 0 || litLeaves.Count == 0)
-					continue;
-
-				var leaf = sourceBsp.Leaves[i];
-				var center = (leaf.Minimums + leaf.Maximums) * 0.5f;
-
-				var bestDistSq = float.MaxValue;
-				foreach (var (index, litCenter) in litLeaves)
-				{
-					var distSq = (litCenter - center).LengthSquared();
-					if (distSq < bestDistSq)
-					{
-						bestDistSq = distSq;
-						nearestLitLeaves[i] = index;
-					}
-				}
-			}
-
-			return nearestLitLeaves;
-		}
-
-		private void WriteAmbientLumps(List<List<LeafAmbientLighting>> leafSamples, int[] nearestLitLeaves)
-		{
-			var lighting = sourceBsp.LeafAmbientLighting;
-			var lightingHDR = sourceBsp.LeafAmbientLightingHDR;
-			var indices = sourceBsp.LeafAmbientIndices;
-			var indicesHDR = sourceBsp.LeafAmbientIndicesHDR;
-
-			var sampleOffset = 0;
-			for (var i = 0; i < leafSamples.Count; i++)
-			{
-				var samples = leafSamples[i];
-
-				int count;
-				int firstSample;
-				if (samples.Count > 0)
-				{
-					count = samples.Count;
-					firstSample = sampleOffset;
-					sampleOffset += count;
-
-					foreach (var sample in samples)
-					{
-						lighting.Add(sample);
-						lightingHDR.Add(new LeafAmbientLighting(sample, lightingHDR));
-					}
-				}
-				else
-				{
-					count = 0;
-					firstSample = nearestLitLeaves[i];
-				}
-
-				var data = new byte[LeafAmbientIndex.GetStructLength(sourceBsp.MapType, indices.LumpInfo.version)];
-				var index = new LeafAmbientIndex(data, indices)
-				{
-					AmbientSampleCount = (uint)count,
-					FirstAmbientSample = (uint)firstSample
-				};
-				indices.Add(index);
-				indicesHDR.Add(new LeafAmbientIndex(index, indicesHDR));
-			}
-		}
-
-		private void SetLumpVersionNumber(int lumpIndex, int lumpVersion)
-		{
-			var lumpInfo = sourceBsp[lumpIndex];
-			lumpInfo.version = lumpVersion;
-			sourceBsp[lumpIndex] = lumpInfo;
 		}
 	}
 }
