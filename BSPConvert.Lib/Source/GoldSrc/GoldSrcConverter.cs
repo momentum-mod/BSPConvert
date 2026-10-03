@@ -86,8 +86,8 @@ namespace BSPConvert.Lib.GoldSrc
 		private readonly Dictionary<int, int> noDrawTexInfos = new Dictionary<int, int>();
 
 		// A converted material: the material whose VTF it draws (itself, or an animation's first frame), that
-		// texture, and whether it animates
-		private record ConvertedMaterial(string VtfMaterial, MipTexture Texture, bool Animated);
+		// texture, and how the VTF animates
+		private record ConvertedMaterial(string VtfMaterial, MipTexture Texture, TextureAnimation Animation);
 
 		// How a brush entity draws its faces: blended by its rendermode (Amount is renderamt as 0-1), scrolling its
 		// "scroll" textures at ScrollSpeed texels per second, and switching textures to their alternate frames when the
@@ -433,10 +433,10 @@ namespace BSPConvert.Lib.GoldSrc
 				return toggled;
 
 			toggled = null;
-			if (convertedMaterials.TryGetValue(GetMaterialName(mipTexName), out var primary) && !primary.Animated &&
-				convertedMaterials.TryGetValue(GetMaterialName(alternateName), out var alternate) && !alternate.Animated &&
+			if (convertedMaterials.TryGetValue(GetMaterialName(mipTexName), out var primary) && primary.Animation == TextureAnimation.None &&
+				convertedMaterials.TryGetValue(GetMaterialName(alternateName), out var alternate) && alternate.Animation == TextureAnimation.None &&
 				materialConverter.ConvertToggled(vtfMaterial, primary.Texture, alternate.Texture))
-				toggled = new ConvertedMaterial(vtfMaterial, primary.Texture, false);
+				toggled = new ConvertedMaterial(vtfMaterial, primary.Texture, TextureAnimation.None);
 
 			toggledTextures[vtfMaterial] = toggled;
 			return toggled;
@@ -496,6 +496,8 @@ namespace BSPConvert.Lib.GoldSrc
 			var texInfo = gs.TexInfos[texInfoIndex];
 			var uAxis = new Vector3(texInfo.s.X, texInfo.s.Y, texInfo.s.Z);
 			var vAxis = new Vector3(texInfo.t.X, texInfo.t.Y, texInfo.t.Z);
+			// GoldSrc ignores water's texture offset (R_TextureCoord)
+			var textureOffset = GoldSrcMaterialConverter.IsTurbulent(GetMipTexName(texInfo)) ? Vector2.Zero : new Vector2(texInfo.s.W, texInfo.t.W);
 
 			// GoldSrc lightmaps have one luxel per 16 texels
 			return builder.AddTextureInfo(
@@ -504,7 +506,7 @@ namespace BSPConvert.Lib.GoldSrc
 				GetSurfaceFlags(texInfo, GetMipTexName(texInfo)) | extraSurfaceFlags,
 				textureDataIndex,
 				materialName,
-				new Vector2(texInfo.s.W, texInfo.t.W),
+				textureOffset,
 				new Vector2(texInfo.s.W / LightmapLuxelSize, texInfo.t.W / LightmapLuxelSize));
 		}
 
@@ -542,7 +544,7 @@ namespace BSPConvert.Lib.GoldSrc
 				var material = baseMaterial + GetStyleSuffix(style);
 				if (!convertedMaterials.ContainsKey(material))
 				{
-					materialConverter.WriteVariant(material, converted.VtfMaterial, converted.Texture, converted.Animated, style.Mode, style.Amount,
+					materialConverter.WriteVariant(material, converted.VtfMaterial, converted.Texture, converted.Animation, style.Mode, style.Amount,
 						style.ScrollSpeed, toggled != null);
 					convertedMaterials[material] = converted;
 				}
@@ -683,8 +685,10 @@ namespace BSPConvert.Lib.GoldSrc
 				if (convertedMaterials.ContainsKey(materialName) || ConvertAnimation(name))
 					continue;
 
-				if (materialConverter.Convert(materialName, texture))
-					convertedMaterials[materialName] = new ConvertedMaterial(materialName, texture, false);
+				// Water's warp is baked into its texture
+				var isWater = GoldSrcMaterialConverter.IsTurbulent(name);
+				if (isWater ? materialConverter.ConvertWarped(materialName, texture) : materialConverter.Convert(materialName, texture))
+					convertedMaterials[materialName] = new ConvertedMaterial(materialName, texture, isWater ? TextureAnimation.Warp : TextureAnimation.None);
 				else
 					logger.Log($"Warning: Failed to convert texture {texture.Name}");
 			}
@@ -736,7 +740,7 @@ namespace BSPConvert.Lib.GoldSrc
 			}
 
 			foreach (var frameMaterial in frameMaterials)
-				convertedMaterials[frameMaterial] = new ConvertedMaterial(frameMaterials[0], frames[0], true);
+				convertedMaterials[frameMaterial] = new ConvertedMaterial(frameMaterials[0], frames[0], TextureAnimation.Sequence);
 
 			return true;
 		}

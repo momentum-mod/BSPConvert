@@ -17,6 +17,16 @@ namespace BSPConvert.Lib.GoldSrc
 		Additive
 	}
 
+	// How a converted texture's VTF animates
+	public enum TextureAnimation
+	{
+		None,
+		// An animated texture sequence, played at GoldSrc's 10 frames per second
+		Sequence,
+		// Baked water warp (see GoldSrcMaterialConverter.ConvertWarped)
+		Warp
+	}
+
 	// Converts GoldSrc miptextures to a VTF and VMT each, written under the content directory as
 	// <contentDir>/<materialName>.vtf/.vmt (the layout SourceBspBuilder reads texdata from).
 	public class GoldSrcMaterialConverter
@@ -25,6 +35,18 @@ namespace BSPConvert.Lib.GoldSrc
 		private const byte TransparentIndex = 255;
 		// GoldSrc advances animated textures at a fixed 10 frames per second
 		private const int AnimationFrameRate = 10;
+
+		// GoldSrc maps water textures to repeat every 64 texels whatever their size, and ignores the face's texture
+		// offset (R_TextureCoord)
+		private const int WaterRepeatSize = 64;
+		// How far water warps, in repeats: 8 texels (EmitWaterPolys)
+		private const float WarpAmplitude = 8f / WaterRepeatSize;
+		// The baked warp's texture is this many repeats wide and high (see ConvertWarped)
+		private const int WarpRepeats = 4;
+		// Frames baked per phase step, which play at about 10 frames per second
+		private const int WarpFrames = 16;
+		// Larger textures are scaled down to this size per repeat, which keeps a baked warp's VTF to a few MB
+		private const int MaxWarpRepeatSize = 128;
 
 		private static readonly VTF.CreationOptions VtfOptions = new VTF.CreationOptions
 		{
@@ -90,8 +112,135 @@ namespace BSPConvert.Lib.GoldSrc
 				return false;
 
 			writtenFiles.Add(vtfPath);
-			WriteVmt(materialName, materialName, texture, isAlphaTested, animated: false);
+			WriteVmt(materialName, materialName, texture, isAlphaTested, TextureAnimation.None);
 			return true;
+		}
+
+		// A water texture with GoldSrc's warp baked into its frames. GoldSrc warps water as it draws it, moving each
+		// vertex's texture coordinates to s + 8 sin(t / 8 + time) and t + 8 sin(s / 8 + time) (EmitWaterPolys), but only at
+		// the vertices of the 64 unit grid it cuts water faces into (GL_SubdivideSurface), so the warp is linear in
+		// between, and its phase steps by 8 radians from one grid line to the next. On a texture at scale 1 the grid lines
+		// are a repeat apart, so the rows of repeat j shift sideways by 8 sin(8j + time) texels, the columns of repeat i
+		// shift by 8 sin(8i + time), and the shift is linear in between.
+		// The baked texture is WarpRepeats repeats wide and high, so its phase steps by 2π / WarpRepeats (π/2, near 8
+		// radians less 2π) per repeat and it tiles. Moving the time on by a phase step moves the warp by a repeat
+		// diagonally, so only one step's frames are baked, and the material moves them a repeat at a time (see
+		// CreateVmt).
+		// TODO: Textures at other scales, whose grid lines aren't a repeat apart, and func_water's waves (its scale),
+		// which move the vertices up and down
+		public bool ConvertWarped(string materialName, MipTexture texture)
+		{
+			var isAlphaTested = IsAlphaTested(texture.Name);
+			var pixels = DecodeRGBA(texture, isAlphaTested);
+			var repeatWidth = Math.Min(texture.Width, MaxWarpRepeatSize);
+			var repeatHeight = Math.Min(texture.Height, MaxWarpRepeatSize);
+			var width = (ushort)(repeatWidth * WarpRepeats);
+			var height = (ushort)(repeatHeight * WarpRepeats);
+			var vtfPath = GetBasePath(materialName) + ".vtf";
+
+			using (var vtf = new VTF())
+			{
+				vtf.Version = VtfOptions.Version;
+				vtf.ImageWidthResizeMethod = VtfOptions.WidthResizeMethod;
+				vtf.ImageHeightResizeMethod = VtfOptions.HeightResizeMethod;
+				for (var frame = 0; frame < WarpFrames; frame++)
+				{
+					// The first frame sets the size the frames are allocated with
+					var framePixels = BakeWarpFrame(pixels, texture.Width, texture.Height, repeatWidth, repeatHeight, frame);
+					if (!vtf.SetImage(framePixels, ImageFormat.RGBA8888, width, height, frame: (ushort)frame) ||
+						(frame == 0 && !vtf.SetFrameCount(WarpFrames)))
+						return false;
+				}
+
+				vtf.ComputeReflectivity();
+				vtf.SetRecommendedMipCount();
+				vtf.ComputeMips();
+				vtf.SetFormat(VtfOptions.OutputFormat);
+				vtf.ComputeTransparencyFlags();
+				if (!vtf.Bake(vtfPath))
+					return false;
+			}
+
+			writtenFiles.Add(vtfPath);
+			WriteVmt(materialName, materialName, texture, isAlphaTested, TextureAnimation.Warp);
+			return true;
+		}
+
+		// One frame of the warp (see ConvertWarped), WarpRepeats by WarpRepeats repeats of repeatWidth by repeatHeight
+		// texels each
+		private static byte[] BakeWarpFrame(byte[] pixels, int textureWidth, int textureHeight, int repeatWidth, int repeatHeight, int frame)
+		{
+			var phaseStep = 2f * MathF.PI / WarpRepeats;
+			var time = phaseStep * frame / WarpFrames;
+
+			// How far each grid line shifts, in repeats, with the first repeated past the end to interpolate to
+			var lineShifts = new float[WarpRepeats + 1];
+			for (var i = 0; i <= WarpRepeats; i++)
+				lineShifts[i] = WarpAmplitude * MathF.Sin(phaseStep * i + time);
+
+			// A texture scaled down averages the texels each of its texels covers
+			var samplesX = (textureWidth + repeatWidth - 1) / repeatWidth;
+			var samplesY = (textureHeight + repeatHeight - 1) / repeatHeight;
+			var width = repeatWidth * WarpRepeats;
+			var height = repeatHeight * WarpRepeats;
+			var result = new byte[width * height * 4];
+			Span<float> sum = stackalloc float[4];
+			Span<float> sample = stackalloc float[4];
+			for (var y = 0; y < height; y++)
+			{
+				for (var x = 0; x < width; x++)
+				{
+					sum.Clear();
+					for (var sy = 0; sy < samplesY; sy++)
+					{
+						for (var sx = 0; sx < samplesX; sx++)
+						{
+							// Where the texel is, in repeats, and where the warp moves it to
+							var u = (x + (sx + 0.5f) / samplesX) / repeatWidth;
+							var v = (y + (sy + 0.5f) / samplesY) / repeatHeight;
+							var warpedU = u + InterpolateLineShift(lineShifts, v);
+							var warpedV = v + InterpolateLineShift(lineShifts, u);
+							SampleBilinear(pixels, textureWidth, textureHeight, warpedU * textureWidth, warpedV * textureHeight, sample);
+							for (var c = 0; c < 4; c++)
+								sum[c] += sample[c];
+						}
+					}
+
+					var samples = samplesX * samplesY;
+					for (var c = 0; c < 4; c++)
+						result[(y * width + x) * 4 + c] = (byte)Math.Clamp((int)MathF.Round(sum[c] / samples), 0, 255);
+				}
+			}
+
+			return result;
+		}
+
+		// The shift between the grid lines either side of a position in repeats
+		private static float InterpolateLineShift(float[] lineShifts, float position)
+		{
+			var line = Math.Clamp((int)position, 0, WarpRepeats - 1);
+			return lineShifts[line] + (lineShifts[line + 1] - lineShifts[line]) * (position - line);
+		}
+
+		// Bilinearly filters a tiling RGBA image at a position in texels
+		private static void SampleBilinear(byte[] pixels, int width, int height, float x, float y, Span<float> result)
+		{
+			x -= 0.5f;
+			y -= 0.5f;
+			var x0 = (int)MathF.Floor(x);
+			var y0 = (int)MathF.Floor(y);
+			var fx = x - x0;
+			var fy = y - y0;
+			x0 = ((x0 % width) + width) % width;
+			y0 = ((y0 % height) + height) % height;
+			var x1 = (x0 + 1) % width;
+			var y1 = (y0 + 1) % height;
+			for (var c = 0; c < 4; c++)
+			{
+				var top = pixels[(y0 * width + x0) * 4 + c] * (1f - fx) + pixels[(y0 * width + x1) * 4 + c] * fx;
+				var bottom = pixels[(y1 * width + x0) * 4 + c] * (1f - fx) + pixels[(y1 * width + x1) * 4 + c] * fx;
+				result[c] = top * (1f - fy) + bottom * fy;
+			}
 		}
 
 		// An animated texture sequence ("+0name", "+1name", ...): the frames go into one VTF stored under the first
@@ -132,7 +281,7 @@ namespace BSPConvert.Lib.GoldSrc
 
 			writtenFiles.Add(vtfPath);
 			foreach (var materialName in frameMaterialNames)
-				WriteVmt(materialName, vtfMaterialName, first, isAlphaTested, animated: true);
+				WriteVmt(materialName, vtfMaterialName, first, isAlphaTested, TextureAnimation.Sequence);
 
 			return true;
 		}
@@ -304,7 +453,7 @@ namespace BSPConvert.Lib.GoldSrc
 			return textureName.Length > 2 && (textureName[0] == '+' || textureName[0] == '-') ? textureName.Substring(2) : textureName;
 		}
 
-		// Textures the engine draws as warped, unlit liquid (SURF_DRAWTURB)
+		// Textures the engine draws as warped, unlit liquid (SURF_DRAWTURB). Animated textures ("+0water") aren't.
 		public static bool IsTurbulent(string textureName)
 		{
 			return textureName.StartsWith('!') ||
@@ -320,17 +469,17 @@ namespace BSPConvert.Lib.GoldSrc
 		// A material drawing an already converted texture (vtfMaterialName's VTF) the way a brush entity does: blended
 		// by its rendermode (amount is its renderamt as 0-1), scrolling at scrollSpeed, a func_conveyor's speed, and if
 		// toggled, drawing the frame of the VTF (see ConvertToggled) that the entity's texture frame index picks
-		public void WriteVariant(string materialName, string vtfMaterialName, MipTexture texture, bool animated, BlendMode blendMode, float amount,
-			float scrollSpeed, bool toggled)
+		public void WriteVariant(string materialName, string vtfMaterialName, MipTexture texture, TextureAnimation animation, BlendMode blendMode,
+			float amount, float scrollSpeed, bool toggled)
 		{
-			WriteVmt(materialName, vtfMaterialName, texture, IsAlphaTested(texture.Name), animated, blendMode, amount, scrollSpeed, toggled);
+			WriteVmt(materialName, vtfMaterialName, texture, IsAlphaTested(texture.Name), animation, blendMode, amount, scrollSpeed, toggled);
 		}
 
-		private void WriteVmt(string materialName, string baseTexture, MipTexture texture, bool isAlphaTested, bool animated,
+		private void WriteVmt(string materialName, string baseTexture, MipTexture texture, bool isAlphaTested, TextureAnimation animation,
 			BlendMode blendMode = BlendMode.Opaque, float amount = 1f, float scrollSpeed = 0f, bool toggled = false)
 		{
 			var vmtPath = GetBasePath(materialName) + ".vmt";
-			File.WriteAllText(vmtPath, CreateVmt(baseTexture, texture, isAlphaTested, animated, blendMode, amount, scrollSpeed, toggled));
+			File.WriteAllText(vmtPath, CreateVmt(baseTexture, texture, isAlphaTested, animation, blendMode, amount, scrollSpeed, toggled));
 			writtenFiles.Add(vmtPath);
 		}
 
@@ -414,20 +563,29 @@ namespace BSPConvert.Lib.GoldSrc
 			while (newlyFilled.Count > 0);
 		}
 
-		private static string CreateVmt(string baseTexture, MipTexture texture, bool isAlphaTested, bool animated, BlendMode blendMode, float amount,
-			float scrollSpeed, bool toggled)
+		private static string CreateVmt(string baseTexture, MipTexture texture, bool isAlphaTested, TextureAnimation animation, BlendMode blendMode,
+			float amount, float scrollSpeed, bool toggled)
 		{
 			// Water isn't lightmapped in GoldSrc, and neither are translucent or additive brush entities
-			var isUnlit = IsTurbulent(GetBaseName(texture.Name)) || blendMode != BlendMode.Opaque;
+			var isTurbulent = IsTurbulent(texture.Name);
+			var isUnlit = isTurbulent || blendMode != BlendMode.Opaque;
 			var shader = isUnlit ? "UnlitGeneric" : "LightmappedGeneric";
 
 			var vmt = new StringBuilder();
 			vmt.AppendLine(CultureInfo.InvariantCulture, $"\"{shader}\"");
 			vmt.AppendLine("{");
 			vmt.AppendLine(CultureInfo.InvariantCulture, $"\t\"$basetexture\" \"{baseTexture}\"");
-			// Texture coordinates are in texels of the original texture
-			vmt.AppendLine(CultureInfo.InvariantCulture, $"\t\"$mappingwidth\" \"{texture.Width}\"");
-			vmt.AppendLine(CultureInfo.InvariantCulture, $"\t\"$mappingheight\" \"{texture.Height}\"");
+			// Texture coordinates are in texels of the original texture, apart from water's (see WaterRepeatSize), and
+			// a baked warp's texture is several repeats
+			var mappingWidth = isTurbulent ? WaterRepeatSize : texture.Width;
+			var mappingHeight = isTurbulent ? WaterRepeatSize : texture.Height;
+			if (animation == TextureAnimation.Warp)
+			{
+				mappingWidth *= WarpRepeats;
+				mappingHeight *= WarpRepeats;
+			}
+			vmt.AppendLine(CultureInfo.InvariantCulture, $"\t\"$mappingwidth\" \"{mappingWidth}\"");
+			vmt.AppendLine(CultureInfo.InvariantCulture, $"\t\"$mappingheight\" \"{mappingHeight}\"");
 			switch (blendMode)
 			{
 				case BlendMode.Opaque:
@@ -449,10 +607,21 @@ namespace BSPConvert.Lib.GoldSrc
 						vmt.AppendLine(CultureInfo.InvariantCulture, $"\t\"$color\" \"[{amount:0.###} {amount:0.###} {amount:0.###}]\"");
 					break;
 			}
-			if (animated || scrollSpeed != 0f || toggled)
+			if (animation == TextureAnimation.Warp)
+			{
+				vmt.AppendLine(CultureInfo.InvariantCulture, $"\t\"$warpframes\" \"{WarpFrames}\"");
+				vmt.AppendLine(CultureInfo.InvariantCulture, $"\t\"$warprepeats\" \"{WarpRepeats}\"");
+				vmt.AppendLine("\t\"$warpoffset\" \"[0 0]\"");
+				// Proxies only write variables the material has, and do float math on float ones
+				foreach (var variable in WarpFloatVariables)
+					vmt.AppendLine(CultureInfo.InvariantCulture, $"\t\"{variable}\" \"0.0\"");
+			}
+			if (animation != TextureAnimation.None || scrollSpeed != 0f || toggled)
 			{
 				vmt.AppendLine("\t\"Proxies\"");
 				vmt.AppendLine("\t{");
+				if (animation == TextureAnimation.Warp)
+					AppendWarpProxies(vmt);
 				if (toggled)
 				{
 					// The frame index wraps, so env_texturetoggle's IncrementTextureIndex flips between the frames
@@ -463,7 +632,7 @@ namespace BSPConvert.Lib.GoldSrc
 					vmt.AppendLine("\t\t\t\"toggleShouldWrap\" \"1\"");
 					vmt.AppendLine("\t\t}");
 				}
-				if (animated)
+				if (animation == TextureAnimation.Sequence)
 				{
 					vmt.AppendLine("\t\t\"AnimatedTexture\"");
 					vmt.AppendLine("\t\t{");
@@ -488,6 +657,37 @@ namespace BSPConvert.Lib.GoldSrc
 			vmt.AppendLine("}");
 
 			return vmt.ToString();
+		}
+
+		// Plays a baked warp (see ConvertWarped): the time counts phase steps, the fraction of the current step picks
+		// the frame, and the texture moves by a repeat diagonally per step, wrapping after WarpRepeats of them. The
+		// frame and offset both come from the same step count, so they change together.
+		private static readonly string[] WarpFloatVariables = { "$warpstep", "$warpstepint", "$warpstepfrac", "$warpframe", "$warpcycle" };
+
+		private static void AppendWarpProxies(StringBuilder vmt)
+		{
+			var stepsPerSecond = WarpRepeats / (2f * MathF.PI);
+			AppendProxy(vmt, "LinearRamp", ("rate", stepsPerSecond.ToString("0.######", CultureInfo.InvariantCulture)), ("initialValue", "0"),
+				("resultVar", "$warpstep"));
+			AppendProxy(vmt, "Int", ("srcVar1", "$warpstep"), ("resultVar", "$warpstepint"));
+			AppendProxy(vmt, "Subtract", ("srcVar1", "$warpstep"), ("srcVar2", "$warpstepint"), ("resultVar", "$warpstepfrac"));
+			AppendProxy(vmt, "Multiply", ("srcVar1", "$warpstepfrac"), ("srcVar2", "$warpframes"), ("resultVar", "$warpframe"));
+			// The fraction times the frame count can round up to the count
+			AppendProxy(vmt, "Clamp", ("srcVar1", "$warpframe"), ("min", "0"), ("max", (WarpFrames - 1).ToString(CultureInfo.InvariantCulture)),
+				("resultVar", "$frame"));
+			AppendProxy(vmt, "Divide", ("srcVar1", "$warpstepint"), ("srcVar2", "$warprepeats"), ("resultVar", "$warpcycle"));
+			AppendProxy(vmt, "Frac", ("srcVar1", "$warpcycle"), ("resultVar", "$warpoffset[0]"));
+			AppendProxy(vmt, "Frac", ("srcVar1", "$warpcycle"), ("resultVar", "$warpoffset[1]"));
+			AppendProxy(vmt, "TextureTransform", ("translateVar", "$warpoffset"), ("resultVar", "$basetexturetransform"));
+		}
+
+		private static void AppendProxy(StringBuilder vmt, string name, params (string key, string value)[] keys)
+		{
+			vmt.AppendLine(CultureInfo.InvariantCulture, $"\t\t\"{name}\"");
+			vmt.AppendLine("\t\t{");
+			foreach (var (key, value) in keys)
+				vmt.AppendLine(CultureInfo.InvariantCulture, $"\t\t\t\"{key}\" \"{value}\"");
+			vmt.AppendLine("\t\t}");
 		}
 	}
 }
