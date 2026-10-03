@@ -170,18 +170,19 @@ namespace BSPConvert.Lib.GoldSrc
 			return GetBaseName(textureName).StartsWith('{');
 		}
 
-		// A material drawing an already converted texture (vtfMaterialName's VTF) the way a brush entity's rendermode
-		// does, e.g. translucent or additive. amount is the entity's renderamt as 0-1.
-		public void WriteBlendVariant(string materialName, string vtfMaterialName, MipTexture texture, bool animated, BlendMode blendMode, float amount)
+		// A material drawing an already converted texture (vtfMaterialName's VTF) the way a brush entity does: blended
+		// by its rendermode (amount is its renderamt as 0-1) and scrolling at scrollSpeed, a func_conveyor's speed
+		public void WriteVariant(string materialName, string vtfMaterialName, MipTexture texture, bool animated, BlendMode blendMode, float amount,
+			float scrollSpeed)
 		{
-			WriteVmt(materialName, vtfMaterialName, texture, IsAlphaTested(texture.Name), animated, blendMode, amount);
+			WriteVmt(materialName, vtfMaterialName, texture, IsAlphaTested(texture.Name), animated, blendMode, amount, scrollSpeed);
 		}
 
 		private void WriteVmt(string materialName, string baseTexture, MipTexture texture, bool isAlphaTested, bool animated,
-			BlendMode blendMode = BlendMode.Opaque, float amount = 1f)
+			BlendMode blendMode = BlendMode.Opaque, float amount = 1f, float scrollSpeed = 0f)
 		{
 			var vmtPath = GetBasePath(materialName) + ".vmt";
-			File.WriteAllText(vmtPath, CreateVmt(baseTexture, texture, isAlphaTested, animated, blendMode, amount));
+			File.WriteAllText(vmtPath, CreateVmt(baseTexture, texture, isAlphaTested, animated, blendMode, amount, scrollSpeed));
 			writtenFiles.Add(vmtPath);
 		}
 
@@ -265,7 +266,8 @@ namespace BSPConvert.Lib.GoldSrc
 			while (newlyFilled.Count > 0);
 		}
 
-		private static string CreateVmt(string baseTexture, MipTexture texture, bool isAlphaTested, bool animated, BlendMode blendMode, float amount)
+		private static string CreateVmt(string baseTexture, MipTexture texture, bool isAlphaTested, bool animated, BlendMode blendMode, float amount,
+			float scrollSpeed)
 		{
 			// Water isn't lightmapped in GoldSrc, and neither are translucent or additive brush entities
 			var isUnlit = IsTurbulent(GetBaseName(texture.Name)) || blendMode != BlendMode.Opaque;
@@ -299,16 +301,30 @@ namespace BSPConvert.Lib.GoldSrc
 						vmt.AppendLine(CultureInfo.InvariantCulture, $"\t\"$color\" \"[{amount:0.###} {amount:0.###} {amount:0.###}]\"");
 					break;
 			}
-			if (animated)
+			if (animated || scrollSpeed != 0f)
 			{
 				vmt.AppendLine("\t\"Proxies\"");
 				vmt.AppendLine("\t{");
-				vmt.AppendLine("\t\t\"AnimatedTexture\"");
-				vmt.AppendLine("\t\t{");
-				vmt.AppendLine("\t\t\t\"animatedTextureVar\" \"$basetexture\"");
-				vmt.AppendLine("\t\t\t\"animatedTextureFrameNumVar\" \"$frame\"");
-				vmt.AppendLine(CultureInfo.InvariantCulture, $"\t\t\t\"animatedTextureFrameRate\" \"{AnimationFrameRate}\"");
-				vmt.AppendLine("\t\t}");
+				if (animated)
+				{
+					vmt.AppendLine("\t\t\"AnimatedTexture\"");
+					vmt.AppendLine("\t\t{");
+					vmt.AppendLine("\t\t\t\"animatedTextureVar\" \"$basetexture\"");
+					vmt.AppendLine("\t\t\t\"animatedTextureFrameNumVar\" \"$frame\"");
+					vmt.AppendLine(CultureInfo.InvariantCulture, $"\t\t\t\"animatedTextureFrameRate\" \"{AnimationFrameRate}\"");
+					vmt.AppendLine("\t\t}");
+				}
+				if (scrollSpeed != 0f)
+				{
+					// GoldSrc moves the texture coordinates back along S by the speed in texels per second (forward when
+					// the conveyor runs backwards), whatever the texture's scale on the face
+					vmt.AppendLine("\t\t\"TextureScroll\"");
+					vmt.AppendLine("\t\t{");
+					vmt.AppendLine("\t\t\t\"textureScrollVar\" \"$basetexturetransform\"");
+					vmt.AppendLine(CultureInfo.InvariantCulture, $"\t\t\t\"textureScrollRate\" \"{MathF.Abs(scrollSpeed) / texture.Width:0.#####}\"");
+					vmt.AppendLine(CultureInfo.InvariantCulture, $"\t\t\t\"textureScrollAngle\" \"{(scrollSpeed >= 0f ? 180 : 0)}\"");
+					vmt.AppendLine("\t\t}");
+				}
 				vmt.AppendLine("\t}");
 			}
 			vmt.AppendLine("}");

@@ -73,14 +73,22 @@ namespace BSPConvert.Lib.GoldSrc
 		private GoldSrcMaterialConverter materialConverter;
 		private GoldSrcTextureFinder textureFinder;
 		private readonly Dictionary<string, ConvertedMaterial> convertedMaterials = new Dictionary<string, ConvertedMaterial>(StringComparer.OrdinalIgnoreCase);
-		// Brush models whose entity's rendermode blends them (see ConvertRenderMode), and the texinfos made for them
-		private readonly Dictionary<int, (BlendMode mode, float amount)> modelBlendModes = new Dictionary<int, (BlendMode, float)>();
-		private readonly Dictionary<(int texInfo, BlendMode mode, float amount), int> blendTexInfos = new Dictionary<(int, BlendMode, float), int>();
+		// Brush models whose entity draws them differently from the world (see ConvertRenderMode), and the texinfos
+		// made for them
+		private readonly Dictionary<int, SurfaceStyle> modelStyles = new Dictionary<int, SurfaceStyle>();
+		private readonly Dictionary<(int texInfo, SurfaceStyle style), int> styleTexInfos = new Dictionary<(int, SurfaceStyle), int>();
 		private readonly Dictionary<int, int> noDrawTexInfos = new Dictionary<int, int>();
 
 		// A converted material: the material whose VTF it draws (itself, or an animation's first frame), that
 		// texture, and whether it animates
 		private record ConvertedMaterial(string VtfMaterial, MipTexture Texture, bool Animated);
+
+		// How a brush entity draws its faces: blended by its rendermode (Amount is renderamt as 0-1), and scrolling its
+		// "scroll" textures at ScrollSpeed texels per second
+		private record struct SurfaceStyle(BlendMode Mode, float Amount, float ScrollSpeed)
+		{
+			public static readonly SurfaceStyle World = new SurfaceStyle(BlendMode.Opaque, 1f, 0f);
+		}
 		private int[] sourceLeafForGoldSrcLeaf;
 		// Number of converted faces before each GoldSrc face, and of marksurfaces referencing them before each
 		// GoldSrc marksurface (one past the end too), to remap face ranges once nodraw faces are dropped
@@ -115,8 +123,8 @@ namespace BSPConvert.Lib.GoldSrc
 			leafBrushes.Clear();
 			litFaces.Clear();
 			volumeModelContents.Clear();
-			modelBlendModes.Clear();
-			blendTexInfos.Clear();
+			modelStyles.Clear();
+			styleTexInfos.Clear();
 			noDrawTexInfos.Clear();
 			volumeBrushRegions.Clear();
 			ladderModels.Clear();
@@ -273,40 +281,70 @@ namespace BSPConvert.Lib.GoldSrc
 		private const int RenderTransAlpha = 4;
 		private const int RenderTransAdd = 5;
 
-		// A brush entity's rendermode is baked into the materials of its model's faces (see GetBlendTexInfo), so the
-		// entity itself renders normally. GoldSrc draws translucent and additive brush entities fullbright, blended
-		// by renderamt, which defaults to 0 and hides them (a common way to make an invisible func_wall).
-		// TODO: Changing rendermode/renderamt at runtime (env_render) won't affect the baked materials
+		// How a brush entity draws its model's faces, baked into their materials (see GetStyleTexInfo) so the entity
+		// itself renders normally. GoldSrc draws translucent and additive brush entities fullbright, blended by
+		// renderamt, which defaults to 0 and hides them (a common way to make an invisible func_wall). It scrolls the
+		// entity's "scroll" textures at the speed of a func_conveyor, which it encodes in the rendercolor that's
+		// read for every other brush entity too.
+		// TODO: Changing rendermode/renderamt at runtime (env_render) or reversing a conveyor won't affect the baked
+		// materials
 		private void ConvertRenderMode(Entity entity)
 		{
 			if (!TryGetBrushModel(entity, out var modelIndex))
 				return;
 
+			var style = new SurfaceStyle(BlendMode.Opaque, 1f, GetScrollSpeed(entity));
+
 			// Source tints a brush entity by its rendercolor. GoldSrc only uses it for the Color rendermode (approximated
-			// as Texture below) and glow sprites, and editors default it to "0 0 0", which turned brush entities black.
+			// as Texture below), glow sprites and conveyor speeds, and editors default it to "0 0 0", which turned
+			// brush entities black.
 			entity.Remove("rendercolor");
 
-			if (!int.TryParse(entity["rendermode"], out var renderMode))
-				return;
-
 			var amount = Math.Clamp(int.TryParse(entity["renderamt"], out var renderAmt) ? renderAmt : 0, 0, 255) / 255f;
-			switch (renderMode)
+			switch (int.TryParse(entity["rendermode"], out var renderMode) ? renderMode : 0)
 			{
 				case RenderTransColor:
 				case RenderTransTexture:
-					modelBlendModes[modelIndex] = (BlendMode.Translucent, amount);
+					style = style with { Mode = BlendMode.Translucent, Amount = amount };
+					entity["rendermode"] = "0";
 					break;
 				case RenderTransAdd:
-					modelBlendModes[modelIndex] = (BlendMode.Additive, amount);
+					style = style with { Mode = BlendMode.Additive, Amount = amount };
+					entity["rendermode"] = "0";
 					break;
 				case RenderTransAlpha:
 					// Alpha testing '{' textures is part of their material already
+					entity["rendermode"] = "0";
 					break;
-				default:
-					return;
 			}
 
-			entity["rendermode"] = "0";
+			if (style != SurfaceStyle.World)
+				modelStyles[modelIndex] = style;
+		}
+
+		// The speed a brush entity scrolls its "scroll" textures at: a func_conveyor's speed (100 if it has none),
+		// which it encodes in its rendercolor for the client (UpdateSpeed), and the speed that decodes from any other
+		// entity's rendercolor
+		private static float GetScrollSpeed(Entity entity)
+		{
+			int speedCode;
+			bool backwards;
+			if (entity.ClassName == "func_conveyor")
+			{
+				var speed = float.TryParse(entity["speed"], NumberStyles.Float, CultureInfo.InvariantCulture, out var parsedSpeed) && parsedSpeed != 0f ? parsedSpeed : 100f;
+				speedCode = Math.Min((int)(MathF.Abs(speed) * 16f), 0xFFFF);
+				backwards = speed < 0f;
+			}
+			else
+			{
+				if (!TryParseVector(entity["rendercolor"], out var color))
+					return 0f;
+
+				speedCode = ((int)color.Y & 0xFF) << 8 | ((int)color.Z & 0xFF);
+				backwards = (int)color.X != 0;
+			}
+
+			return (backwards ? -speedCode : speedCode) / 16f;
 		}
 
 		private bool TryGetBrushModel(Entity entity, out int modelIndex)
@@ -380,27 +418,32 @@ namespace BSPConvert.Lib.GoldSrc
 			return texInfo.mipTex >= 0 && texInfo.mipTex < gs.MipTextures.Length ? gs.MipTextures[texInfo.mipTex].name : "";
 		}
 
-		// The texinfo for a face of a brush model whose rendermode blends it: the same mapping with a material
-		// that draws the texture translucent or additive, or nodraw where renderamt hides the entity
-		private int GetBlendTexInfo(int texInfoIndex, (BlendMode mode, float amount) blend)
+		// The texinfo for a face of a brush model its entity draws differently from the world: the same mapping with
+		// a material that draws the texture translucent, additive or scrolling, or nodraw where renderamt hides it
+		private int GetStyleTexInfo(int texInfoIndex, SurfaceStyle style)
 		{
-			var key = (texInfoIndex, blend.mode, blend.amount);
-			if (blendTexInfos.TryGetValue(key, out var blendTexInfo))
-				return blendTexInfo;
-
 			var mipTexName = GetMipTexName(gs.TexInfos[texInfoIndex]);
+			if (!IsScrollTexture(mipTexName))
+				style = style with { ScrollSpeed = 0f };
+			if (style == SurfaceStyle.World)
+				return texInfoMap[texInfoIndex];
+
+			var key = (texInfoIndex, style);
+			if (styleTexInfos.TryGetValue(key, out var styleTexInfo))
+				return styleTexInfo;
+
 			var baseMaterial = GetMaterialName(mipTexName);
-			if (blend.amount <= 0f)
+			if (style.Mode != BlendMode.Opaque && style.Amount <= 0f)
 			{
-				blendTexInfo = GetNoDrawTexInfo(texInfoIndex);
+				styleTexInfo = GetNoDrawTexInfo(texInfoIndex);
 			}
 			else if (!IsToolTexture(mipTexName) && convertedMaterials.TryGetValue(baseMaterial, out var converted))
 			{
-				var suffix = blend.mode == BlendMode.Additive ? "add" : "tex";
-				var material = $"{baseMaterial}_{suffix}{(int)MathF.Round(blend.amount * 255f)}";
+				var material = baseMaterial + GetStyleSuffix(style);
 				if (!convertedMaterials.ContainsKey(material))
 				{
-					materialConverter.WriteBlendVariant(material, converted.VtfMaterial, converted.Texture, converted.Animated, blend.mode, blend.amount);
+					materialConverter.WriteVariant(material, converted.VtfMaterial, converted.Texture, converted.Animated, style.Mode, style.Amount,
+						style.ScrollSpeed);
 					convertedMaterials[material] = converted;
 				}
 
@@ -408,16 +451,37 @@ namespace BSPConvert.Lib.GoldSrc
 				if (textureDataIndex < 0)
 					textureDataIndex = builder.AddTextureData(material, converted.VtfMaterial);
 
-				blendTexInfo = AddTexInfo(texInfoIndex, material, textureDataIndex);
+				styleTexInfo = AddTexInfo(texInfoIndex, material, textureDataIndex);
 			}
 			else
 			{
 				// Tool and missing textures draw the same either way
-				blendTexInfo = texInfoMap[texInfoIndex];
+				styleTexInfo = texInfoMap[texInfoIndex];
 			}
 
-			blendTexInfos[key] = blendTexInfo;
-			return blendTexInfo;
+			styleTexInfos[key] = styleTexInfo;
+			return styleTexInfo;
+		}
+
+		// "_tex128" (translucent, renderamt 128), "_add255" (additive), "_scroll500" (scrolling at 500), or several
+		private static string GetStyleSuffix(SurfaceStyle style)
+		{
+			var suffix = style.Mode switch
+			{
+				BlendMode.Translucent => FormattableString.Invariant($"_tex{(int)MathF.Round(style.Amount * 255f)}"),
+				BlendMode.Additive => FormattableString.Invariant($"_add{(int)MathF.Round(style.Amount * 255f)}"),
+				_ => "",
+			};
+			if (style.ScrollSpeed != 0f)
+				suffix += FormattableString.Invariant($"_scroll{style.ScrollSpeed:0.##}");
+
+			return suffix;
+		}
+
+		// Textures GoldSrc scrolls on brush entities (SURF_CONVEYOR)
+		private static bool IsScrollTexture(string mipTexName)
+		{
+			return mipTexName.StartsWith("scroll", StringComparison.OrdinalIgnoreCase);
 		}
 
 		private int GetFaceTexInfo(GoldSrcBsp.Face face, int modelIndex)
@@ -428,7 +492,7 @@ namespace BSPConvert.Lib.GoldSrc
 			if (IsHiddenWaterFace(face, modelIndex))
 				return GetNoDrawTexInfo(face.texInfo);
 
-			return modelBlendModes.TryGetValue(modelIndex, out var blend) ? GetBlendTexInfo(face.texInfo, blend) : texInfoMap[face.texInfo];
+			return modelStyles.TryGetValue(modelIndex, out var style) ? GetStyleTexInfo(face.texInfo, style) : texInfoMap[face.texInfo];
 		}
 
 		// GoldSrc only draws the top of a brush entity's water: R_DrawBrushModel skips turbulent faces that aren't
