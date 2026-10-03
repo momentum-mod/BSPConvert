@@ -97,6 +97,8 @@ namespace BSPConvert.Lib.GoldSrc
 		private Dictionary<int, ConvexRegion> volumeBrushRegions = new Dictionary<int, ConvexRegion>();
 		// Brush models of func_ladders, whose brushes become world ladder brushes (see ConvertLadder)
 		private readonly HashSet<int> ladderModels = new HashSet<int>();
+		// The sounds the entities play (path under sound/) and their files, which go with the map (see FindSounds)
+		private readonly Dictionary<string, string> soundFiles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
 		public GoldSrcConverter(BSPConverterOptions options, ILogger logger, ContentManager contentManager)
 		{
@@ -118,6 +120,7 @@ namespace BSPConvert.Lib.GoldSrc
 			noDrawTexInfos.Clear();
 			volumeBrushRegions.Clear();
 			ladderModels.Clear();
+			soundFiles.Clear();
 			modelBrushes = new List<int>[gs.Models.Length];
 			for (var i = 0; i < modelBrushes.Length; i++)
 				modelBrushes[i] = new List<int>();
@@ -128,6 +131,7 @@ namespace BSPConvert.Lib.GoldSrc
 			SetLumpVersions();
 
 			ConvertEntities();
+			FindSounds();
 			ConvertPlanes();
 			ConvertTexInfos();
 			ConvertSkybox();
@@ -147,7 +151,7 @@ namespace BSPConvert.Lib.GoldSrc
 			builder.AddPlaceholderAreaPortal();
 			builder.AddPlaceholderWorldLight();
 
-			WriteMaterials();
+			WriteContent();
 		}
 
 		// Matches the lump versions the Q3 converter writes for the same lumps
@@ -498,19 +502,6 @@ namespace BSPConvert.Lib.GoldSrc
 			yield return DefaultHalfLifeDir;
 		}
 
-		// The mod the map is for: the folder above its maps folder (without a _downloads or similar suffix), or
-		// Counter-Strike's when the map isn't in one, since that's what KZ and bhop maps are for
-		private string GetModName()
-		{
-			var inputDir = Path.GetDirectoryName(Path.GetFullPath(options.inputFile));
-			if (inputDir == null || !Path.GetFileName(inputDir).Equals("maps", StringComparison.OrdinalIgnoreCase) ||
-				Path.GetFileName(Path.GetDirectoryName(inputDir)) is not string modDir || modDir.Length == 0)
-				return "cstrike";
-
-			var suffixIndex = modDir.IndexOf('_', StringComparison.Ordinal);
-			return suffixIndex > 0 ? modDir.Substring(0, suffixIndex) : modDir;
-		}
-
 		private void ConvertTextures()
 		{
 			materialConverter = new GoldSrcMaterialConverter(contentManager.ContentDir);
@@ -663,21 +654,84 @@ namespace BSPConvert.Lib.GoldSrc
 				.ToArray();
 		}
 
-		// Embeds the converted materials in the BSP, or with --nopak moves them to the output's materials folder
-		private void WriteMaterials()
+		// The entity keys that play a sound file, by Source classname
+		private static readonly Dictionary<string, string[]> SoundKeys = new Dictionary<string, string[]>
 		{
-			var files = materialConverter.WrittenFiles;
+			["ambient_generic"] = new[] { "message" },
+			["func_door"] = new[] { "noise1", "noise2", "locked_sound", "unlocked_sound" },
+			["func_door_rotating"] = new[] { "noise1", "noise2", "locked_sound", "unlocked_sound" },
+			["func_button"] = new[] { "customsound" },
+			["func_rot_button"] = new[] { "customsound" },
+		};
+
+		// Finds the files of the sounds the entities play, in the map's archive or the mod's and Half-Life's sound
+		// folders, so they can go with the map. Paths are made lowercase with forward slashes, as they're stored.
+		private void FindSounds()
+		{
+			var soundFinder = new GoldSrcSoundFinder(GetAssetSearchDirs(), GetModName());
+			var missing = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+			foreach (var entity in sourceBsp.Entities)
+			{
+				if (!SoundKeys.TryGetValue(entity.ClassName, out var keys))
+					continue;
+
+				foreach (var key in keys)
+				{
+					// Sentences ("!name") are played from the game's sentences, which Momentum doesn't have
+					var sound = entity[key].Trim().Replace('\\', '/').TrimStart('/').ToLowerInvariant();
+					if (sound.Length == 0 || sound.StartsWith('!'))
+						continue;
+
+					entity[key] = sound;
+					if (soundFiles.ContainsKey(sound) || missing.Contains(sound))
+						continue;
+
+					if (soundFinder.Find(sound) is string file)
+						soundFiles[sound] = file;
+					else
+						missing.Add(sound);
+				}
+			}
+
+			if (soundFiles.Count + missing.Count > 0)
+				logger.Log($"Found {soundFiles.Count}/{soundFiles.Count + missing.Count} sounds");
+			if (missing.Count > 0)
+				logger.Log($"Warning: Sounds not found (pass the folder of the mod that has them with --wads): {string.Join(", ", missing)}");
+		}
+
+		// The mod the map is for: the folder above its maps folder (without a _downloads or similar suffix), or
+		// Counter-Strike's when the map isn't in one, since that's what KZ and bhop maps are for
+		private string GetModName()
+		{
+			var inputDir = Path.GetDirectoryName(Path.GetFullPath(options.inputFile));
+			if (inputDir == null || !Path.GetFileName(inputDir).Equals("maps", StringComparison.OrdinalIgnoreCase) ||
+				Path.GetFileName(Path.GetDirectoryName(inputDir)) is not string modDir || modDir.Length == 0)
+				return "cstrike";
+
+			var suffixIndex = modDir.IndexOf('_', StringComparison.Ordinal);
+			return suffixIndex > 0 ? modDir.Substring(0, suffixIndex) : modDir;
+		}
+
+		// Embeds the converted materials and the sounds in the BSP, or with --nopak puts them in the output's
+		// materials and sound folders
+		private void WriteContent()
+		{
+			var materialFiles = materialConverter.WrittenFiles;
 			if (options.noPak)
 			{
-				foreach (var file in files)
+				foreach (var file in materialFiles)
 					FileUtil.MoveFile(file, Path.Combine(options.outputDir, "materials", Path.GetRelativePath(contentManager.ContentDir, file)));
+				foreach (var (sound, file) in soundFiles)
+					FileUtil.CopyFile(file, Path.Combine(options.outputDir, "sound", sound.Replace('/', Path.DirectorySeparatorChar)));
 				return;
 			}
 
 			builder.CreatePakFile();
 			using var archive = sourceBsp.PakFile.GetZipArchive();
-			foreach (var file in files)
+			foreach (var file in materialFiles)
 				archive.AddEntry("materials/" + Path.GetRelativePath(contentManager.ContentDir, file).Replace(Path.DirectorySeparatorChar, '/'), new FileInfo(file));
+			foreach (var (sound, file) in soundFiles)
+				archive.AddEntry("sound/" + sound, new FileInfo(file));
 			sourceBsp.PakFile.SetZipArchive(archive, true);
 		}
 

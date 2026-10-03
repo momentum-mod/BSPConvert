@@ -26,6 +26,20 @@ namespace BSPConvert.Lib.GoldSrc
 		// trigger_teleport VelocityMode (TeleportVelocityMode_t) that resets the velocity
 		private const string TeleportVelocityModeReset = "1";
 
+		// GoldSrc ambient_generic spawnflags. Play everywhere, start silent and not looped mean the same in Source,
+		// which takes a radius instead of the radius flags.
+		private const int SF_AMBIENT_SOUND_EVERYWHERE = 1;
+		private const int SF_AMBIENT_SOUND_SMALLRADIUS = 2;
+		private const int SF_AMBIENT_SOUND_MEDIUMRADIUS = 4;
+		private const int SF_AMBIENT_SOUND_LARGERADIUS = 8;
+		private const int SF_AMBIENT_SOUND_START_SILENT = 16;
+		private const int SF_AMBIENT_SOUND_NOT_LOOPING = 32;
+
+		// GoldSrc sound attenuations (ATTN_IDLE, ATTN_STATIC, ATTN_NORM)
+		private const float AttenuationSmall = 2f;
+		private const float AttenuationMedium = 1.25f;
+		private const float AttenuationLarge = 0.8f;
+
 		// GoldSrc door spawnflags (doors.h). Bits 1-512 mean the same in Source, apart from 4 (unused in GoldSrc,
 		// "non-solid to player" in Source).
 		private const int GoldSrcDoorSharedFlags = 1 | 2 | 8 | 16 | 32 | 64 | 128 | 256 | 512;
@@ -803,7 +817,97 @@ namespace BSPConvert.Lib.GoldSrc
 				case "trigger_hurt":
 					ConvertTriggerHurt(entity);
 					break;
+				case "ambient_generic":
+					ConvertAmbientGeneric(entity);
+					break;
 			}
+
+			switch (entity.ClassName)
+			{
+				case "func_door":
+				case "func_door_rotating":
+					ConvertDoorSounds(entity);
+					break;
+				case "func_button":
+				case "func_rot_button":
+					ConvertButtonSound(entity);
+					break;
+			}
+		}
+
+		// GoldSrc ambient_generic's radius flags pick its attenuation (medium without one). Source's takes a radius,
+		// which it turns into a sound level, so it gets the radius of the sound level the attenuation has in Source.
+		private static void ConvertAmbientGeneric(Entity entity)
+		{
+			var gsFlags = GetSpawnFlags(entity);
+			SetSpawnFlags(entity, gsFlags & (SF_AMBIENT_SOUND_EVERYWHERE | SF_AMBIENT_SOUND_START_SILENT | SF_AMBIENT_SOUND_NOT_LOOPING));
+			if ((gsFlags & SF_AMBIENT_SOUND_EVERYWHERE) != 0)
+				return;
+
+			var attenuation = (gsFlags & SF_AMBIENT_SOUND_SMALLRADIUS) != 0 ? AttenuationSmall :
+				(gsFlags & SF_AMBIENT_SOUND_MEDIUMRADIUS) != 0 ? AttenuationMedium :
+				(gsFlags & SF_AMBIENT_SOUND_LARGERADIUS) != 0 ? AttenuationLarge :
+				AttenuationMedium;
+
+			// ATTN_TO_SNDLVL, then the inverse of the ambient_generic's ComputeSoundlevel (40dB at 36 units), aiming
+			// half a level up so it doesn't truncate to the one below
+			var soundLevel = (int)(50f + 20f / attenuation);
+			var radius = 36f * MathF.Pow(10f, (soundLevel + 0.5f - 40f) / 20f);
+			entity["radius"] = radius.ToString("0.#", CultureInfo.InvariantCulture);
+		}
+
+		// GoldSrc doors pick their moving and stopping sounds by number (CBaseDoor::Precache), and their locked and
+		// unlocked sounds from the button sounds. Source doors take the sound names.
+		private static void ConvertDoorSounds(Entity entity)
+		{
+			var moveSound = GetInt(entity, "movesnd");
+			var stopSound = GetInt(entity, "stopsnd");
+			entity["noise1"] = moveSound is >= 1 and <= 10 ? FormattableString.Invariant($"doors/doormove{moveSound}.wav") : NullSound;
+			entity["noise2"] = stopSound is >= 1 and <= 8 ? FormattableString.Invariant($"doors/doorstop{stopSound}.wav") : NullSound;
+			entity.Remove("movesnd");
+			entity.Remove("stopsnd");
+
+			foreach (var key in new[] { "locked_sound", "unlocked_sound" })
+			{
+				var sound = GetInt(entity, key);
+				entity[key] = sound != 0 ? GetButtonSound(sound) : NullSound;
+			}
+		}
+
+		// The silent sound GoldSrc plays where an entity has no sound. Source's doors play default sounds where theirs
+		// aren't set, which aren't silent.
+		private const string NullSound = "common/null.wav";
+
+		// A GoldSrc button's "sounds" picks its sound. Source's picks one of the game's button sounds the same way, so
+		// the GoldSrc sound is given as Momentum's custom sound instead.
+		// Source's buttons play their custom sound only when "sounds" is negative, and are silent when it's 0
+		private static void ConvertButtonSound(Entity entity)
+		{
+			var sound = GetInt(entity, "sounds") != 0 ? GetButtonSound(GetInt(entity, "sounds")) : null;
+			SetSoundKey(entity, "customsound", sound);
+			entity["sounds"] = sound != null ? "-1" : "0";
+		}
+
+		private static void SetSoundKey(Entity entity, string key, string? sound)
+		{
+			if (sound != null)
+				entity[key] = sound;
+			else
+				entity.Remove(key);
+		}
+
+		// ButtonSound (buttons.cpp)
+		private static string GetButtonSound(int sound)
+		{
+			return sound switch
+			{
+				>= 1 and <= 11 => FormattableString.Invariant($"buttons/button{sound}.wav"),
+				12 => "buttons/latchlocked1.wav",
+				13 => "buttons/latchunlocked1.wav",
+				14 => "buttons/lightswitch2.wav",
+				>= 21 and <= 25 => FormattableString.Invariant($"buttons/lever{sound - 20}.wav"),
+				_ => "buttons/button9.wav",
+			};
 		}
 
 		// GoldSrc doors open when a player touches them, unless they're use only or something targets them (they
