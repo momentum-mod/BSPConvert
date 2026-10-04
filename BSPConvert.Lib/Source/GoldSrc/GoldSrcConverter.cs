@@ -30,24 +30,14 @@ namespace BSPConvert.Lib.GoldSrc
 	// (hull 1 standing, hull 3 ducking) and the engine traces a point through it. How the compiler expanded sloped
 	// faces depends on the map's cliptype (legacy maps expand them less than the true box size), so collision
 	// rebuilt from the visible geometry doesn't match on many maps, and clip brushes only exist in the clip hulls.
-	// So each clip hull leaf becomes a brush whose planes are pulled in by the player box: Source's box trace
-	// pushes every brush plane back out by the box (CM_ClipBoxToBrush), which lands it exactly on the clip hull
-	// plane. Standing and ducking brushes carry separate contents bits, because a hull's brushes only line up for
-	// the box size they were shrunk for; GoldSrc-hull game modes pick the bit by the size of the box they trace.
-	// Brushes built from hull 0 (the visible geometry) keep the normal contents for every other trace.
+	// So the clip hulls become brushes of their own (see GoldSrcClipHull), while brushes built from hull 0 (the
+	// visible geometry) keep the normal contents for every other trace.
 	public class GoldSrcConverter : IEngineConverter
 	{
-		// Half extents of the GoldSrc player hulls (Momentum's GoldSrc-hull game modes use the same sizes)
-		private static readonly Vector3 StandingHullExtents = new Vector3(16f, 16f, 36f);
-		private static readonly Vector3 DuckingHullExtents = new Vector3(16f, 16f, 18f);
-
-		private const int StandingHull = 1;
-		private const int DuckingHull = 3;
-
 		// Padding around a model's bounds when closing off the outermost BSP regions
 		private const float BoundsPadding = 1f;
 		// Distance from a node plane within which a region corner counts as on the plane
-		private const float RegistrationEpsilon = 0.01f;
+		public const float RegistrationEpsilon = 0.01f;
 
 		// Worldspawn key marking a map whose brushes carry GoldSrc clip hulls
 		public const string ClipHullsWorldspawnKey = "goldsrc_clip_hulls";
@@ -188,8 +178,8 @@ namespace BSPConvert.Lib.GoldSrc
 				ConvertNodes();
 				ConvertHull0();
 				AddVolumeBrushesToWorld();
-				ConvertClipHull(StandingHull, StandingHullExtents, SourceContentsFlags.CONTENTS_GOLDSRC_HULL_STANDING);
-				ConvertClipHull(DuckingHull, DuckingHullExtents, SourceContentsFlags.CONTENTS_GOLDSRC_HULL_DUCKING);
+				foreach (var (hull, hullExtents, hullContents) in GoldSrcClipHull.PlayerHulls)
+					ConvertClipHull(hull, hullExtents, hullContents);
 				WriteLeafBrushes();
 				ConvertModels();
 				AddPrecipitationVolume();
@@ -257,7 +247,7 @@ namespace BSPConvert.Lib.GoldSrc
 				var plane = gs.Planes[face.planeIndex];
 				var normal = face.planeSide ? -plane.normal : plane.normal;
 				var dist = face.planeSide ? -plane.dist : plane.dist;
-				var h = StandingHullExtents;
+				var h = GoldSrcClipHull.StandingHullExtents;
 				var legacyOffset = normal.X * normal.X * h.X + normal.Y * normal.Y * h.Y + normal.Z * normal.Z * h.Z;
 				var simpleOffset = MathF.Abs(normal.X) * h.X + MathF.Abs(normal.Y) * h.Y + MathF.Abs(normal.Z) * h.Z;
 				var preciseOffset = normal.Z > floorNormalZ ? normal.Z * h.Z : simpleOffset;
@@ -1702,7 +1692,7 @@ namespace BSPConvert.Lib.GoldSrc
 				if (headNode < 0)
 					continue;
 
-				var path = GetBoundsHalfSpaces(model.mins, model.maxs, BoundsPadding);
+				var path = GoldSrcClipHull.GetBoundsHalfSpaces(model.mins, model.maxs, BoundsPadding);
 				hull0Brushes += WalkHull0(headNode, path, modelIndex);
 			}
 
@@ -1893,60 +1883,26 @@ namespace BSPConvert.Lib.GoldSrc
 			var brushCount = 0;
 			for (var modelIndex = 0; modelIndex < gs.Models.Length; modelIndex++)
 			{
-				var model = gs.Models[modelIndex];
-				var headNode = model.headNodes[hull];
-
-				// Clip hull planes sit up to the hull's extents outside the model's visible bounds
-				var path = GetBoundsHalfSpaces(model.mins - hullExtents, model.maxs + hullExtents, BoundsPadding);
-				brushCount += WalkClipHull(headNode, path, modelIndex, hullExtents, contents);
+				foreach (var brush in GoldSrcClipHull.GetBrushes(gs, modelIndex, hull, hullExtents))
+				{
+					AddClipHullBrush(brush, modelIndex, contents);
+					brushCount++;
+				}
 			}
 
 			logger.Log($"Converted {brushCount} hull {hull} brushes");
 		}
 
-		private int WalkClipHull(int clipNodeIndex, List<HalfSpace> path, int modelIndex, Vector3 hullExtents, SourceContentsFlags contents)
+		private void AddClipHullBrush(GoldSrcClipHull.Brush brush, int modelIndex, SourceContentsFlags contents)
 		{
-			if (clipNodeIndex < 0)
-			{
-				// Clip hulls only distinguish solid from non-solid (water etc. is empty to the player hulls)
-				if (clipNodeIndex != GoldSrcBsp.CONTENTS_SOLID)
-					return 0;
-
-				return AddClipHullBrush(path, modelIndex, hullExtents, contents) ? 1 : 0;
-			}
-
-			var clipNode = gs.ClipNodes[clipNodeIndex];
-			var plane = gs.Planes[clipNode.planeIndex];
-			var brushCount = 0;
-
-			path.Add(new HalfSpace(-plane.normal, -plane.dist));
-			brushCount += WalkClipHull(clipNode.child0, path, modelIndex, hullExtents, contents);
-			path[path.Count - 1] = new HalfSpace(plane.normal, plane.dist);
-			brushCount += WalkClipHull(clipNode.child1, path, modelIndex, hullExtents, contents);
-			path.RemoveAt(path.Count - 1);
-
-			return brushCount;
-		}
-
-		private bool AddClipHullBrush(List<HalfSpace> path, int modelIndex, Vector3 hullExtents, SourceContentsFlags contents)
-		{
-			var region = ConvexRegion.Create(path);
-			if (region == null)
-				return false;
-
-			// Pull each plane in by the box's extent along its normal, which Source's box trace adds back
 			var firstSide = sourceBsp.BrushSides.Count;
-			foreach (var face in region.Faces)
-			{
-				var n = face.Normal;
-				var offset = MathF.Abs(n.X) * hullExtents.X + MathF.Abs(n.Y) * hullExtents.Y + MathF.Abs(n.Z) * hullExtents.Z;
-				builder.AddBrushSide(builder.AddPlane(n, face.Dist - offset), -1);
-			}
+			foreach (var side in brush.Sides)
+				builder.AddBrushSide(builder.AddPlane(side.Normal, side.Dist), -1);
 
 			// Ladders are world brushes (see ConvertLadder)
 			var isLadder = ladderModels.Contains(modelIndex);
 			var brushContents = (int)contents | (isLadder ? (int)SourceContentsFlags.CONTENTS_LADDER : 0);
-			var brushIndex = builder.AddBrush(firstSide, region.Faces.Count, brushContents);
+			var brushIndex = builder.AddBrush(firstSide, brush.Sides.Count, brushContents);
 			modelBrushes[modelIndex].Add(brushIndex);
 
 			// A box trace only tests the brushes of leaves it passes through, and its center is somewhere inside
@@ -1954,9 +1910,7 @@ namespace BSPConvert.Lib.GoldSrc
 			// the region overlaps.
 			var headNode = gs.Models[isLadder ? 0 : modelIndex].headNodes[0];
 			if (headNode >= 0)
-				RegisterInHull0Leaves(headNode, region, brushIndex);
-
-			return true;
+				RegisterInHull0Leaves(headNode, brush.Region, brushIndex);
 		}
 
 		private void RegisterInHull0Leaves(int nodeIndex, ConvexRegion region, int brushIndex)
@@ -2122,20 +2076,6 @@ namespace BSPConvert.Lib.GoldSrc
 			}
 
 			return row;
-		}
-
-		// The model's bounds as half-spaces, closing off the regions at the edge of its BSP tree
-		private static List<HalfSpace> GetBoundsHalfSpaces(Vector3 mins, Vector3 maxs, float padding)
-		{
-			return new List<HalfSpace>
-			{
-				new HalfSpace(new Vector3(1, 0, 0), maxs.X + padding),
-				new HalfSpace(new Vector3(-1, 0, 0), -(mins.X - padding)),
-				new HalfSpace(new Vector3(0, 1, 0), maxs.Y + padding),
-				new HalfSpace(new Vector3(0, -1, 0), -(mins.Y - padding)),
-				new HalfSpace(new Vector3(0, 0, 1), maxs.Z + padding),
-				new HalfSpace(new Vector3(0, 0, -1), -(mins.Z - padding))
-			};
 		}
 	}
 }

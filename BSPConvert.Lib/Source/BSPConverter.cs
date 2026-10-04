@@ -14,6 +14,7 @@ namespace BSPConvert.Lib
 		public string outputDir;
 		// Prefix for the converted BSP's file name
 		public string prefix;
+		
 		// Optional filter to convert only specific BSP(s) from a multi-BSP pk3. Matched against each
 		// BSP's map name (without extension), case-insensitively. Null/empty converts every BSP.
 		public string[] mapFilter;
@@ -29,6 +30,9 @@ namespace BSPConvert.Lib
 		// position-based entity data before conversion, so the converted map is bigger/smaller than the
 		// original. 1 (default) makes no change. See Q3Converter.ScaleQuakeBsp.
 		public float scale = 1f;
+		// A GoldSrc BSP whose clip hulls are copied into the input instead of converting it: a Strata BSP recompiled
+		// from a converted copy of that map (see GoldSrcHullTransfer)
+		public string? goldSrcHullSource;
 
 		public Q3ConverterOptions q3 = new Q3ConverterOptions();
 		public GoldSrcConverterOptions goldSrc = new GoldSrcConverterOptions();
@@ -56,6 +60,12 @@ namespace BSPConvert.Lib
 			if (!File.Exists(options.inputFile))
 			{
 				logger.Log("Error: Input BSP file does not exist");
+				return;
+			}
+
+			if (options.goldSrcHullSource != null)
+			{
+				TransferGoldSrcHulls();
 				return;
 			}
 
@@ -103,6 +113,22 @@ namespace BSPConvert.Lib
 				return goldSrcConverter ??= new GoldSrcConverter(options, logger, contentManager);
 
 			return null;
+		}
+
+		private void TransferGoldSrcHulls()
+		{
+			if (!File.Exists(options.goldSrcHullSource))
+			{
+				logger.Log("Error: GoldSrc BSP file does not exist");
+				return;
+			}
+
+			var mapsDir = Path.Combine(options.outputDir, "maps");
+			Directory.CreateDirectory(mapsDir);
+
+			var bspPath = Path.Combine(mapsDir, $"{options.prefix}{Path.GetFileNameWithoutExtension(options.inputFile)}.bsp");
+			if (new GoldSrcHullTransfer(logger).Transfer(options.goldSrcHullSource, options.inputFile, bspPath))
+				logger.Log($"Wrote BSP File: {bspPath}");
 		}
 
 		private void WriteBSP(SourceBspBuilder builder, string mapName)

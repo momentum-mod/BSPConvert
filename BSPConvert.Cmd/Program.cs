@@ -90,7 +90,10 @@ namespace BSPConvert.Cmd
 			[Option("studiomdl", Required = false, HelpText = "GoldSrc only: path to the studiomdl.exe that compiles the models entities use (in Momentum Mod's bin/win64 folder). Found next to the output game folder or in a default Steam Momentum Mod install if not given.")]
 			public string StudiomdlPath { get; set; }
 
-			[Value(0, MetaName = "input files", Required = true, HelpText = "Input Quake 3 BSP/PK3 or GoldSrc (Half-Life, CS 1.6) BSP/ZIP file(s) to be converted. Archives (.pk3/.zip) convert every BSP they contain.")]
+			[Option("goldsrchulls", Required = false, HelpText = "Copy the player clip hulls of this GoldSrc BSP into the input BSP(s) instead of converting them. For a Strata BSP recompiled from a converted map (e.g. decompiled, given new visuals and recompiled with VBSP), so GoldSrc-hull game modes collide exactly as in the GoldSrc map.")]
+			public string GoldSrcHullSource { get; set; }
+
+			[Value(0, MetaName = "input files", Required = true, HelpText = "Input Quake 3 BSP/PK3 or GoldSrc (Half-Life, CS 1.6) BSP/ZIP file(s) to be converted. Archives (.pk3/.zip) convert every BSP they contain. With --goldsrchulls, Strata BSP(s) to copy the clip hulls into.")]
 			public IEnumerable<string> InputFiles { get; set; }
 		}
 
@@ -143,6 +146,7 @@ namespace BSPConvert.Cmd
 					outputDir = options.OutputDirectory,
 					mapFilter = options.Maps?.ToArray(),
 					scale = options.Scale,
+					goldSrcHullSource = options.GoldSrcHullSource,
 					goldSrc = new GoldSrcConverterOptions()
 					{
 						wadDirs = options.WadDirs?.ToArray(),

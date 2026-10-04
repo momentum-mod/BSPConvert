@@ -51,11 +51,19 @@ The input files are Quake 3 BSP/PK3 or GoldSrc (Half-Life, CS 1.6) BSP/ZIP files
 ```
   --wads                  Comma-separated folders to search (recursively) for the WAD files the map takes its textures from, its sky images (gfx/env), and the sounds, sprites and models its entities use, e.g. your Half-Life install or a folder of community WADs. The input's own folder and a default Steam Half-Life install are always searched.
   --studiomdl             Path to the studiomdl.exe that compiles the models entities use (in Momentum Mod's bin/win64 folder). Found next to the output game folder or in a default Steam Momentum Mod install if not given. Models aren't converted if it isn't found.
+  --goldsrchulls          Copy the player clip hulls of this GoldSrc BSP into the input BSP(s) instead of converting them (see below).
 ```
 
 GoldSrc maps don't get timer zones, and --scale isn't supported for them.
 
 The conversion log says which cliptype the map was compiled with: legacy (all stock CS 1.6 maps and many KZ/bhop maps), or simple or precise.
+
+### Recompiled maps
+Converted maps carry the GoldSrc map's player collision (its clip hulls) as brushes of their own, which VBSP can't build. To keep that collision in a map that was recompiled with VBSP, e.g. after giving it new visuals, run the recompiled BSP through BSPConvert with `--goldsrchulls` and the original GoldSrc BSP:
+
+`.\BSPConv.exe "C:\...\momentum\maps\kz_persia.bsp" --goldsrchulls "C:\...\Half-Life\cstrike\maps\kz_persia.bsp" --output "C:\...\output"`
+
+GoldSrc-hull game modes then collide exactly as in the GoldSrc map, whatever changed visually, as long as the map wasn't moved. Brush entities (doors, trains, walls etc.) get their own collision when the recompiled map has an entity of the same name, or with the same bounds if it has none; the log lists GoldSrc entities nothing matched. Only the collision lumps and worldspawn change; run it on the finished BSP, after VVIS and VRAD.
 
 ## Examples
 Quake 3:
