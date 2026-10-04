@@ -55,6 +55,8 @@ The input files are Quake 3 BSP/PK3 or GoldSrc (Half-Life, CS 1.6) BSP/ZIP files
 
 GoldSrc maps don't get timer zones, and --scale isn't supported for them.
 
+The conversion log says which cliptype the map was compiled with: legacy (all stock CS 1.6 maps and many KZ/bhop maps), or simple or precise.
+
 ## Examples
 Quake 3:
 `.\BSPConv.exe "C:\Users\<username>\Documents\BSPConvert\nood-aDr.pk3" --output "C:\Program Files (x86)\Steam\steamapps\common\Momentum Mod Playtest\momentum"`

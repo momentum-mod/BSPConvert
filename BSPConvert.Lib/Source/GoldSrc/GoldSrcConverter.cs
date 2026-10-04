@@ -169,6 +169,7 @@ namespace BSPConvert.Lib.GoldSrc
 				logger.Log("Warning: --scale is not supported for GoldSrc maps and will be ignored.");
 
 			SetLumpVersions();
+			LogClipType();
 
 			try
 			{
@@ -207,6 +208,74 @@ namespace BSPConvert.Lib.GoldSrc
 					Directory.Delete(modelWorkDir, true);
 				modelWorkDir = null;
 			}
+		}
+
+		// Logs which cliptype the map was compiled with, for porters: legacy maps expand sloped faces less than the
+		// player box's true size, while the other cliptypes expand them by it like Source does. Maps don't store their
+		// cliptype, so it's inferred from where the standing hull's planes are: each sloped face's plane
+		// is pushed out by the box, legacy by Σ n_i² h_i (hlcsg's "normalized" offset) and the others by the box's
+		// support distance Σ |n_i| h_i (precise pushes floors out by n_z h_z only). Faces whose plane has no
+		// predicted match (clip-merged or detail faces, brush entities) don't count.
+		private void LogClipType()
+		{
+			// Normal components and distance within which a clip hull plane matches a prediction
+			const float normalEpsilon = 0.001f;
+			const float distanceEpsilon = 0.05f;
+			// How much the predictions have to differ to tell the cliptypes apart
+			const float minOffsetDifference = 0.5f;
+			const float floorNormalZ = 0.7f;
+
+			// The clip hulls' plane distances, both ways round, by rounded normal
+			(int, int, int) NormalKey(Vector3 normal) => ((int)MathF.Round(normal.X / normalEpsilon), (int)MathF.Round(normal.Y / normalEpsilon), (int)MathF.Round(normal.Z / normalEpsilon));
+			var hullPlanes = new Dictionary<(int, int, int), List<float>>();
+			void AddHullPlane(Vector3 normal, float dist)
+			{
+				if (!hullPlanes.TryGetValue(NormalKey(normal), out var dists))
+					hullPlanes[NormalKey(normal)] = dists = new List<float>();
+
+				dists.Add(dist);
+			}
+
+			foreach (var planeIndex in gs.ClipNodes.Select(clipNode => clipNode.planeIndex).Distinct())
+			{
+				var plane = gs.Planes[planeIndex];
+				AddHullPlane(plane.normal, plane.dist);
+				AddHullPlane(-plane.normal, -plane.dist);
+			}
+
+			bool HullHasPlane(Vector3 normal, float dist) =>
+				hullPlanes.TryGetValue(NormalKey(normal), out var dists) && dists.Any(hullDist => MathF.Abs(hullDist - dist) < distanceEpsilon);
+
+			var legacyFaces = 0;
+			var otherFaces = 0;
+			var seenPlanes = new HashSet<(int, bool)>();
+			foreach (var face in gs.Faces)
+			{
+				if (!seenPlanes.Add((face.planeIndex, face.planeSide)))
+					continue;
+
+				var plane = gs.Planes[face.planeIndex];
+				var normal = face.planeSide ? -plane.normal : plane.normal;
+				var dist = face.planeSide ? -plane.dist : plane.dist;
+				var h = StandingHullExtents;
+				var legacyOffset = normal.X * normal.X * h.X + normal.Y * normal.Y * h.Y + normal.Z * normal.Z * h.Z;
+				var simpleOffset = MathF.Abs(normal.X) * h.X + MathF.Abs(normal.Y) * h.Y + MathF.Abs(normal.Z) * h.Z;
+				var preciseOffset = normal.Z > floorNormalZ ? normal.Z * h.Z : simpleOffset;
+				if (MathF.Abs(simpleOffset - legacyOffset) < minOffsetDifference || MathF.Abs(preciseOffset - legacyOffset) < minOffsetDifference)
+					continue;
+
+				if (HullHasPlane(normal, dist + legacyOffset))
+					legacyFaces++;
+				else if (HullHasPlane(normal, dist + simpleOffset) || HullHasPlane(normal, dist + preciseOffset))
+					otherFaces++;
+			}
+
+			if (legacyFaces == 0 && otherFaces == 0)
+				logger.Log("Cliptype: unknown (no sloped faces that the cliptypes expand differently, so collision is the same under any)");
+			else if (legacyFaces > otherFaces)
+				logger.Log($"Cliptype: legacy ({legacyFaces} of {legacyFaces + otherFaces} sloped planes)");
+			else
+				logger.Log($"Cliptype: simple or precise ({otherFaces} of {legacyFaces + otherFaces} sloped planes)");
 		}
 
 		// Matches the lump versions the Q3 converter writes for the same lumps
