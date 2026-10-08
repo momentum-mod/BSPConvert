@@ -55,6 +55,11 @@ namespace BSPConvert.Lib.GoldSrc
 				return;
 			}
 
+			// Compilers can leave a model with no clip hull pointing one past the last clipnode (bkz_junglebhop's last
+			// model does). The engine never traces it, so it has no brushes.
+			if (clipNodeIndex >= gs.ClipNodes.Length)
+				return;
+
 			var clipNode = gs.ClipNodes[clipNodeIndex];
 			var plane = gs.Planes[clipNode.planeIndex];
 
