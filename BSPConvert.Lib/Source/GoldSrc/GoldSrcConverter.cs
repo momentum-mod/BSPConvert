@@ -108,6 +108,12 @@ namespace BSPConvert.Lib.GoldSrc
 		private Dictionary<int, ConvexRegion> volumeBrushRegions = new Dictionary<int, ConvexRegion>();
 		// Brush models of func_ladders, whose brushes become world ladder brushes (see ConvertLadder)
 		private readonly HashSet<int> ladderModels = new HashSet<int>();
+		// Brush models of triggers, with the regions of their hull 0 brushes to build faces from and the hull 0 node each
+		// of a region's half-spaces came from (see AddTriggerFaces)
+		private readonly Dictionary<int, List<(ConvexRegion region, Dictionary<HalfSpace, int> nodes)>> triggerModelRegions =
+			new Dictionary<int, List<(ConvexRegion, Dictionary<HalfSpace, int>)>>();
+		// The hull 0 node each half-space of the path WalkHull0 is on came from (-1 for the model's bounds)
+		private readonly List<int> hull0PathNodes = new List<int>();
 		// Finds the sounds and sprites the entities use
 		private GoldSrcAssetFinder assetFinder;
 		// The sounds the entities play (path under sound/) and their files, which go with the map (see FindSounds)
@@ -149,6 +155,7 @@ namespace BSPConvert.Lib.GoldSrc
 			mipTexNames = new HashSet<string>(gs.MipTextures.Select(mipTex => mipTex.name), StringComparer.OrdinalIgnoreCase);
 			volumeBrushRegions.Clear();
 			ladderModels.Clear();
+			triggerModelRegions.Clear();
 			soundFiles.Clear();
 			modelCompiler = null;
 			modelBrushes = new List<int>[gs.Models.Length];
@@ -330,6 +337,9 @@ namespace BSPConvert.Lib.GoldSrc
 						ConvertLadder(entity);
 						continue;
 				}
+
+				if (entity.ClassName.StartsWith("trigger_", StringComparison.OrdinalIgnoreCase) && TryGetBrushModel(entity, out var triggerModel))
+					triggerModelRegions[triggerModel] = new List<(ConvexRegion, Dictionary<HalfSpace, int>)>();
 
 				sourceBsp.Entities.Add(entity);
 			}
@@ -1398,12 +1408,13 @@ namespace BSPConvert.Lib.GoldSrc
 		}
 
 		private const string NoDrawMaterial = "tools/toolsnodraw";
+		private const string TriggerMaterial = "tools/toolstrigger";
 
 		// Compiler tool textures, drawn with the game's tool materials instead of being converted
 		private static readonly Dictionary<string, string> ToolMaterials = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
 		{
 			["sky"] = "tools/toolsskybox",
-			["aaatrigger"] = "tools/toolstrigger",
+			["aaatrigger"] = TriggerMaterial,
 			["clip"] = "tools/toolsplayerclip",
 			["null"] = NoDrawMaterial,
 			["bevel"] = NoDrawMaterial,
@@ -1697,6 +1708,8 @@ namespace BSPConvert.Lib.GoldSrc
 					continue;
 
 				var path = GoldSrcClipHull.GetBoundsHalfSpaces(model.mins, model.maxs, BoundsPadding);
+				hull0PathNodes.Clear();
+				hull0PathNodes.AddRange(Enumerable.Repeat(-1, path.Count));
 				hull0Brushes += WalkHull0(headNode, path, modelIndex);
 			}
 
@@ -1714,6 +1727,7 @@ namespace BSPConvert.Lib.GoldSrc
 				// Front child (0) is Dot(normal, p) >= dist, so its inside half-space is the flipped plane
 				var halfSpace = side == 0 ? new HalfSpace(-plane.normal, -plane.dist) : new HalfSpace(plane.normal, plane.dist);
 				path.Add(halfSpace);
+				hull0PathNodes.Add(nodeIndex);
 
 				var child = side == 0 ? gsNode.child0 : gsNode.child1;
 				if (child >= 0)
@@ -1731,6 +1745,7 @@ namespace BSPConvert.Lib.GoldSrc
 				}
 
 				path.RemoveAt(path.Count - 1);
+				hull0PathNodes.RemoveAt(hull0PathNodes.Count - 1);
 			}
 
 			return brushCount;
@@ -1804,6 +1819,13 @@ namespace BSPConvert.Lib.GoldSrc
 			var brushIndex = builder.AddBrush(firstSide, numSides, contents);
 			if (isVolume || isLadder)
 				volumeBrushRegions[brushIndex] = region;
+			if (triggerModelRegions.TryGetValue(modelIndex, out var triggerRegions))
+			{
+				var nodes = new Dictionary<HalfSpace, int>();
+				for (var i = 0; i < path.Count; i++)
+					nodes[path[i]] = hull0PathNodes[i];
+				triggerRegions.Add((region, nodes));
+			}
 
 			// A solid region's Source leaf is its own, so it can take the region's real bounds
 			var leaf = sourceBsp.Leaves[sourceLeafIndex];
@@ -1980,10 +2002,142 @@ namespace BSPConvert.Lib.GoldSrc
 				model.Maximums = gsModel.maxs;
 				model.Origin = gsModel.origin;
 				(model.FirstFaceIndex, model.NumFaces) = RemapFaceRange(gsModel.firstFace, gsModel.numFaces);
+				if (model.NumFaces == 0 && triggerModelRegions.TryGetValue(i, out var triggerRegions))
+					(model.FirstFaceIndex, model.NumFaces) = AddTriggerFaces(i, triggerRegions);
 
 				builder.SetModelBrushes(sourceBsp.Models.Count, modelBrushes[i]);
 				sourceBsp.Models.Add(model);
 			}
+		}
+
+		// Triggers draw their faces while showtriggers is on, but the GoldSrc compilers leave the faces of trigger brushes
+		// out of the BSP (and the aaatrigger faces older ones kept are dropped as nodraw). So a trigger without faces gets
+		// toolstrigger faces on its brushes' sides, appended after the other faces so the model's range stays contiguous.
+		// Translucent brush models only draw the faces their nodes list, culled by the side of the node the view is on,
+		// so like VBSP each face goes on the node whose plane it lies on, with side set when it faces away from it.
+		private (int first, int count) AddTriggerFaces(int modelIndex, List<(ConvexRegion region, Dictionary<HalfSpace, int> nodes)> regions)
+		{
+			var headNode = gs.Models[modelIndex].headNodes[0];
+			var nodeFaces = new Dictionary<int, List<(HalfSpace plane, IReadOnlyList<Vector3> winding)>>();
+			foreach (var (region, nodes) in regions)
+			{
+				for (var i = 0; i < region.Faces.Count; i++)
+				{
+					var plane = region.Faces[i];
+					var winding = region.Windings[i];
+
+					// The tree splits the trigger's brushes into regions, whose sides against each other are inside it
+					var center = winding.Aggregate(Vector3.Zero, (sum, point) => sum + point) / winding.Count;
+					if (GetHull0Contents(headNode, center + plane.Normal * 0.5f) != GoldSrcBsp.CONTENTS_EMPTY)
+						continue;
+
+					// Sides on the model's bounds (-1) can't be drawn, but still go in the model
+					var nodeIndex = nodes.TryGetValue(plane, out var n) && sourceBsp.Nodes[n].NumFaceIndices == 0 ? n : -1;
+					if (!nodeFaces.TryGetValue(nodeIndex, out var faces))
+						nodeFaces[nodeIndex] = faces = new List<(HalfSpace, IReadOnlyList<Vector3>)>();
+					faces.Add((plane, winding));
+				}
+			}
+
+			var first = sourceBsp.Faces.Count;
+			foreach (var (nodeIndex, faces) in nodeFaces)
+			{
+				if (nodeIndex >= 0)
+				{
+					var node = sourceBsp.Nodes[nodeIndex];
+					node.FirstFaceIndex = sourceBsp.Faces.Count;
+					node.NumFaceIndices = faces.Count;
+				}
+
+				foreach (var (plane, winding) in faces)
+					AddTriggerFace(plane, winding, nodeIndex);
+			}
+
+			return (first, sourceBsp.Faces.Count - first);
+		}
+
+		private void AddTriggerFace(HalfSpace plane, IReadOnlyList<Vector3> winding, int nodeIndex)
+		{
+			var face = builder.AddFace();
+			if (nodeIndex >= 0)
+			{
+				// The face's own plane, which is the node's or its flip
+				var nodePlaneIndex = gs.Nodes[nodeIndex].planeIndex;
+				face.PlaneSide = Vector3.Dot(plane.Normal, gs.Planes[nodePlaneIndex].normal) < 0f;
+				face.PlaneIndex = face.PlaneSide ? builder.AddPlane(plane.Normal, plane.Dist) : nodePlaneIndex;
+			}
+			else
+			{
+				face.PlaneSide = false;
+				face.PlaneIndex = builder.AddPlane(plane.Normal, plane.Dist);
+			}
+
+			face.IsOnNode = nodeIndex >= 0;
+			face.FirstEdgeIndexIndex = sourceBsp.FaceEdges.Count;
+			face.NumEdgeIndices = winding.Count;
+			face.TextureInfoIndex = GetTriggerTexInfo(plane.Normal);
+			face.DisplacementIndex = -1;
+			face.Area = GetWindingArea(winding);
+			face.Lightmap = -1;
+			face.LightmapStyles = new byte[] { 255, 255, 255, 255 };
+
+			var normalIndex = sourceBsp.Normals.Count;
+			sourceBsp.Normals.Add(plane.Normal);
+			var firstVertex = sourceBsp.Vertices.Count;
+			foreach (var point in winding)
+				sourceBsp.Vertices.Add(new Vertex { position = point });
+
+			for (var j = 0; j < winding.Count; j++)
+			{
+				var edge = new Edge(new byte[Edge.GetStructLength(sourceBsp.MapType)], sourceBsp.Edges);
+				edge.FirstVertexIndex = firstVertex + j;
+				edge.SecondVertexIndex = firstVertex + (j + 1) % winding.Count;
+				sourceBsp.Edges.Add(edge);
+				sourceBsp.FaceEdges.Add(sourceBsp.Edges.Count - 1);
+				sourceBsp.Indices.Add(normalIndex);
+			}
+		}
+
+		// The contents of the leaf of a hull 0 tree a point is in
+		private int GetHull0Contents(int nodeIndex, Vector3 point)
+		{
+			while (nodeIndex >= 0)
+			{
+				var node = gs.Nodes[nodeIndex];
+				var plane = gs.Planes[node.planeIndex];
+				nodeIndex = Vector3.Dot(plane.normal, point) - plane.dist >= 0f ? node.child0 : node.child1;
+			}
+
+			return gs.Leaves[-nodeIndex - 1].contents;
+		}
+
+		// A toolstrigger texinfo projecting along the axis closest to the normal, like a Hammer brush face's
+		private int GetTriggerTexInfo(Vector3 normal)
+		{
+			var abs = Vector3.Abs(normal);
+			Vector3 uAxis, vAxis;
+			if (abs.Z >= abs.X && abs.Z >= abs.Y)
+				(uAxis, vAxis) = (Vector3.UnitX, -Vector3.UnitY);
+			else if (abs.X >= abs.Y)
+				(uAxis, vAxis) = (Vector3.UnitY, -Vector3.UnitZ);
+			else
+				(uAxis, vAxis) = (Vector3.UnitX, -Vector3.UnitZ);
+
+			var textureDataIndex = builder.LookupTextureData(TriggerMaterial);
+			if (textureDataIndex < 0)
+				textureDataIndex = builder.AddTextureData(TriggerMaterial, 64, 64, MissingTextureReflectivity);
+
+			return builder.AddTextureInfo(uAxis, vAxis, uAxis / LightmapLuxelSize, vAxis / LightmapLuxelSize,
+				(int)SourceSurfaceFlags.SURF_NOLIGHT, textureDataIndex);
+		}
+
+		private static float GetWindingArea(IReadOnlyList<Vector3> winding)
+		{
+			var total = Vector3.Zero;
+			for (var i = 2; i < winding.Count; i++)
+				total += Vector3.Cross(winding[i - 1] - winding[0], winding[i] - winding[0]);
+
+			return total.Length() * 0.5f;
 		}
 
 		// Gives the func_precipitation the map's weather became (see GoldSrcEntityConverter.ConvertWeather) a box brush

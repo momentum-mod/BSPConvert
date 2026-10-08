@@ -19,14 +19,17 @@ namespace BSPConvert.Lib
 
 		// Half-spaces that bound the region with a face of non-zero area
 		public IReadOnlyList<HalfSpace> Faces { get; }
+		// Each face's polygon, wound clockwise seen from outside the region
+		public IReadOnlyList<IReadOnlyList<Vector3>> Windings { get; }
 		// Corner points of the region (deduplicated face winding points)
 		public IReadOnlyList<Vector3> Vertices { get; }
 		public Vector3 Mins { get; }
 		public Vector3 Maxs { get; }
 
-		private ConvexRegion(List<HalfSpace> faces, List<Vector3> vertices)
+		private ConvexRegion(List<HalfSpace> faces, List<IReadOnlyList<Vector3>> windings, List<Vector3> vertices)
 		{
 			Faces = faces;
+			Windings = windings;
 			Vertices = vertices;
 
 			var mins = new Vector3(float.MaxValue);
@@ -46,6 +49,7 @@ namespace BSPConvert.Lib
 		{
 			var planes = halfSpaces.Distinct().ToList();
 			var faces = new List<HalfSpace>();
+			var windings = new List<IReadOnlyList<Vector3>>();
 			var vertices = new List<Vector3>();
 			var vertexSet = new HashSet<Vector3>();
 
@@ -62,19 +66,22 @@ namespace BSPConvert.Lib
 					continue;
 
 				faces.Add(planes[i]);
+				var points = new List<Vector3>(winding.Count);
 				foreach (var point in winding)
 				{
 					var v = new Vector3((float)point.X, (float)point.Y, (float)point.Z);
+					points.Add(v);
 					if (vertexSet.Add(v))
 						vertices.Add(v);
 				}
+				windings.Add(points);
 			}
 
 			// A closed convex volume needs at least 4 faces
 			if (faces.Count < 4)
 				return null;
 
-			return new ConvexRegion(faces, vertices);
+			return new ConvexRegion(faces, windings, vertices);
 		}
 
 		// Which side(s) of a plane the region's corners are on, ignoring corners within epsilon of the plane
