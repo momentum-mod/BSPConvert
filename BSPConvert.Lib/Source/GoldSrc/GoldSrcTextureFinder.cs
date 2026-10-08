@@ -46,7 +46,7 @@ namespace BSPConvert.Lib.GoldSrc
 					var wad = Wad3File.Open(paths[i]);
 					if (wad == null)
 					{
-						logger.Log($"Warning: Not a valid WAD3 file: {paths[i]}");
+						logger.Log($"Warning: {paths[i]} isn't a WAD3 file");
 						continue;
 					}
 
@@ -103,7 +103,7 @@ namespace BSPConvert.Lib.GoldSrc
 			{
 				if (wad.Contains(name))
 				{
-					logger.Log($"Texture {name} isn't in the map's listed WADs, using {Path.GetFileName(wad.FilePath)}");
+					logger.Log($"Texture {name} isn't in the map's listed WADs, using {wad.FilePath}");
 					return wad.ReadMipTexture(name);
 				}
 			}

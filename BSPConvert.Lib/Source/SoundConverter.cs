@@ -10,22 +10,25 @@ namespace BSPConvert.Lib.Source
 		private BSP bsp;
 		private string outputDir;
 		private Entities sourceEntities;
+		private ILogger logger;
 
 		// externalContent is searched for sounds the map's entities use that aren't bundled in pk3Dir
-		public SoundConverter(string pk3Dir, AssetSearchPath externalContent, BSP bsp, Entities sourceEntities)
+		public SoundConverter(string pk3Dir, AssetSearchPath externalContent, BSP bsp, Entities sourceEntities, ILogger logger)
 		{
 			this.pk3Dir = pk3Dir;
 			this.externalContent = externalContent;
 			this.bsp = bsp;
 			this.sourceEntities = sourceEntities;
+			this.logger = logger;
 		}
 
-		public SoundConverter(string pk3Dir, AssetSearchPath externalContent, string outputDir, Entities sourceEntities)
+		public SoundConverter(string pk3Dir, AssetSearchPath externalContent, string outputDir, Entities sourceEntities, ILogger logger)
 		{
 			this.pk3Dir = pk3Dir;
 			this.externalContent = externalContent;
 			this.outputDir = outputDir;
 			this.sourceEntities = sourceEntities;
+			this.logger = logger;
 		}
 
 		public void Convert()
@@ -39,6 +42,7 @@ namespace BSPConvert.Lib.Source
 
 			var soundFiles = Directory.GetFiles(pk3Dir, "*.wav", SearchOption.AllDirectories);
 			FixSoundPaths(soundFiles);
+			LogFoundSounds(customSounds, soundFiles);
 
 			if (bsp != null)
 				EmbedFiles(soundFiles);
@@ -69,7 +73,23 @@ namespace BSPConvert.Lib.Source
 				}
 			}
 
+			// Doors without sounds and so on leave their key empty
+			soundHashSet.RemoveWhere(string.IsNullOrWhiteSpace);
 			return soundHashSet.ToList();
+		}
+
+		// Logs how many of the sounds entities play were found, and warns about the ones neither the map nor the
+		// external content has. Sounds starting with * are the player model's, which the game finds itself.
+		private void LogFoundSounds(List<string> customSounds, string[] soundFiles)
+		{
+			var soundDir = Path.Combine(pk3Dir, "sound");
+			var files = new HashSet<string>(soundFiles.Select(file => Path.GetRelativePath(soundDir, file)), StringComparer.OrdinalIgnoreCase);
+			var sounds = customSounds.Where(sound => !sound.StartsWith('*')).ToList();
+			var missing = sounds.Where(sound => !files.Contains(sound)).Order(StringComparer.OrdinalIgnoreCase).ToList();
+			if (sounds.Count > 0)
+				logger.Log($"Found {sounds.Count - missing.Count}/{sounds.Count} sounds");
+			if (missing.Count > 0)
+				logger.Log($"Warning: Sounds not found (add them to the CustomContent folder): {string.Join(", ", missing.Select(sound => sound.Replace(Path.DirectorySeparatorChar, '/')))}");
 		}
 
 		private void MoveToPk3SoundDir(string sound)

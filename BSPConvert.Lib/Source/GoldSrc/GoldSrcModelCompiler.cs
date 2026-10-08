@@ -170,7 +170,7 @@ namespace BSPConvert.Lib.GoldSrc
 			{
 				if (!materialConverter.ConvertModelTexture(materialDir + "/" + materialNames[i], model.Textures[i]))
 				{
-					logger.Log($"Warning: Failed to convert texture {model.Textures[i].Name} of {sourceModel}");
+					logger.Log($"Warning: Couldn't convert texture {model.Textures[i].Name} of {sourceModel}");
 					return false;
 				}
 			}

@@ -21,21 +21,64 @@ namespace BSPConvert.Lib
 		// images are converted to VTF, so unused pk3 content (lightmaps, levelshots, flipbook source frames)
 		// is neither converted nor embedded. Built by MaterialConverter.
 		private IReadOnlySet<string> referencedTextures;
+		private ILogger logger;
+		// Gets each texture as an item of the current stage
+		private ProgressTracker progress;
 
-		public TextureConverter(string pk3Dir, BSP bsp, Dictionary<string, Shader> shaderDict, IReadOnlySet<string> referencedTextures)
+		public TextureConverter(string pk3Dir, BSP bsp, Dictionary<string, Shader> shaderDict, IReadOnlySet<string> referencedTextures, ILogger logger, ProgressTracker progress)
 		{
 			this.pk3Dir = pk3Dir;
 			this.bsp = bsp;
 			this.shaderDict = shaderDict;
 			this.referencedTextures = referencedTextures;
+			this.logger = logger;
+			this.progress = progress;
 		}
 
-		public TextureConverter(string pk3Dir, string outputDir, Dictionary<string, Shader> shaderDict, IReadOnlySet<string> referencedTextures)
+		public TextureConverter(string pk3Dir, string outputDir, Dictionary<string, Shader> shaderDict, IReadOnlySet<string> referencedTextures, ILogger logger, ProgressTracker progress)
 		{
 			this.pk3Dir = pk3Dir;
 			this.outputDir = outputDir;
 			this.shaderDict = shaderDict;
 			this.referencedTextures = referencedTextures;
+			this.logger = logger;
+			this.progress = progress;
+		}
+
+		private static readonly string[] supportedExtensions = [".png", ".jpg", ".jpeg", ".tga", ".bmp", ".webp", ".exr", ".hdr"];
+
+		// Roughly how long encoding a texture takes, measured converting Defrag maps: a fixed time per texture (making
+		// its mips, thumbnail and file) and a time per pixel
+		private const float SecondsPerTexture = 0.1f;
+		private const float SecondsPerMegapixel = 20f;
+
+		// The images to convert and how long each is estimated to take, found on first use (see FindImages)
+		private List<string>? inputPaths;
+		private float[]? seconds;
+
+		// Roughly how long converting the textures takes. It's most of the time converting a map.
+		public float EstimatedSeconds
+		{
+			get
+			{
+				FindImages();
+				return seconds!.Sum();
+			}
+		}
+
+		// Skip images no generated material references (e.g. Q3 lightmaps - converted to Source
+		// lightmaps instead - levelshots, and source frames already baked into flipbook VTFs), so
+		// they aren't converted to VTF or embedded in the BSP.
+		private void FindImages()
+		{
+			if (inputPaths != null)
+				return;
+
+			inputPaths = Directory.EnumerateFiles(pk3Dir, "*", SearchOption.AllDirectories)
+				.Where(path => supportedExtensions.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase))
+				.Where(path => referencedTextures.Contains(GetRelativeTexturePath(path)))
+				.ToList();
+			seconds = inputPaths.Select(path => SecondsPerTexture + GetPixelCount(path) / 1e6f * SecondsPerMegapixel).ToArray();
 		}
 
 		public void Convert()
@@ -53,22 +96,22 @@ namespace BSPConvert.Lib
                 ComputeTransparencyFlags = 1,
             };
 
-            string[] supportedExtensions = [".png", ".jpg", ".jpeg", ".tga", ".bmp", ".webp", ".exr", ".hdr"];
-
             var clampedTextures = GetClampedTextures();
             var reverseAlphaChrome = ReverseAlphaChromeTextures.Analyze(shaderDict.Values);
 
-            foreach (var inputPath in Directory.EnumerateFiles(pk3Dir, "*", SearchOption.AllDirectories))
+            FindImages();
+            var inputPaths = this.inputPaths!;
+            var seconds = this.seconds!;
+
+            // Progress goes by each texture's estimated time, since a large texture takes many times longer than a small one
+            var totalSeconds = Math.Max(seconds.Sum(), 1e-6f);
+            var doneSeconds = 0f;
+            var converted = 0;
+            for (var i = 0; i < inputPaths.Count; i++)
             {
-                if (!supportedExtensions.Contains(Path.GetExtension(inputPath), StringComparer.OrdinalIgnoreCase))
-                    continue;
-
-                // Skip images no generated material references (e.g. Q3 lightmaps - converted to Source
-                // lightmaps instead - levelshots, and source frames already baked into flipbook VTFs), so
-                // they aren't converted to VTF or embedded in the BSP.
-                if (!referencedTextures.Contains(GetRelativeTexturePath(inputPath)))
-                    continue;
-
+                progress.Item(i, inputPaths.Count, doneSeconds / totalSeconds);
+                doneSeconds += seconds[i];
+                var inputPath = inputPaths[i];
                 var outputPath = Path.Combine
                 (
                     Path.GetDirectoryName(inputPath)!,
@@ -114,11 +157,31 @@ namespace BSPConvert.Lib
                     success = VTF.Create(inputPath, outputPath, textureOptions);
                 }
 
-                if (!success)
-                    Console.WriteLine($"Failed to convert: {inputPath}");
+                if (success)
+                    converted++;
+                else
+                    logger.Log($"Warning: Couldn't convert texture {Path.GetRelativePath(pk3Dir, inputPath).Replace(Path.DirectorySeparatorChar, '/')}");
             }
 
+            progress.Item(inputPaths.Count, inputPaths.Count);
+            logger.Log($"Converted {converted}/{inputPaths.Count} textures");
+
             OnFinishedConvertingTextures();
+        }
+
+        // The image's width times height, read from its header, or a guess from its file size for formats ImageSharp
+        // can't identify (e.g. EXR/HDR)
+        private static long GetPixelCount(string path)
+        {
+            try
+            {
+                var info = SixLabors.ImageSharp.Image.Identify(path);
+                return (long)info.Width * info.Height;
+            }
+            catch (Exception)
+            {
+                return new FileInfo(path).Length / 4;
+            }
         }
 
         // Collects the texture paths used by "clampmap" shader stages, so their VTFs can be baked with

@@ -16,6 +16,7 @@ namespace BSPConvert.Lib
 	public class SourceBspBuilder
 	{
 		private readonly string contentDir;
+		private readonly ILogger? logger;
 
 		private readonly Dictionary<TextureInfoKey, int> textureInfoDict = new Dictionary<TextureInfoKey, int>();
 		private readonly Dictionary<string, int> textureInfoLookup = new Dictionary<string, int>();
@@ -30,9 +31,10 @@ namespace BSPConvert.Lib
 
 		// contentDir is where converted materials live; texdata entries read their size/reflectivity from the
 		// VTF at <contentDir>/<textureName>.vtf.
-		public SourceBspBuilder(string mapName, bool oldBSP, string contentDir)
+		public SourceBspBuilder(string mapName, bool oldBSP, string contentDir, ILogger? logger = null)
 		{
 			this.contentDir = contentDir;
+			this.logger = logger;
 			OldBSP = oldBSP;
 
 			var mapType = oldBSP ? MapType.Source20 : MapType.Source25;
@@ -144,8 +146,7 @@ namespace BSPConvert.Lib
 			}
 			catch (Exception e)
 			{
-				Console.WriteLine($"Failed to load vtf file ({Path.GetFileName(vtfPath)})");
-				Console.WriteLine(e.Message);
+				logger?.Log($"Warning: Couldn't read {Path.GetFileName(vtfPath)}: {e.Message}");
 
 				return GetDefaultTextureData();
 			}

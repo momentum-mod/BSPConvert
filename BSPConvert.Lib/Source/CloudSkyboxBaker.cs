@@ -38,6 +38,9 @@ namespace BSPConvert.Lib
 		private readonly string pk3Dir;
 		private readonly Func<string, string?> resolveImagePath;
 
+		// Called with how far a bake is (0-1) as it bakes its faces, since a bake can take half a minute
+		public Action<float>? BakeProgress { get; set; }
+
 		public CloudSkyboxBaker(string pk3Dir, Func<string, string?> resolveImagePath)
 		{
 			this.pk3Dir = pk3Dir;
@@ -102,8 +105,10 @@ namespace BSPConvert.Lib
 			var cloudHeight = ParseCloudHeight(shader.skyParms.cloudHeight);
 			var skyName = hasOuterBox ? shader.skyParms.outerBox : GetSkyName(textureName);
 
+			var faceIndex = 0;
 			foreach (var (suffix, q3Face) in Faces)
 			{
+				BakeProgress?.Invoke((float)faceIndex++ / Faces.Length);
 				var boxFace = hasOuterBox ? LoadBoxFace(shader.skyParms.outerBox, suffix) : null;
 				var pixels = BakeFace(q3Face, layers, cloudHeight, boxFace);
 

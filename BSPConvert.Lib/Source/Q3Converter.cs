@@ -59,6 +59,7 @@ namespace BSPConvert.Lib
 	{
 		private BSPConverterOptions options;
 		private ILogger logger;
+		private ProgressTracker progress;
 
 		private BSP quakeBsp;
 		private SourceBspBuilder builder;
@@ -109,10 +110,11 @@ namespace BSPConvert.Lib
 		// depends on but doesn't bundle). Searched after Q3Content to resolve external dependencies.
 		private static readonly string customContentDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "CustomContent");
 
-		public Q3Converter(BSPConverterOptions options, ILogger logger, ContentManager contentManager)
+		public Q3Converter(BSPConverterOptions options, ILogger logger, ProgressTracker progress, ContentManager contentManager)
 		{
 			this.options = options;
 			this.logger = logger;
+			this.progress = progress;
 			this.contentManager = contentManager;
 
 			CheckQ3Content();
@@ -129,17 +131,34 @@ namespace BSPConvert.Lib
 			builder = output;
 			sourceBsp = output.Bsp;
 
+			progress.Stage("Preparing", 0.02f);
 			ScaleQuakeBsp(options.scale);
 
 			MarkTriggerPatchFaces();
 			ReplaceToolTextures();
 			PrepareAssets();
 			CreatePakFile();
-			ConvertMaterials();
-			ConvertTextureFiles();
 
+			// Which materials bake flipbooks is known up front, but not which textures the materials use, so the rest
+			// is guessed from the map's texture count until it is
+			var materialConverter = CreateMaterialConverter();
+			var materialSeconds = EstimateMaterialSeconds(materialConverter);
+			var restSeconds = quakeBsp.Textures.Count * GuessedSecondsPerTexture + OtherSeconds;
+			var materialShare = 0.98f * materialSeconds / (materialSeconds + restSeconds);
+			progress.Stage("Converting materials", materialShare);
+			ConvertMaterials(materialConverter);
+
+			var textureConverter = CreateTextureConverter();
+			var shares = EstimateStageShares(textureConverter.EstimatedSeconds, 0.98f - materialShare);
+			progress.Stage("Converting textures", shares.textures);
+			textureConverter.Convert();
+
+			progress.Stage("Converting entities", shares.entities);
 			ConvertEntities();
+			progress.Stage("Converting sounds", shares.sounds);
 			ConvertSounds();
+
+			progress.Stage("Converting geometry", shares.geometry);
 			ConvertTextures();
 			ConvertPlanes();
 			//ConvertFaces_SplitFaces();
@@ -159,11 +178,16 @@ namespace BSPConvert.Lib
 			ConvertSkyboxSwappers();
 			if (options.q3.lavaTriggers)
 				ConvertLavaTriggers();
+			logger.Log($"Converted {sourceBsp.Faces.Count} faces and {sourceBsp.Brushes.Count} brushes");
+
+			progress.Stage("Converting lightmaps", shares.lightmaps);
 			ConvertLightmaps();
 
 			// Must be called after all leaves have been created
+			progress.Stage("Converting light grid", shares.lightGrid);
 			ConvertLightGrid();
-			
+
+			progress.Stage("Converting visibility", shares.visibility);
 			ConvertVisData();
 			builder.AddPlaceholderArea();
 			builder.AddPlaceholderAreaPortal();
@@ -273,7 +297,7 @@ namespace BSPConvert.Lib
 		{
 			var files = Directory.GetFiles(q3ContentDir, "*.*", SearchOption.AllDirectories);
 			if (files.Length <= 1)
-				logger.Log("Warning: Q3Content folder is empty. Quake 3 assets will not be converted.");
+				logger.Log($"Warning: {q3ContentDir} is empty, so maps can't use Quake 3's own textures, shaders and sounds (extract baseq3/pak0.pk3 from Quake 3 into it)");
 		}
 
 		private void ReplaceToolTextures()
@@ -306,15 +330,63 @@ namespace BSPConvert.Lib
 			builder.CreatePakFile();
 		}
 
-		private void ConvertMaterials()
+		private MaterialConverter CreateMaterialConverter()
 		{
 			// The default (non-obb) fog path emits Q3 fog shaders as Fog VMTs. The fog brush faces are nodraw, so
 			// these aren't drawn as surfaces; the engine reads the material off the CONTENTS_FOG brush for the
 			// overlay's fog appearance ($fogcolor / $fogdepthforopaque).
 			var generateFogMaterials = !options.q3.useObbFog;
-			var materialConverter = new MaterialConverter(contentManager.ContentDir, q3ContentDir, customContentDir, shaderDict, options.q3.noEnvMap, options.q3.flipbook, generateFogMaterials);
-			foreach (var texture in quakeBsp.Textures)
-				materialConverter.Convert(texture.Name);
+			return new MaterialConverter(contentManager.ContentDir, q3ContentDir, customContentDir, shaderDict, options.q3.noEnvMap, options.q3.flipbook, generateFogMaterials);
+		}
+
+		// Roughly how long converting the materials takes: baking a flipbook takes about 10 seconds at the default
+		// 16 MB budget (from under a second to a minute, in proportion to its frames' pixels), baking a cloud sky into
+		// a skybox about 20, and the other materials next to no time
+		private const float FlipbookSecondsPerMegabyte = 0.6f;
+		private const float CloudSkySeconds = 20f;
+		private const float MaterialSeconds = 0.02f;
+		// What the stages after the materials take, guessed from the map's textures before the converted materials
+		// tell which images they use (see EstimateStageShares)
+		private const float GuessedSecondsPerTexture = 1.5f;
+		private const float OtherSeconds = 3f;
+
+		private float GetMaterialSeconds(MaterialConverter materialConverter, string texture)
+		{
+			return materialConverter.GetBake(texture) switch
+			{
+				MaterialBake.Flipbook => options.q3.flipbook.byteBudget / (1024f * 1024f) * FlipbookSecondsPerMegabyte,
+				MaterialBake.CloudSky => CloudSkySeconds,
+				_ => MaterialSeconds
+			};
+		}
+
+		private float EstimateMaterialSeconds(MaterialConverter materialConverter)
+		{
+			return quakeBsp.Textures.Sum(texture => GetMaterialSeconds(materialConverter, texture.Name));
+		}
+
+		private void ConvertMaterials(MaterialConverter materialConverter)
+		{
+			// Progress goes by each material's estimated time, since a bake takes far longer than the others, and moves
+			// through the bakes as they go
+			var seconds = quakeBsp.Textures.Select(texture => GetMaterialSeconds(materialConverter, texture.Name)).ToArray();
+			var totalSeconds = Math.Max(seconds.Sum(), 1e-6f);
+			var doneSeconds = 0f;
+			for (var i = 0; i < quakeBsp.Textures.Count; i++)
+			{
+				var index = i;
+				var start = doneSeconds;
+				progress.Item(i, quakeBsp.Textures.Count, start / totalSeconds);
+				materialConverter.BakeProgress = bake => progress.Item(index, quakeBsp.Textures.Count, (start + bake * seconds[index]) / totalSeconds);
+				materialConverter.Convert(quakeBsp.Textures[i].Name);
+				doneSeconds += seconds[i];
+			}
+
+			materialConverter.BakeProgress = null;
+			var flipbooks = quakeBsp.Textures.Count(texture => materialConverter.GetBake(texture.Name) == MaterialBake.Flipbook);
+			logger.Log(flipbooks > 0 ?
+				$"Converted {quakeBsp.Textures.Count} materials, baking {flipbooks} animated shaders into flipbooks" :
+				$"Converted {quakeBsp.Textures.Count} materials");
 
 			// The texture pass only converts images these materials reference (see TextureConverter).
 			referencedTextures = materialConverter.ReferencedTextures;
@@ -334,7 +406,7 @@ namespace BSPConvert.Lib
 
 		private Dictionary<string, LightmapData> LoadExternalLightmaps()
 		{
-			var loader = new ExternalLightmapLoader(shaderDict, contentManager.ContentDir);
+			var loader = new ExternalLightmapLoader(shaderDict, contentManager.ContentDir, logger);
 			return loader.LoadLightmaps();
 		}
 
@@ -365,12 +437,34 @@ namespace BSPConvert.Lib
 			return new string[0];
 		}
 
-		private void ConvertTextureFiles()
+		private TextureConverter CreateTextureConverter()
 		{
-			var converter = options.noPak ?
-				new TextureConverter(contentManager.ContentDir, options.outputDir, shaderDict, referencedTextures) :
-				new TextureConverter(contentManager.ContentDir, sourceBsp, shaderDict, referencedTextures);
-			converter.Convert();
+			return options.noPak ?
+				new TextureConverter(contentManager.ContentDir, options.outputDir, shaderDict, referencedTextures, logger, progress) :
+				new TextureConverter(contentManager.ContentDir, sourceBsp, shaderDict, referencedTextures, logger, progress);
+		}
+
+		// Roughly how long each stage takes, measured converting Defrag maps, to divide the map's progress between the
+		// stages by. Encoding the textures takes most of the time (see TextureConverter.EstimatedSeconds). Embedding the
+		// sounds rewrites the pakfile the textures are already in, so it takes longer the more of them there are.
+		private const float EntitySeconds = 0.1f;
+		private const float SoundSecondsPerTextureSecond = 0.06f;
+		private const float GeometrySeconds = 0.5f;
+		private const float GeometrySecondsPerFace = 0.0001f;
+		private const float LightmapSeconds = 0.3f;
+		private const float LightGridSeconds = 1f;
+		private const float VisibilitySeconds = 0.05f;
+
+		// Divides share of the map's progress between the stages after the materials, by how long they're estimated to
+		// take from how long the textures are estimated to take and the map's faces
+		private (float textures, float entities, float sounds, float geometry, float lightmaps, float lightGrid, float visibility) EstimateStageShares(float textures, float share)
+		{
+			var sounds = textures * SoundSecondsPerTextureSecond;
+			var geometry = GeometrySeconds + quakeBsp.Faces.Count * GeometrySecondsPerFace;
+			var total = textures + EntitySeconds + sounds + geometry + LightmapSeconds + LightGridSeconds + VisibilitySeconds;
+
+			float Share(float seconds) => share * seconds / total;
+			return (Share(textures), Share(EntitySeconds), Share(sounds), Share(geometry), Share(LightmapSeconds), Share(LightGridSeconds), Share(VisibilitySeconds));
 		}
 
 		private void ConvertEntities()
@@ -460,8 +554,8 @@ namespace BSPConvert.Lib
 			// Sounds the map doesn't bundle come from Q3 base content first, then CustomContent
 			var externalContent = new AssetSearchPath(q3ContentDir, customContentDir);
 			var converter = options.noPak ?
-				new SoundConverter(contentManager.ContentDir, externalContent, options.outputDir, sourceBsp.Entities) :
-				new SoundConverter(contentManager.ContentDir, externalContent, sourceBsp, sourceBsp.Entities);
+				new SoundConverter(contentManager.ContentDir, externalContent, options.outputDir, sourceBsp.Entities, logger) :
+				new SoundConverter(contentManager.ContentDir, externalContent, sourceBsp, sourceBsp.Entities, logger);
 			converter.Convert();
 		}
 
@@ -722,7 +816,7 @@ namespace BSPConvert.Lib
 				{
 					if (!TryCreateHeadNode(qModel.FirstBrushIndex, out var nodeIndex))
 					{
-						logger.Log($"Failed to convert model: {i}");
+						logger.Log($"Warning: Couldn't convert brush model *{i}");
 						continue;
 					}
 
@@ -740,7 +834,7 @@ namespace BSPConvert.Lib
 					maxs.X() > maxExtents || maxs.Y() > maxExtents || maxs.Z() > maxExtents)
 				{
 					exceededMaxExtents = true;
-					logger.Log("Exceeded max extents: " + mins);
+					logger.Log($"Warning: Brush model *{i} is outside Source's maximum extents of ±{maxExtents} units ({mins} to {maxs})");
 				}
 
 				// TODO: Re-center mins/maxs and set trigger entity origin?
@@ -781,7 +875,7 @@ namespace BSPConvert.Lib
 			}
 
 			if (exceededMaxExtents)
-				throw new Exception("Failed to convert BSP, exceeded max extents");
+				throw new Exception($"{quakeBsp.MapName} is bigger than Source's maximum extents of ±{(options.oldBSP ? 16384 : 65536)} units");
 		}
 
 		private void ConvertFuncDoorTriggers()
@@ -871,8 +965,6 @@ namespace BSPConvert.Lib
 				});
 				sourceBsp.Entities.Add(trigger);
 			}
-
-			logger.Log($"Converted {skyboxSwapPlan.Regions.Count} skybox swap regions");
 		}
 
 		// Replicates Q3's Think_SpawnNewDoorTrigger bounds expansion: find the thinnest axis and expand it by 120 units each direction
@@ -1175,6 +1267,7 @@ namespace BSPConvert.Lib
 			// Map needs at least one surface edge to load
 			//CreateEdge(default, default, 0);
 
+			var unsupportedFaces = new Dictionary<FaceType, int>();
 			for (var faceIndex = 0; faceIndex < quakeBsp.Faces.Count; faceIndex++)
 			{
 				// TODO: Handle different face types
@@ -1193,10 +1286,13 @@ namespace BSPConvert.Lib
 						break;
 					case FaceType.Billboard:
 					default:
-						logger.Log("Unsupported face type: " + qFace.Type);
+						unsupportedFaces[qFace.Type] = unsupportedFaces.GetValueOrDefault(qFace.Type) + 1;
 						break;
 				}
 			}
+
+			foreach (var (type, count) in unsupportedFaces)
+				logger.Log($"Warning: {count} {type.ToString().ToLowerInvariant()} faces aren't supported, so they aren't converted");
 		}
 
 		private void ConvertPolygon(int faceIndex)

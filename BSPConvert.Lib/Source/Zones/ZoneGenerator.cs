@@ -67,7 +67,7 @@ namespace BSPConvert.Lib.Zones
 					var region = CreateRegionFromModel(startEntity);
 					if (region == null)
 					{
-						logger.Log("Warning: Failed to create start zone region.");
+						logger.Log("Warning: Couldn't create the start zone's region");
 						continue;
 					}
 
@@ -92,7 +92,7 @@ namespace BSPConvert.Lib.Zones
 				var zone = CreateZone(checkpoint);
 				if (zone.Regions.Count == 0)
 				{
-					logger.Log($"Warning: Failed to create checkpoint zone region for checkpoint {checkpoint["checkpoint_number"]}. Skipping checkpoint.");
+					logger.Log($"Warning: Couldn't create the region of checkpoint {checkpoint["checkpoint_number"]}, so it's left out");
 					continue;
 				}
 
@@ -111,7 +111,7 @@ namespace BSPConvert.Lib.Zones
 					var region = CreateRegionFromModel(endEntity);
 					if (region == null)
 					{
-						logger.Log("Warning: Failed to create end zone region.");
+						logger.Log("Warning: Couldn't create the end zone's region");
 						continue;
 					}
 
@@ -143,7 +143,7 @@ namespace BSPConvert.Lib.Zones
 			var modelNumber = entity.ModelNumber;
 			if (modelNumber < 0 || modelNumber >= models.Count)
 			{
-				logger.Log($"Warning: Entity with classname '{entity.ClassName}' has invalid model number {modelNumber}. Skipping region generation for this entity.");
+				logger.Log($"Warning: {entity.ClassName} has an invalid model number {modelNumber}, so it has no zone region");
 				return null;
 			}
 

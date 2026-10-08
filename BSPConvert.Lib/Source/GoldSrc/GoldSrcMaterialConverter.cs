@@ -182,6 +182,16 @@ namespace BSPConvert.Lib.GoldSrc
 			return true;
 		}
 
+		// How many pixels converting a texture of this size encodes: one image, or a warped texture's frames (see
+		// ConvertWarped)
+		public static long GetEncodedPixels(int width, int height, bool warped)
+		{
+			if (!warped)
+				return (long)width * height;
+
+			return (long)Math.Min(width, MaxWarpRepeatSize) * WarpRepeats * Math.Min(height, MaxWarpRepeatSize) * WarpRepeats * WarpFrames;
+		}
+
 		// One frame of the warp (see ConvertWarped), WarpRepeats by WarpRepeats repeats of repeatWidth by repeatHeight
 		// texels each
 		private static byte[] BakeWarpFrame(byte[] pixels, int textureWidth, int textureHeight, int repeatWidth, int repeatHeight, int frame)

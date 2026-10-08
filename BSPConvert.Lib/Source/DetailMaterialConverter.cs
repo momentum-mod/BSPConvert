@@ -32,6 +32,18 @@ namespace BSPConvert.Lib
 			this.copyExternalContent = copyExternalContent;
 		}
 
+		// Whether TryConvert would convert the shader, without converting it
+		public bool Matches(Shader shader)
+		{
+			if (!options.enabled)
+				return false;
+
+			if (IsAnimatedStackShader(shader, out var stages, out _))
+				return IsCarryableStack(stages) && (stages.Count == 2 || WouldBakedLoopCollapse(stages));
+
+			return IsTranslucentLiquidStack(GetTextureStages(shader));
+		}
+
 		// Converts the shader to a live base/detail material if it's a transform-animated (scroll/rotate) shader we can
 		// carry. Returns false (deferring to the flipbook baker / normal material path) otherwise.
 		public bool TryConvert(string textureName, Shader shader)

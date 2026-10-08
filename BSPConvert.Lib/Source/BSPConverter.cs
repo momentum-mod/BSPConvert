@@ -2,6 +2,8 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Threading;
+using System.Collections.Generic;
 using BSPConvert.Lib.GoldSrc;
 using BSPConvert.Lib.Zones;
 
@@ -39,27 +41,38 @@ namespace BSPConvert.Lib
 	}
 
 	// Entry point for a conversion: loads the input file's BSP(s), hands each one to the converter for its
-	// engine (see IEngineConverter), then writes the resulting Source BSP and its zone file.
+	// engine (see IEngineConverter), then writes the resulting Source BSP and its zone file. Reports its progress
+	// (see ProgressTracker), and when the cancellation token is cancelled stops at the next stage or item (texture,
+	// model...) with an OperationCanceledException.
 	public class BSPConverter
 	{
+		// Parts of the whole conversion loading the input takes (extracting an archive, reading its BSPs)
+		private const float LoadShare = 0.005f;
+		private const float ArchiveLoadShare = 0.01f;
+		// Parts of each map's conversion writing its BSP takes. LZMA compressing every lump takes a few times longer.
+		private const float WriteShare = 0.01f;
+		private const float CompressedWriteShare = 0.04f;
+
 		private BSPConverterOptions options;
 		private ILogger logger;
+		private ProgressTracker progress;
 
 		private ContentManager contentManager;
 		private Q3Converter? q3Converter;
 		private GoldSrcConverter? goldSrcConverter;
 
-		public BSPConverter(BSPConverterOptions options, ILogger logger)
+		public BSPConverter(BSPConverterOptions options, ILogger logger, IProgress<ConversionProgress>? progress = null, CancellationToken cancellation = default)
 		{
 			this.options = options;
 			this.logger = logger;
+			this.progress = new ProgressTracker(progress, cancellation);
 		}
 
 		public void Convert()
 		{
 			if (!File.Exists(options.inputFile))
 			{
-				logger.Log("Error: Input BSP file does not exist");
+				logger.Log($"Error: {options.inputFile} doesn't exist");
 				return;
 			}
 
@@ -69,8 +82,55 @@ namespace BSPConvert.Lib
 				return;
 			}
 
-			contentManager = new ContentManager(options.inputFile);
+			var isArchive = !Path.GetExtension(options.inputFile).Equals(".bsp", StringComparison.OrdinalIgnoreCase);
+			var loadShare = isArchive ? ArchiveLoadShare : LoadShare;
+			progress.BeginSection(0f, loadShare);
+			progress.Stage(isArchive ? "Extracting " + Path.GetFileName(options.inputFile) : "Reading " + Path.GetFileName(options.inputFile), 1f);
 
+			contentManager = new ContentManager(options.inputFile);
+			try
+			{
+				var maps = SelectMaps();
+				var mapShare = (1f - loadShare) / Math.Max(maps.Count, 1);
+				var writeShare = options.compress ? CompressedWriteShare : WriteShare;
+				for (var i = 0; i < maps.Count; i++)
+				{
+					var (bsp, engineConverter) = maps[i];
+					var mapStart = loadShare + i * mapShare;
+					var writeStart = mapStart + mapShare * (1f - writeShare);
+					progress.SetMap(bsp.MapName, i, maps.Count);
+
+					logger.Log(maps.Count > 1 ? $"Converting {bsp.MapName}.bsp ({i + 1}/{maps.Count})..." : $"Converting {bsp.MapName}.bsp...");
+
+					progress.BeginSection(mapStart, writeStart);
+					var builder = new SourceBspBuilder(bsp.MapName, options.oldBSP, contentManager.ContentDir, logger);
+					engineConverter.Convert(bsp, builder);
+
+					// Only Defrag maps carry timer triggers the zone generator understands
+					var generateZones = bsp.MapType.IsSubtypeOf(MapType.Quake3) && !options.ignoreZones;
+					progress.BeginSection(writeStart, mapStart + mapShare);
+					progress.Stage("Writing BSP", generateZones ? 0.9f : 1f);
+					WriteBSP(builder, bsp.MapName);
+
+					if (generateZones)
+					{
+						progress.Stage("Writing zones", 0.1f);
+						GenerateZones(builder, bsp.MapName);
+					}
+				}
+
+				progress.Finish();
+			}
+			finally
+			{
+				contentManager.Dispose();
+			}
+		}
+
+		// The input's BSPs that will be converted, with the converter for each. Logs why the others are skipped.
+		private List<(BSP bsp, IEngineConverter converter)> SelectMaps()
+		{
+			var maps = new List<(BSP, IEngineConverter)>();
 			foreach (var bsp in contentManager.BSPFiles)
 			{
 				if (options.mapFilter != null && options.mapFilter.Length > 0 &&
@@ -87,19 +147,10 @@ namespace BSPConvert.Lib
 					continue;
 				}
 
-				logger.Log($"Converting {bsp.MapName}.bsp...");
-
-				var builder = new SourceBspBuilder(bsp.MapName, options.oldBSP, contentManager.ContentDir);
-				engineConverter.Convert(bsp, builder);
-
-				WriteBSP(builder, bsp.MapName);
-
-				// Only Defrag maps carry timer triggers the zone generator understands
-				if (bsp.MapType.IsSubtypeOf(MapType.Quake3))
-					GenerateZones(builder, bsp.MapName);
+				maps.Add((bsp, engineConverter));
 			}
 
-			contentManager.Dispose();
+			return maps;
 		}
 
 		// Engine converters are created on first use and reused for every BSP in the input file, since they
@@ -107,10 +158,10 @@ namespace BSPConvert.Lib
 		private IEngineConverter? GetEngineConverter(MapType mapType)
 		{
 			if (mapType.IsSubtypeOf(MapType.Quake3))
-				return q3Converter ??= new Q3Converter(options, logger, contentManager);
+				return q3Converter ??= new Q3Converter(options, logger, progress, contentManager);
 
 			if (mapType.IsSubtypeOf(MapType.GoldSrc))
-				return goldSrcConverter ??= new GoldSrcConverter(options, logger, contentManager);
+				return goldSrcConverter ??= new GoldSrcConverter(options, logger, progress, contentManager);
 
 			return null;
 		}
@@ -119,16 +170,19 @@ namespace BSPConvert.Lib
 		{
 			if (!File.Exists(options.goldSrcHullSource))
 			{
-				logger.Log("Error: GoldSrc BSP file does not exist");
+				logger.Log($"Error: {options.goldSrcHullSource} doesn't exist");
 				return;
 			}
 
 			var mapsDir = Path.Combine(options.outputDir, "maps");
 			Directory.CreateDirectory(mapsDir);
 
+			progress.Stage("Transferring clip hulls", 1f);
 			var bspPath = Path.Combine(mapsDir, $"{options.prefix}{Path.GetFileNameWithoutExtension(options.inputFile)}.bsp");
 			if (new GoldSrcHullTransfer(logger).Transfer(options.goldSrcHullSource, options.inputFile, bspPath))
-				logger.Log($"Wrote BSP File: {bspPath}");
+				logger.Log($"Wrote {bspPath}");
+
+			progress.Finish();
 		}
 
 		private void WriteBSP(SourceBspBuilder builder, string mapName)
@@ -140,14 +194,11 @@ namespace BSPConvert.Lib
 			var bspPath = Path.Combine(mapsDir, $"{options.prefix}{mapName}.bsp");
 			builder.Write(bspPath, options.compress);
 
-			logger.Log($"Wrote BSP File: {bspPath}");
+			logger.Log($"Wrote {bspPath}");
 		}
 
 		private void GenerateZones(SourceBspBuilder builder, string mapName)
 		{
-			if (options.ignoreZones)
-				return;
-
 			var zoneGenerator = new ZoneGenerator(builder, logger);
 			var zoneDefs = zoneGenerator.Generate();
 
@@ -158,7 +209,7 @@ namespace BSPConvert.Lib
 			var zonePath = Path.Combine(zonesDir, $"{options.prefix}{mapName}.json");
 			ZoneWriter.WriteToFile(zoneDefs, zonePath);
 
-			logger.Log($"Wrote Zone File: {zonePath}");
+			logger.Log($"Wrote {zonePath}");
 		}
 	}
 }

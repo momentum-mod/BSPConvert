@@ -9,6 +9,14 @@ using SixLabors.ImageSharp.PixelFormats;
 
 namespace BSPConvert.Lib
 {
+	// What converting a material bakes, see MaterialConverter.GetBake
+	public enum MaterialBake
+	{
+		None,
+		Flipbook,
+		CloudSky
+	}
+
 	public class MaterialConverter
 	{
 		// Shared placeholder $basetexture for env-map-only shaders (relative material path, no extension).
@@ -119,6 +127,33 @@ namespace BSPConvert.Lib
 		{
 			if (!string.IsNullOrEmpty(texturePath))
 				referencedTextures.Add(texturePath.Replace('\\', '/'));
+		}
+
+		// What converting the texture bakes, if anything: its shader into a flipbook (see FlipbookConverter) or a
+		// cloud sky into a skybox (see CloudSkyboxBaker), which take far longer than converting the other materials.
+		// Mirrors the order CreateShaderVMT tries the converters in.
+		public MaterialBake GetBake(string texture)
+		{
+			if (!shaderDict.TryGetValue(texture, out var shader) || (shader.fogParms != null && generateFogMaterials))
+				return MaterialBake.None;
+
+			if (shader.skyParms == null)
+				return !detailMaterialConverter.Matches(shader) && flipbookConverter.Matches(shader) ? MaterialBake.Flipbook : MaterialBake.None;
+
+			if (shader.skyParms.HasImageBox)
+				return CloudSkyboxBaker.HasBakeableCloudStages(shader) ? MaterialBake.CloudSky : MaterialBake.None;
+
+			return CloudSkyboxBaker.IsCloudSkyShader(shader) ? MaterialBake.CloudSky : MaterialBake.None;
+		}
+
+		// Called with how far a flipbook or cloud sky bake is (0-1) as it goes
+		public Action<float>? BakeProgress
+		{
+			set
+			{
+				flipbookConverter.BakeProgress = value;
+				cloudSkyboxBaker.BakeProgress = value;
+			}
 		}
 
 		public void Convert(string texture)

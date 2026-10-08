@@ -57,6 +57,7 @@ namespace BSPConvert.Lib.GoldSrc
 
 		private readonly BSPConverterOptions options;
 		private readonly ILogger logger;
+		private readonly ProgressTracker progress;
 		private readonly ContentManager contentManager;
 
 		private GoldSrcBsp gs;
@@ -131,15 +132,17 @@ namespace BSPConvert.Lib.GoldSrc
 		private const float PrecipitationBlockerCellSize = 32f;
 		private const int MaxPrecipitationBlockers = 128;
 
-		public GoldSrcConverter(BSPConverterOptions options, ILogger logger, ContentManager contentManager)
+		public GoldSrcConverter(BSPConverterOptions options, ILogger logger, ProgressTracker progress, ContentManager contentManager)
 		{
 			this.options = options;
 			this.logger = logger;
+			this.progress = progress;
 			this.contentManager = contentManager;
 		}
 
 		public void Convert(BSP inputBsp, SourceBspBuilder output)
 		{
+			progress.Stage("Reading map", 0.01f);
 			gs = GoldSrcBsp.Read(inputBsp);
 			assetDir = "goldsrc/" + SanitizeAssetName(inputBsp.MapName);
 			builder = output;
@@ -163,22 +166,31 @@ namespace BSPConvert.Lib.GoldSrc
 				modelBrushes[i] = new List<int>();
 
 			if (options.scale != 1f)
-				logger.Log("Warning: --scale is not supported for GoldSrc maps and will be ignored.");
+				logger.Log("Warning: --scale isn't supported for GoldSrc maps, so it's ignored");
 
 			SetLumpVersions();
 			LogClipType();
 
 			try
 			{
+				progress.Stage("Converting entities", 0.01f);
 				ConvertEntities();
 				assetFinder = new GoldSrcAssetFinder(GetAssetSearchDirs(), GetModName());
 				FindSounds();
 				ConvertPlanes();
+
+				var shares = EstimateStageShares(0.98f);
+				progress.Stage("Converting textures", shares.textures);
 				ConvertTexInfos();
+				progress.Stage("Converting skybox", shares.skybox);
 				ConvertSkybox();
+				progress.Stage("Converting sprites and decals", shares.sprites);
 				ConvertSprites();
 				ConvertDecals();
+				progress.Stage("Converting models", shares.models);
 				ConvertStudioModels();
+
+				progress.Stage("Converting geometry", shares.geometry);
 				ConvertVertices();
 				ConvertFaces();
 				ConvertLighting();
@@ -190,6 +202,8 @@ namespace BSPConvert.Lib.GoldSrc
 				WriteLeafBrushes();
 				ConvertModels();
 				AddPrecipitationVolume();
+
+				progress.Stage("Converting visibility", shares.visibility);
 				ConvertVisibility();
 				new GoldSrcModelLighting(gs, sourceBsp, sourceLeafForGoldSrcLeaf).Convert();
 
@@ -197,6 +211,7 @@ namespace BSPConvert.Lib.GoldSrc
 				builder.AddPlaceholderAreaPortal();
 				builder.AddPlaceholderWorldLight();
 
+				progress.Stage("Packing assets", shares.packing);
 				WriteContent();
 			}
 			finally
@@ -205,6 +220,61 @@ namespace BSPConvert.Lib.GoldSrc
 					Directory.Delete(modelWorkDir, true);
 				modelWorkDir = null;
 			}
+		}
+
+		// Roughly how long each stage takes, measured converting GoldSrc maps, to divide the map's progress between the
+		// stages by. Encoding the textures takes most of the time: a fixed time per texture (making its mips, thumbnail
+		// and file) and a time per pixel. Compiling each model with studiomdl takes a few seconds, and packing the
+		// assets takes a little more the bigger the textures are.
+		private const float SecondsPerTexture = 0.4f;
+		private const float TextureSecondsPerMegapixel = 12f;
+		private const float SkyboxSeconds = 2.5f;
+		private const float SecondsPerSprite = 1f;
+		private const float SecondsPerDecal = 1f;
+		private const float SecondsPerModel = 4f;
+		private const float GeometrySeconds = 2.5f;
+		private const float VisibilitySeconds = 0.3f;
+		private const float PackingSecondsPerTextureSecond = 0.08f;
+
+		// Divides share of the map's progress between the stages after the entities, by how long they're estimated to
+		// take from the map's textures and the sprites, decals and models its entities use
+		private (float textures, float skybox, float sprites, float models, float geometry, float visibility, float packing) EstimateStageShares(float share)
+		{
+			var spriteCount = sourceBsp.Entities
+				.Where(entity => SpriteKeys.ContainsKey(entity.ClassName))
+				.SelectMany(entity => SpriteKeys[entity.ClassName].Select(key => entity[key].Trim().ToLowerInvariant()))
+				.Where(model => model.EndsWith(".spr", StringComparison.Ordinal))
+				.Distinct()
+				.Count();
+			var decalCount = sourceBsp.Entities
+				.Where(entity => entity.ClassName == "infodecal")
+				.Select(entity => entity["texture"].Trim().ToLowerInvariant())
+				.Distinct()
+				.Count();
+			var modelCount = sourceBsp.Entities
+				.Where(entity => StudioModelClasses.Contains(entity.ClassName) || entity.ClassName == "func_train")
+				.Select(entity => entity["model"].Trim().ToLowerInvariant())
+				.Where(model => model.EndsWith(".mdl", StringComparison.Ordinal))
+				.Distinct()
+				.Count();
+
+			var textures = gs.MipTextures
+				.Where(mipTex => !string.IsNullOrEmpty(mipTex.name) && !IsToolTexture(mipTex.name))
+				.Sum(mipTex => GetTextureSeconds(mipTex.name, mipTex.width, mipTex.height));
+			var skybox = gs.MipTextures.Any(mipTex => mipTex.name.Equals("sky", StringComparison.OrdinalIgnoreCase)) ? SkyboxSeconds : 0f;
+			var sprites = spriteCount * SecondsPerSprite + decalCount * SecondsPerDecal;
+			var models = modelCount * SecondsPerModel;
+			var packing = textures * PackingSecondsPerTextureSecond;
+			var total = textures + skybox + sprites + models + GeometrySeconds + VisibilitySeconds + packing;
+
+			float Share(float seconds) => share * seconds / total;
+			return (Share(textures), Share(skybox), Share(sprites), Share(models), Share(GeometrySeconds), Share(VisibilitySeconds), Share(packing));
+		}
+
+		private static float GetTextureSeconds(string name, int width, int height)
+		{
+			var pixels = GoldSrcMaterialConverter.GetEncodedPixels(width, height, GoldSrcMaterialConverter.IsTurbulent(name));
+			return SecondsPerTexture + pixels / 1e6f * TextureSecondsPerMegapixel;
 		}
 
 		// Logs which cliptype the map was compiled with, for porters: legacy maps expand sloped faces less than the
@@ -361,7 +431,7 @@ namespace BSPConvert.Lib.GoldSrc
 			volumeModelContents[modelIndex] = contents;
 
 			if (!string.IsNullOrEmpty(entity["targetname"]))
-				logger.Log($"Warning: {entity.ClassName} {entity["model"]} ({entity["targetname"]}) is converted as static water and won't move.");
+				logger.Log($"Warning: {entity.ClassName} {entity["model"]} ({entity["targetname"]}) is converted as static water and won't move");
 
 			entity.ClassName = "func_illusionary";
 		}
@@ -757,8 +827,17 @@ namespace BSPConvert.Lib.GoldSrc
 		{
 			materialConverter = new GoldSrcMaterialConverter(contentManager.ContentDir);
 			convertedMaterials.Clear();
+
+			// Progress goes by each texture's estimated time, since a warped water texture takes many times longer
+			var seconds = mipTextures.Select((texture, i) => texture == null || IsToolTexture(gs.MipTextures[i].name) ? 0f :
+				GetTextureSeconds(gs.MipTextures[i].name, texture.Width, texture.Height)).ToArray();
+			var totalSeconds = Math.Max(seconds.Sum(), 1e-6f);
+			var doneSeconds = 0f;
 			for (var i = 0; i < mipTextures.Length; i++)
 			{
+				progress.Item(i, mipTextures.Length, doneSeconds / totalSeconds);
+				doneSeconds += seconds[i];
+
 				var name = gs.MipTextures[i].name;
 				var texture = mipTextures[i];
 				if (texture == null || IsToolTexture(name))
@@ -773,9 +852,10 @@ namespace BSPConvert.Lib.GoldSrc
 				if (isWater ? materialConverter.ConvertWarped(materialName, texture) : materialConverter.Convert(materialName, texture))
 					convertedMaterials[materialName] = new ConvertedMaterial(materialName, texture, isWater ? TextureAnimation.Warp : TextureAnimation.None);
 				else
-					logger.Log($"Warning: Failed to convert texture {texture.Name}");
+					logger.Log($"Warning: Couldn't convert texture {texture.Name}");
 			}
 
+			progress.Item(mipTextures.Length, mipTextures.Length);
 			logger.Log($"Converted {convertedMaterials.Count} textures");
 		}
 
@@ -818,7 +898,7 @@ namespace BSPConvert.Lib.GoldSrc
 
 			if (!materialConverter.ConvertAnimated(frameMaterials, frames))
 			{
-				logger.Log($"Warning: Failed to convert animated texture {textureName}");
+				logger.Log($"Warning: Couldn't convert animated texture {textureName}");
 				return false;
 			}
 
@@ -866,9 +946,10 @@ namespace BSPConvert.Lib.GoldSrc
 			var sourceSkyName = $"{assetDir}/{skyName}";
 			for (var i = 0; i < SkyboxSuffixes.Length; i++)
 			{
+				progress.Item(i, SkyboxSuffixes.Length);
 				if (!materialConverter.ConvertSkyboxFace($"skybox/{sourceSkyName}{SkyboxSuffixes[i]}", images[i]!))
 				{
-					logger.Log($"Warning: Failed to convert sky image {images[i]}");
+					logger.Log($"Warning: Couldn't convert sky image {images[i]}");
 					return;
 				}
 			}
@@ -1023,7 +1104,7 @@ namespace BSPConvert.Lib.GoldSrc
 			var material = $"{assetDir}/decals/{SanitizeAssetName(name.TrimStart('{'))}";
 			if (!materialConverter.ConvertDecal(material, texture, fromDecalWad))
 			{
-				logger.Log($"Warning: Failed to convert decal {name}");
+				logger.Log($"Warning: Couldn't convert decal {name}");
 				return null;
 			}
 
@@ -1180,12 +1261,17 @@ namespace BSPConvert.Lib.GoldSrc
 			if (models.Count == 0)
 				return;
 
+			// studiomdl takes a few seconds per model
 			var compiled = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-			foreach (var sourceModel in users.Select(user => user.sourceModel).Distinct(StringComparer.OrdinalIgnoreCase))
+			var toCompile = users.Select(user => user.sourceModel).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+			for (var i = 0; i < toCompile.Count; i++)
 			{
-				if (modelCompiler!.Compile(sourceModel))
-					compiled.Add(sourceModel);
+				progress.Item(i, toCompile.Count);
+				if (modelCompiler!.Compile(toCompile[i]))
+					compiled.Add(toCompile[i]);
 			}
+
+			progress.Item(toCompile.Count, toCompile.Count);
 
 			foreach (var (entity, sourceModel, sequence) in users)
 			{
@@ -1210,7 +1296,7 @@ namespace BSPConvert.Lib.GoldSrc
 			var studiomdl = FindStudiomdl();
 			if (studiomdl == null)
 			{
-				logger.Log("Warning: Models aren't converted because studiomdl.exe wasn't found. Pass the one in Momentum Mod's bin/win64 folder with --studiomdl.");
+				logger.Log("Warning: studiomdl.exe wasn't found, so models aren't converted (pass the one in Momentum Mod's bin/win64 folder with --studiomdl)");
 				return false;
 			}
 

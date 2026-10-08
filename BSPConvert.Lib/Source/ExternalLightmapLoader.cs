@@ -23,6 +23,7 @@ namespace BSPConvert.Lib
 	{
 		private Dictionary<string, Shader> shaderDict;
 		private string contentDir;
+		private ILogger logger;
 
 		private readonly HashSet<string> validLightmapFormats = new HashSet<string>()
 		{
@@ -33,10 +34,11 @@ namespace BSPConvert.Lib
 			".bmp"
 		};
 
-		public ExternalLightmapLoader(Dictionary<string, Shader> shaderDict, string contentDir)
+		public ExternalLightmapLoader(Dictionary<string, Shader> shaderDict, string contentDir, ILogger logger)
         {
 			this.shaderDict = shaderDict;
 			this.contentDir = contentDir;
+			this.logger = logger;
         }
 
 		public Dictionary<string, LightmapData> LoadLightmaps()
@@ -68,7 +70,7 @@ namespace BSPConvert.Lib
 				}
 				catch (Exception ex)
 				{
-					Console.WriteLine(ex.Message);
+					logger.Log($"Warning: Couldn't load external lightmap {lmImage}: {ex.Message}");
 				}
 			}
 

@@ -87,6 +87,20 @@ namespace BSPConvert.Lib
 			public ShaderStageFlags flags;            // src/dst blend factors
 		}
 
+		// Part of a bake's progress compositing its frames takes, the rest being encoding them into the VTF
+		private const float CompositeShare = 0.05f;
+
+		// Called with how far a bake is (0-1) as it composites its frames, since a bake can take a minute
+		public Action<float>? BakeProgress { get; set; }
+
+		// Whether TryConvert would bake the shader, without baking it. It can still fail to, e.g. when a source image
+		// is missing.
+		public bool Matches(Shader shader)
+		{
+			return options.enabled &&
+				(IsAnimMapShader(shader) || IsAnimatedStackShader(shader, out _, out _) || IsReflectiveAnimatedStack(shader, out _, out _));
+		}
+
 		// Bakes the flipbook + writes the VMT if the shader matches an animated multi-pass pattern. Returns false
 		// (leaving the shader for the normal material path) when disabled, unmatched, or a source image is missing.
 		public bool TryConvert(string textureName, Shader shader)
@@ -214,6 +228,7 @@ namespace BSPConvert.Lib
 				// Multiple stages: additively sum each stage's current frame per pixel.
 				for (var f = 0; f < frameCount; f++)
 				{
+					BakeProgress?.Invoke(CompositeShare * f / frameCount);
 					var frame = new byte[pixelCount * 4];
 					for (var p = 0; p < pixelCount; p++)
 					{
@@ -239,6 +254,7 @@ namespace BSPConvert.Lib
 			Directory.CreateDirectory(Path.GetDirectoryName(vtfPath)!);
 			// RGB only (additive uses black=transparent; opaque base needs no alpha), so a no-alpha format is compact.
 			var format = Math.Max(width, height) >= 256 ? ImageFormat.STRATA_BC7 : ImageFormat.DXT1;
+			BakeProgress?.Invoke(CompositeShare);
 			if (!BakeVtf(vtfPath, frames, width, height, format))
 				return false;
 
@@ -375,6 +391,7 @@ namespace BSPConvert.Lib
 
 			for (var f = 0; f < frameCount; f++)
 			{
+				BakeProgress?.Invoke(CompositeShare * f / frameCount);
 				// Spread frames evenly across one loop period so the last leads straight back into the first.
 				var t = frameCount > 0 ? (float)f / frameCount * loopSeconds : 0f;
 				var frame = new byte[pixelCount * 4];
@@ -398,6 +415,7 @@ namespace BSPConvert.Lib
 			var vtfPath = Path.Combine(pk3Dir, textureName + ".vtf");
 			Directory.CreateDirectory(Path.GetDirectoryName(vtfPath)!);
 			var format = alphaNeeded ? ImageFormat.STRATA_BC7 : ImageFormat.DXT1;
+			BakeProgress?.Invoke(CompositeShare);
 			if (!BakeVtf(vtfPath, frames, bakeW, bakeH, format))
 				return false;
 

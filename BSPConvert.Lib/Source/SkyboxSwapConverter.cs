@@ -116,7 +116,7 @@ namespace BSPConvert.Lib
 
 					if (seen != null && seen != skyName)
 					{
-						logger.Log($"Skybox swap: skyboxes '{seen}' and '{skyName}' are co-visible; keeping a single skybox.");
+						logger.Log($"Warning: Skyboxes {seen} and {skyName} can be seen from the same place, so the map only gets one skybox");
 						return plan;
 					}
 					seen = skyName;
@@ -157,7 +157,7 @@ namespace BSPConvert.Lib
 				plan.Regions.Add(new SkyboxSwapRegion { SkyName = kvp.Key, Boxes = merged });
 			}
 
-			logger.Log($"Skybox swap: {plan.Regions.Count} skyboxes, {totalBoxes} trigger brushes, default '{plan.DefaultSkyName}'.");
+			logger.Log($"Converted {plan.Regions.Count} skyboxes into skybox swappers ({totalBoxes} trigger brushes, {plan.DefaultSkyName} by default)");
 			return plan;
 		}
 
