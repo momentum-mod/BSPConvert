@@ -1493,7 +1493,11 @@ namespace BSPConvert.Lib.GoldSrc
 				keptFaces[i] = true;
 				var face = builder.AddFace();
 
-				face.PlaneIndex = gsFace.planeIndex;
+				// A GoldSrc face facing away from its plane shares it with its node. Source faces reference the plane they
+				// face along instead (VBSP writes the flipped one of the pair, with side still set relative to the node's),
+				// and brush entities backface cull against it, which hid these faces whenever they faced the camera.
+				var gsPlane = gs.Planes[gsFace.planeIndex];
+				face.PlaneIndex = gsFace.planeSide ? builder.AddPlane(-gsPlane.normal, -gsPlane.dist) : gsFace.planeIndex;
 				face.PlaneSide = gsFace.planeSide;
 				// GoldSrc faces all lie on nodes (marksurfaces reference them per leaf for visibility only)
 				face.IsOnNode = true;
