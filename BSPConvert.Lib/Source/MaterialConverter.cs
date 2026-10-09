@@ -30,7 +30,6 @@ namespace BSPConvert.Lib
 		private Dictionary<string, string> pk3ImageDict;
 		private Dictionary<string, string> q3ImageDict;
 		private Dictionary<string, string> customImageDict;
-		private bool noEnvMap;
 		private bool invisibleBaseTextureCreated;
 		private ReverseAlphaChromeTextures reverseAlphaChrome;
 		// When true (the default, non-obb fog path), Q3 fog shaders are emitted as Fog VMTs carrying the fog
@@ -60,21 +59,20 @@ namespace BSPConvert.Lib
 
 		// Images a map's shaders use but doesn't bundle are copied into pk3Dir from q3ContentDir (Quake 3 base
 		// content) or customContentDir (user-supplied third-party assets).
-		public MaterialConverter(string pk3Dir, string q3ContentDir, string customContentDir, Dictionary<string, Shader> shaderDict, bool noEnvMap = false, FlipbookOptions? flipbookOptions = null, bool generateFogMaterials = false)
+		public MaterialConverter(string pk3Dir, string q3ContentDir, string customContentDir, Dictionary<string, Shader> shaderDict, FlipbookOptions? flipbookOptions = null, bool generateFogMaterials = false)
 		{
 			this.pk3Dir = pk3Dir;
 			this.q3ContentDir = q3ContentDir;
 			this.customContentDir = customContentDir;
 			this.shaderDict = shaderDict;
-			this.noEnvMap = noEnvMap;
 			this.generateFogMaterials = generateFogMaterials;
 			pk3ImageDict = GetImageLookupDictionary(pk3Dir);
 			q3ImageDict = GetImageLookupDictionary(q3ContentDir);
 			customImageDict = GetImageLookupDictionary(customContentDir);
 			reverseAlphaChrome = ReverseAlphaChromeTextures.Analyze(shaderDict.Values);
 			var resolvedFlipbookOptions = flipbookOptions ?? new FlipbookOptions();
-			flipbookConverter = new FlipbookConverter(pk3Dir, resolvedFlipbookOptions, ResolveImagePath, TryCopyQ3Content, noEnvMap);
-			detailMaterialConverter = new DetailMaterialConverter(pk3Dir, resolvedFlipbookOptions, ResolveImagePath, noEnvMap, TryCopyQ3Content);
+			flipbookConverter = new FlipbookConverter(pk3Dir, resolvedFlipbookOptions, ResolveImagePath, TryCopyQ3Content);
+			detailMaterialConverter = new DetailMaterialConverter(pk3Dir, resolvedFlipbookOptions, ResolveImagePath, TryCopyQ3Content);
 			cloudSkyboxBaker = new CloudSkyboxBaker(pk3Dir, ResolveImagePath);
 		}
 
@@ -503,7 +501,7 @@ namespace BSPConvert.Lib
 			// by 1 - alpha) yields the refl*alpha weighting. TextureConverter bakes the inverted alpha into this
 			// texture's VTF; ReverseAlphaChromeTextures.BaseTextureName gives the name to reference - the texture
 			// itself (inverted in place) unless it's also used non-inverted elsewhere, where it gets a suffixed copy.
-			var isReverseAlphaChrome = !noEnvMap && textureStage != null && !isEnvMapOnly &&
+			var isReverseAlphaChrome = textureStage != null && !isEnvMapOnly &&
 				ShaderStageUtils.IsReverseAlphaBlend(textureStage) &&
 				stages.Any(s => s.bundles[0].tcGen == TexCoordGen.TCGEN_ENVIRONMENT_MAPPED && ShaderStageUtils.IsOpaqueBlend(s));
 
@@ -528,7 +526,7 @@ namespace BSPConvert.Lib
 				}
 			}
 
-			var envMapStage = noEnvMap ? null : stages.FirstOrDefault(x => x.bundles[0].tcGen == TexCoordGen.TCGEN_ENVIRONMENT_MAPPED);
+			var envMapStage = stages.FirstOrDefault(x => x.bundles[0].tcGen == TexCoordGen.TCGEN_ENVIRONMENT_MAPPED);
 
 			// A Q3 lit surface with a static, unlit additive overlay - a glow map drawn "blendfunc GL_ONE GL_ONE"
 			// over the lightmapped base (e.g. xmetalfloor_wall_14b_ht3) - maps to a $detail layer combined post-

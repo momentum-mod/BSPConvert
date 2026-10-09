@@ -58,15 +58,13 @@ namespace BSPConvert.Lib
 		private readonly FlipbookOptions options;
 		private readonly Func<string, string?> resolveImagePath;
 		private readonly Action<string> copyExternalContent;
-		private readonly bool noEnvMap;
 
-		public FlipbookConverter(string pk3Dir, FlipbookOptions options, Func<string, string?> resolveImagePath, Action<string> copyExternalContent, bool noEnvMap = false)
+		public FlipbookConverter(string pk3Dir, FlipbookOptions options, Func<string, string?> resolveImagePath, Action<string> copyExternalContent)
 		{
 			this.pk3Dir = pk3Dir;
 			this.options = options;
 			this.resolveImagePath = resolveImagePath;
 			this.copyExternalContent = copyExternalContent;
-			this.noEnvMap = noEnvMap;
 		}
 
 		// One stage of the blend stack: its frame image(s) plus everything needed to replay it over time.
@@ -137,7 +135,7 @@ namespace BSPConvert.Lib
 		private bool IsReflectiveAnimatedStack(Shader shader, out List<ShaderStage> stages, out ShaderStage? envStage)
 		{
 			stages = GetTextureStages(shader);
-			envStage = noEnvMap ? null : shader.GetImageStages()
+			envStage = shader.GetImageStages()
 				.FirstOrDefault(s => s.bundles[0].tcGen == TexCoordGen.TCGEN_ENVIRONMENT_MAPPED && IsOpaqueBlend(s));
 
 			return envStage != null && stages.Count >= 2 && AnimatesReproducibly(stages) &&

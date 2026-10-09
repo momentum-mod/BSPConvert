@@ -42,7 +42,6 @@ namespace BSPConvert.Lib
 		// Skip generating the fog overlay face for fog shaders with visible stages (e.g. the scrolling
 		// clouds on textures/sfx/hellfog); the fog brush face is just dropped instead. See TryCreateFogOverlayFace.
 		public bool noFogOverlay;
-		public bool noEnvMap;
 		// For maps with different cpm/vq3 entities, which entities to use when played in non-defrag modes ("cpm" or "vq3")
 		public string offModeEntityFallback;
 		// When set, applies Quake 3's hue-preserving overbright clamp to lightmap luxels (flattens
@@ -336,7 +335,7 @@ namespace BSPConvert.Lib
 			// these aren't drawn as surfaces; the engine reads the material off the CONTENTS_FOG brush for the
 			// overlay's fog appearance ($fogcolor / $fogdepthforopaque).
 			var generateFogMaterials = !options.q3.useObbFog;
-			return new MaterialConverter(contentManager.ContentDir, q3ContentDir, customContentDir, shaderDict, options.q3.noEnvMap, options.q3.flipbook, generateFogMaterials);
+			return new MaterialConverter(contentManager.ContentDir, q3ContentDir, customContentDir, shaderDict, options.q3.flipbook, generateFogMaterials);
 		}
 
 		// Roughly how long converting the materials takes: baking a flipbook takes about 10 seconds at the default

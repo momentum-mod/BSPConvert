@@ -37,7 +37,6 @@ The input files are Quake 3 BSP/PK3 or GoldSrc (Half-Life, CS 1.6) BSP/ZIP files
   --fogobb                Use legacy obb_volumefog entities instead of the default Fog shader. Handles arbitrary brush shapes but can flicker on thin volumes.
   --fogminheight          (Default: 256) Minimum vertical height (units) for converted fog volumes. Only used with --fogobb.
   --nofogoverlay          Don't draw fog shader visible stages (e.g. scrolling clouds) as an overlay face; fog brush faces are just dropped.
-  --noenvmap              Disable envmap (specular cubemap) shader conversion. Useful for maps where Source's cubemap poorly emulates Quake 3's spheremap effect.
   --clampoverbright       Apply Quake 3's hue-preserving overbright clamp to lightmaps, flattening over-bright highlights toward white.
   --noanim                Disable baking multi-pass / animated shaders (scrolling liquids, layered effects, animMaps) into animated flipbook textures.
   --animbudget            (Default: 16) Target max size (MB) of each baked animated VTF. Resolution adapts down as the seamless loop needs more frames.

@@ -42,9 +42,6 @@ namespace BSPConvert.Cmd
 			[Option("nozones", Required = false, HelpText = "Ignore timer zone triggers.")]
 			public bool IgnoreZones { get; set; }
 
-			[Option("noenvmap", Required = false, HelpText = "Disable envmap (specular cubemap) shader conversion. Useful for maps where Source's cubemap poorly emulates Quake 3's spheremap effect.")]
-			public bool NoEnvMap { get; set; }
-
 			[Option("clampoverbright", Required = false, HelpText = "Apply Quake 3's hue-preserving overbright clamp to lightmaps, flattening over-bright highlights toward white instead of letting the engine's 4x overbright blow past white.")]
 			public bool ClampOverbright { get; set; }
 
@@ -161,7 +158,6 @@ namespace BSPConvert.Cmd
 						useObbFog = options.UseObbFog,
 						fogMinHeight = options.FogMinHeight,
 						noFogOverlay = options.NoFogOverlay,
-						noEnvMap = options.NoEnvMap,
 						offModeEntityFallback = options.OffModeEntityFallback,
 						clampOverbright = options.ClampOverbright,
 						flipbook = new FlipbookOptions()

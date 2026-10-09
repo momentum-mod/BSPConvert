@@ -20,15 +20,13 @@ namespace BSPConvert.Lib
 		private readonly string pk3Dir;
 		private readonly FlipbookOptions options;
 		private readonly Func<string, string?> resolveImagePath;
-		private readonly bool noEnvMap;
 		private readonly Action<string> copyExternalContent;
 
-		public DetailMaterialConverter(string pk3Dir, FlipbookOptions options, Func<string, string?> resolveImagePath, bool noEnvMap, Action<string> copyExternalContent)
+		public DetailMaterialConverter(string pk3Dir, FlipbookOptions options, Func<string, string?> resolveImagePath, Action<string> copyExternalContent)
 		{
 			this.pk3Dir = pk3Dir;
 			this.options = options;
 			this.resolveImagePath = resolveImagePath;
-			this.noEnvMap = noEnvMap;
 			this.copyExternalContent = copyExternalContent;
 		}
 
@@ -272,7 +270,7 @@ namespace BSPConvert.Lib
 			// Q3-accurate $spheremap path (the flat texture projected per-vertex), shared with the material and
 			// flipbook paths. Works for both LightmappedGeneric and UnlitGeneric; $envmaplightscale is only emitted
 			// when a lightmap stage is present (so unlit surfaces don't get the shadow-dimming).
-			if (!noEnvMap && TryGetEnvStage(shader, out var envStage) && resolveImagePath(GetStageImagePath(envStage)!) != null)
+			if (TryGetEnvStage(shader, out var envStage) && resolveImagePath(GetStageImagePath(envStage)!) != null)
 			{
 				copyExternalContent(GetStageImagePath(envStage)!); // ensure the reflection texture reaches a VTF
 				MaterialConverter.AppendSpheremapParameters(sb, envStage, HasLightmapStage(shader), hasBaseAlphaMask: false);
