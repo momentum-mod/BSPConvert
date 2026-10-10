@@ -43,4 +43,26 @@
     </None>
   </ItemGroup>
 
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <None Include="..\BSPConvert.Lib\Dependencies\sourcepp_win\sourcepp_sourceppc.dll">
+      <Link>sourcepp_sourceppc.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="..\BSPConvert.Lib\Dependencies\sourcepp_win\sourcepp_vtfppc.dll">
+      <Link>sourcepp_vtfppc.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
+    <None Include="../BSPConvert.Lib/Dependencies/sourcepp_linux/sourcepp_sourceppc.so">
+      <Link>sourcepp_sourceppc.so</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Include="../BSPConvert.Lib/Dependencies/sourcepp_linux/sourcepp_vtfppc.so">
+      <Link>sourcepp_vtfppc.so</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>
