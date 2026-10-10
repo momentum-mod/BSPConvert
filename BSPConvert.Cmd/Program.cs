@@ -2,6 +2,7 @@ using BSPConvert.Lib;
 using BSPConvert.Lib.GoldSrc;
 using CommandLine;
 using CommandLine.Text;
+using System.Reflection;
 
 namespace BSPConvert.Cmd
 {
@@ -179,7 +180,8 @@ namespace BSPConvert.Cmd
 
 		static void DisplayHelp(IEnumerable<Error> errors, ParserResult<Options> parserResult)
 		{
-			const string version = "BSP Convert 0.0.3-alpha";
+			var informationalVersion = typeof(Program).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+			var version = $"BSP Convert {informationalVersion}";
 			if (errors.IsVersion())
 			{
 				Console.WriteLine(version);
