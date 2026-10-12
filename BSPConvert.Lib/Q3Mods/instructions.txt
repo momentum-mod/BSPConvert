@@ -1,0 +1,18 @@
+Q3Mods folder
+=============
+
+Content of Quake 3 mods and expansions that maps can use besides Quake 3's own
+(Q3Content). Extract each mod's pk3s into a folder here named after the mod's
+folder in your Quake 3 install, e.g. for Team Arena:
+
+    Q3Mods/
+      missionpack/
+        textures/...
+        scripts/...
+        ...
+
+BSP Convert picks the mod a map needs from the textures it uses that neither
+it nor Quake 3 has, and logs which one it used. --q3mod <folder> picks one
+instead, and --q3mod baseq3 uses Quake 3's content alone.
+
+Like in the game, the mod's files are searched before Quake 3's.

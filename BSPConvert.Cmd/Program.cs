@@ -70,6 +70,9 @@ namespace BSPConvert.Cmd
 			[Option("animalpha", Required = false, Default = 1.0f, HelpText = "Translucency [0-1] for baked liquids. 1 (default) derives per-texel translucency from each texture's alpha/luminance; below 1 uses a flat constant alpha (lower = more see-through).")]
 			public float AnimAlpha { get; set; }
 
+			[Option("q3mod", Required = false, HelpText = "Quake 3 mod whose content maps use besides Quake 3's: its folder in Q3Mods, e.g. missionpack for Team Arena, or baseq3 for Quake 3's content alone. Detected by default from the textures the map uses that neither it nor Quake 3 has.")]
+			public string Q3Mod { get; set; }
+
 			[Option("prefix", Required = false, HelpText = "Prefix for the converted BSP's file name.")]
 			public string Prefix { get; set; }
 
@@ -161,6 +164,7 @@ namespace BSPConvert.Cmd
 						noFogOverlay = options.NoFogOverlay,
 						offModeEntityFallback = options.OffModeEntityFallback,
 						clampOverbright = options.ClampOverbright,
+						mod = options.Q3Mod,
 						flipbook = new FlipbookOptions()
 						{
 							enabled = !options.NoAnim,

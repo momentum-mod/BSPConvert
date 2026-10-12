@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 
 namespace BSPConvert.Lib
 {
+	// Loads shader scripts in the order given, the first file defining a shader winning (see Q3SearchPath.GetShaderFiles)
 	public class ShaderLoader
 	{
 		private IEnumerable<string> shaderFiles;
@@ -17,7 +18,7 @@ namespace BSPConvert.Lib
 
 		public Dictionary<string, Shader> LoadShaders()
 		{
-			var shaderDict = new Dictionary<string, Shader>();
+			var shaderDict = new Dictionary<string, Shader>(StringComparer.OrdinalIgnoreCase);
 
 			foreach (var file in shaderFiles)
 			{

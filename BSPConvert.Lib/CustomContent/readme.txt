@@ -34,8 +34,9 @@ How to use
 
 Notes
 -----
-- Precedence: a map's own bundled assets and the Q3Content base assets always win;
-  CustomContent is only used to fill in what's otherwise missing.
+- Precedence: a map's own bundled assets, Q3Content and the map's mod in Q3Mods
+  always win (between them, in the order the game searches them); CustomContent
+  is only used to fill in what's otherwise missing.
 - Supported image formats: .tga and .jpg (same as Q3Content).
 - This folder can hold the assets of many maps at once - just keep merging
   dependencies in as you convert more maps.

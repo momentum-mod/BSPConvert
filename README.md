@@ -44,7 +44,13 @@ The input files are Quake 3 BSP/PK3 or GoldSrc (Half-Life, CS 1.6) BSP/ZIP files
   --animfps               (Default: 16) Playback fps (smoothness) of baked animated textures.
   --animmaxframes         (Default: 512) Hard cap on baked frame count. Longer loops are sped up to fit while staying seamless.
   --animalpha             (Default: 1) Translucency [0-1] for baked liquids. 1 derives per-texel translucency from each texture's alpha/luminance; below 1 uses a flat constant alpha.
+  --q3mod                 Quake 3 mod whose content maps use besides Quake 3's: its folder in Q3Mods, e.g. missionpack for Team Arena, or baseq3 for Quake 3's content alone. Detected by default.
 ```
+
+### Quake 3 content
+Maps use textures, shaders and sounds from Quake 3 without shipping them. BSP Convert reads Quake 3's from the `Q3Content` folder next to it (extract `baseq3/pak0.pk3` there) and packs what a map uses into it. Mods and expansions go in `Q3Mods/<mod folder>`, e.g. Team Arena's `missionpack/pak0.pk3` in `Q3Mods/missionpack`. The mod a map needs is picked from the textures it uses that neither it nor Quake 3 has, and the log says which; `--q3mod` overrides that.
+
+Files are looked up in the order Defrag's engine searches them: the mod's before Quake 3's, and the map's pk3 before or after Quake 3's paks depending on how its name sorts against `pak0.pk3`. Where two shader scripts define the same shader, the one searched first is used. Assets a map takes from other maps' pk3s go in `CustomContent` (see its `readme.txt`); the log lists the textures nothing has.
 
 ## GoldSrc options
 ```

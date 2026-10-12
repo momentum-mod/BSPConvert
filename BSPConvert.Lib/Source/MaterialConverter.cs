@@ -24,12 +24,8 @@ namespace BSPConvert.Lib
 		private const string InvisibleBaseTexture = "tools/envmapinvisible";
 
 		private string pk3Dir;
-		private string q3ContentDir;
-		private string customContentDir;
+		private Q3SearchPath searchPath;
 		private Dictionary<string, Shader> shaderDict;
-		private Dictionary<string, string> pk3ImageDict;
-		private Dictionary<string, string> q3ImageDict;
-		private Dictionary<string, string> customImageDict;
 		private bool invisibleBaseTextureCreated;
 		private ReverseAlphaChromeTextures reverseAlphaChrome;
 		// When true (the default, non-obb fog path), Q3 fog shaders are emitted as Fog VMTs carrying the fog
@@ -57,18 +53,16 @@ namespace BSPConvert.Lib
 			"up"
 		};
 
-		// Images a map's shaders use but doesn't bundle are copied into pk3Dir from q3ContentDir (Quake 3 base
-		// content) or customContentDir (user-supplied third-party assets).
-		public MaterialConverter(string pk3Dir, string q3ContentDir, string customContentDir, Dictionary<string, Shader> shaderDict, FlipbookOptions? flipbookOptions = null, bool generateFogMaterials = false)
+		// Images the map's shaders use are looked up in searchPath, whose map folder is pk3Dir. The ones the engine would
+		// load from another folder (Quake 3's, a mod's or CustomContent) are copied into pk3Dir.
+		public MaterialConverter(string pk3Dir, Q3SearchPath searchPath, Dictionary<string, Shader> shaderDict, FlipbookOptions? flipbookOptions = null, bool generateFogMaterials = false)
 		{
 			this.pk3Dir = pk3Dir;
-			this.q3ContentDir = q3ContentDir;
-			this.customContentDir = customContentDir;
+			this.searchPath = searchPath;
 			this.shaderDict = shaderDict;
 			this.generateFogMaterials = generateFogMaterials;
-			pk3ImageDict = GetImageLookupDictionary(pk3Dir);
-			q3ImageDict = GetImageLookupDictionary(q3ContentDir);
-			customImageDict = GetImageLookupDictionary(customContentDir);
+			// Converting earlier maps of the input added files to it
+			searchPath.Map.Refresh();
 			reverseAlphaChrome = ReverseAlphaChromeTextures.Analyze(shaderDict.Values);
 			var resolvedFlipbookOptions = flipbookOptions ?? new FlipbookOptions();
 			flipbookConverter = new FlipbookConverter(pk3Dir, resolvedFlipbookOptions, ResolveImagePath, TryCopyQ3Content);
@@ -76,44 +70,11 @@ namespace BSPConvert.Lib
 			cloudSkyboxBaker = new CloudSkyboxBaker(pk3Dir, ResolveImagePath);
 		}
 
-		// Resolves a shader-relative texture path (no extension) to a source image file on disk, searching
-		// the map's own content first, then the Q3 base content, then the user CustomContent folder.
+		// Resolves a shader-relative texture path (no extension) to the source image the engine would load, see
+		// Q3SearchPath
 		private string? ResolveImagePath(string texturePath)
 		{
-			var key = texturePath.ToLower(CultureInfo.InvariantCulture);
-			if (pk3ImageDict.TryGetValue(key, out var path) ||
-				q3ImageDict.TryGetValue(key, out path) ||
-				customImageDict.TryGetValue(key, out path))
-				return path;
-
-			return null;
-		}
-
-		// Create a dictionary that maps relative texture paths to the full file paths in the content folder
-		private Dictionary<string, string> GetImageLookupDictionary(string contentDir)
-		{
-			var imageDict = new Dictionary<string, string>();
-
-			if (!Directory.Exists(contentDir))
-				return imageDict;
-
-			foreach (var file in Directory.GetFiles(contentDir, "*.*", SearchOption.AllDirectories))
-			{
-				var ext = Path.GetExtension(file);
-				if (ext == ".tga" || ext == ".jpg")
-				{
-					var texturePath = file
-						.Replace(contentDir + Path.DirectorySeparatorChar, "", StringComparison.OrdinalIgnoreCase)
-						.Replace(Path.DirectorySeparatorChar, '/')
-						.Replace(ext, "", StringComparison.OrdinalIgnoreCase)
-						.ToLower(CultureInfo.InvariantCulture);
-
-					if (!imageDict.ContainsKey(texturePath))
-						imageDict.Add(texturePath, file);
-				}
-			}
-
-			return imageDict;
+			return searchPath.FindImage(texturePath)?.Path;
 		}
 
 		// Texture paths (no extension, forward slashes) referenced by the materials generated so far, so the
@@ -260,30 +221,16 @@ namespace BSPConvert.Lib
 			skyTexture = skyTexture.ToLower(CultureInfo.InvariantCulture);
 
 			var skyboxDir = Path.Combine(pk3Dir, "skybox");
-			if (pk3ImageDict.TryGetValue(skyTexture, out var pk3Path))
-			{
-				var newPath = pk3Path.Replace(pk3Dir, skyboxDir, StringComparison.OrdinalIgnoreCase);
-				var destFile = newPath.Remove(newPath.LastIndexOf('_'), 1); // Remove underscore from skybox suffix
-
-				FileUtil.MoveFile(pk3Path, destFile);
-
-				return true;
-			}
-
-			// Search external content (Q3 base first, then user-managed CustomContent) for the sky image.
-			return TryCopyExternalSky(q3ImageDict, q3ContentDir, skyTexture, skyboxDir)
-				|| TryCopyExternalSky(customImageDict, customContentDir, skyTexture, skyboxDir);
-		}
-
-		private bool TryCopyExternalSky(Dictionary<string, string> imageDict, string contentDir, string skyTexture, string skyboxDir)
-		{
-			if (!imageDict.TryGetValue(skyTexture, out var sourcePath))
+			if (searchPath.FindImage(skyTexture) is not var (folder, sourcePath))
 				return false; // No sky image found
 
-			var newPath = sourcePath.Replace(contentDir, skyboxDir, StringComparison.OrdinalIgnoreCase);
+			var newPath = Path.Combine(skyboxDir, Path.GetRelativePath(folder.Directory, sourcePath));
 			var destFile = newPath.Remove(newPath.LastIndexOf('_'), 1); // Remove underscore from skybox suffix
 
-			FileUtil.CopyFile(sourcePath, destFile);
+			if (folder.IsMap)
+				FileUtil.MoveFile(sourcePath, destFile);
+			else
+				FileUtil.CopyFile(sourcePath, destFile);
 
 			return true;
 		}
@@ -393,8 +340,8 @@ namespace BSPConvert.Lib
 			FileUtil.CopyBuiltinMaterialAsset(relativePath, pk3Dir);
 		}
 
-		// Copies content from the Q3Content folder, falling back to the user-managed CustomContent
-		// folder for assets the map depends on but doesn't bundle.
+		// Copies an image into pk3Dir when the engine would load it from another folder than the map's (Quake 3's, a
+		// mod's or CustomContent), see Q3SearchPath
 		private void TryCopyQ3Content(string texturePath)
 		{
 			// Every image routed through here is referenced by a material (shader base/detail/spheremap stages,
@@ -403,23 +350,11 @@ namespace BSPConvert.Lib
 			// source images are captured too.
 			RecordReferencedTexture(texturePath);
 
-			// Q3 base content takes precedence (matches existing behavior).
-			if (TryCopyExternalImage(q3ImageDict, q3ContentDir, texturePath))
+			if (searchPath.FindImage(texturePath) is not var (folder, sourcePath) || folder.IsMap)
 				return;
 
-			// CustomContent only fills gaps - never overwrite the map's own bundled textures.
-			if (!pk3ImageDict.ContainsKey(texturePath))
-				TryCopyExternalImage(customImageDict, customContentDir, texturePath);
-		}
-
-		private bool TryCopyExternalImage(Dictionary<string, string> imageDict, string contentDir, string texturePath)
-		{
-			if (!imageDict.TryGetValue(texturePath, out var sourcePath))
-				return false;
-
-			var newPath = sourcePath.Replace(contentDir, pk3Dir, StringComparison.OrdinalIgnoreCase);
+			var newPath = Path.Combine(pk3Dir, Path.GetRelativePath(folder.Directory, sourcePath));
 			FileUtil.CopyFile(sourcePath, newPath);
-			return true;
 		}
 
 		// Selects the stage that carries the visible texture. Prefers a plain texture stage (not env-mapped

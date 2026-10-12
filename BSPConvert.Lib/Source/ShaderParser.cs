@@ -20,7 +20,8 @@ namespace BSPConvert.Lib
 
 		public Dictionary<string, Shader> ParseShaders()
 		{
-			var shaderDict = new Dictionary<string, Shader>();
+			// Shader names are case-insensitive, and a file's last definition of one is the one used, as in Defrag's engine
+			var shaderDict = new Dictionary<string, Shader>(StringComparer.OrdinalIgnoreCase);
 
 			var fileEnumerator = File.ReadLines(shaderFile).GetEnumerator();
 			string line;

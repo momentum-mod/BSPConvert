@@ -12,7 +12,8 @@ namespace BSPConvert.Lib.Source
 		private Entities sourceEntities;
 		private ILogger logger;
 
-		// externalContent is searched for sounds the map's entities use that aren't bundled in pk3Dir
+		// externalContent is searched for the sounds the map's entities use, in the order the engine searches its folders.
+		// Ones it finds outside pk3Dir (the map's own content, which it may list too) are copied into pk3Dir.
 		public SoundConverter(string pk3Dir, AssetSearchPath externalContent, BSP bsp, Entities sourceEntities, ILogger logger)
 		{
 			this.pk3Dir = pk3Dir;
@@ -95,7 +96,7 @@ namespace BSPConvert.Lib.Source
 		private void MoveToPk3SoundDir(string sound)
 		{
 			var soundPath = externalContent.FindFile(Path.Combine("sound", sound));
-			if (soundPath == null)
+			if (soundPath == null || Path.GetFullPath(soundPath).StartsWith(Path.GetFullPath(pk3Dir) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
 				return;
 
 			var newPath = Path.Combine(pk3Dir, "sound", sound);

@@ -50,6 +50,9 @@ namespace BSPConvert.Lib
 		// Settings for baking Q3 multi-pass scrolling shaders (e.g. liquids water) into looping animated
 		// flipbook VTFs. See FlipbookConverter.
 		public FlipbookOptions flipbook = new FlipbookOptions();
+		// The Quake 3 mod (a folder of Q3Mods, e.g. missionpack for Team Arena) whose content maps use besides Quake 3's,
+		// or Q3Mods.BaseGame (baseq3) for Quake 3's alone. Null detects it from the textures the maps use, see Q3Mods.Detect.
+		public string? mod;
 	}
 
 	// Converts Quake 3 BSPs (see IEngineConverter). Shaders and external lightmaps are loaded once per input
@@ -108,6 +111,11 @@ namespace BSPConvert.Lib
 		// Optional user-managed folder for third-party map assets (textures/scripts the map
 		// depends on but doesn't bundle). Searched after Q3Content to resolve external dependencies.
 		private static readonly string customContentDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "CustomContent");
+		// Content of Quake 3 mods (Team Arena...), a folder per mod, see Q3Mods
+		private static readonly string q3ModsDir = Q3Mods.DefaultDirectory;
+
+		// The map's, Quake 3's, its mod's and CustomContent's files, in the order the engine searches them
+		private Q3SearchPath searchPath;
 
 		public Q3Converter(BSPConverterOptions options, ILogger logger, ProgressTracker progress, ContentManager contentManager)
 		{
@@ -118,6 +126,7 @@ namespace BSPConvert.Lib
 
 			CheckQ3Content();
 
+			searchPath = CreateSearchPath();
 			shaderDict = LoadShaderDictionary();
 			externalLightmaps = LoadExternalLightmaps();
 		}
@@ -131,6 +140,7 @@ namespace BSPConvert.Lib
 			sourceBsp = output.Bsp;
 
 			progress.Stage("Preparing", 0.02f);
+			WarnMissingTextures();
 			ScaleQuakeBsp(options.scale);
 
 			MarkTriggerPatchFaces();
@@ -299,6 +309,70 @@ namespace BSPConvert.Lib
 				logger.Log($"Warning: {q3ContentDir} is empty, so maps can't use Quake 3's own textures, shaders and sounds (extract baseq3/pak0.pk3 from Quake 3 into it)");
 		}
 
+		// The map's content, Quake 3's and the mod's the map needs (options.q3.mod, or the one Q3Mods.Detect finds from
+		// the textures every Quake 3 map of the input uses), then CustomContent
+		private Q3SearchPath CreateSearchPath()
+		{
+			var input = Path.GetFileName(options.inputFile);
+			var isPk3 = !Path.GetExtension(input).Equals(".bsp", StringComparison.OrdinalIgnoreCase);
+			// A .bsp's own files are loose ones next to it
+			var map = new Q3ContentFolder(contentManager.ContentDir, isPk3 ? input : null, input, isMap: true);
+			var baseGame = new Q3ContentFolder(q3ContentDir, "pak0.pk3", "Q3Content");
+			var custom = new Q3ContentFolder(customContentDir, null, "CustomContent");
+			var basePath = new Q3SearchPath(map, baseGame, null, custom);
+
+			var requested = options.q3.mod?.Trim();
+			if (string.IsNullOrEmpty(requested))
+			{
+				var textures = contentManager.BSPFiles
+					.Where(bsp => bsp.MapType.IsSubtypeOf(MapType.Quake3))
+					.SelectMany(bsp => bsp.Textures.Select(texture => texture.Name));
+				var mods = Q3Mods.List(q3ModsDir).Select(mod => Q3Mods.GetContentFolder(q3ModsDir, mod));
+				var detection = Q3Mods.Detect(textures, basePath, mods);
+				if (detection.Mod == null)
+					return basePath;
+
+				var name = Path.GetFileName(detection.Mod.Directory);
+				var examples = string.Join(", ", detection.TexturesOnlyInMod.Take(3));
+				logger.Log($"Using {Q3Mods.GetDisplayName(name)}'s content ({detection.Mod.Description}): {detection.TexturesOnlyInMod.Count} of the textures are only there ({examples}{(detection.TexturesOnlyInMod.Count > 3 ? ", ..." : "")})");
+				return new Q3SearchPath(map, baseGame, detection.Mod, custom);
+			}
+
+			if (requested.Equals(Q3Mods.BaseGame, StringComparison.OrdinalIgnoreCase))
+				return basePath;
+
+			var modDir = Path.Combine(q3ModsDir, requested);
+			if (!Directory.Exists(modDir))
+			{
+				logger.Log($"Warning: {q3ModsDir} has no {requested} folder, so only Quake 3's content is used (extract the mod's pk3s into {modDir})");
+				return basePath;
+			}
+
+			logger.Log($"Using {Q3Mods.GetDisplayName(requested)}'s content (Q3Mods/{requested})");
+			return new Q3SearchPath(map, baseGame, Q3Mods.GetContentFolder(q3ModsDir, requested), custom);
+		}
+
+		// Warns about the textures neither the map, Quake 3, its mod nor CustomContent has: the map needs other pk3s (often
+		// other maps' textures). Ones the map never draws, like q3map2's compile tool textures and ones only brush sides
+		// use, don't matter.
+		private void WarnMissingTextures()
+		{
+			var missing = quakeBsp.Faces
+				.Select(face => face.Texture)
+				.Where(texture => !((Q3SurfaceFlags)texture.Flags).HasFlag(Q3SurfaceFlags.SURF_NODRAW))
+				.Select(texture => Q3ContentFolder.NormalizeTexturePath(texture.Name))
+				.Where(texture => texture != "noshader" && !searchPath.Provides(texture))
+				.Distinct()
+				.Order(StringComparer.Ordinal)
+				.ToList();
+			if (missing.Count == 0)
+				return;
+
+			var game = searchPath.Mod == null ? "Quake 3" : $"Quake 3, {Q3Mods.GetDisplayName(Path.GetFileName(searchPath.Mod.Directory))}";
+			logger.Log($"Warning: Textures not found in the map, {game} or CustomContent: {string.Join(", ", missing)}. " +
+				$"The map needs other pk3s: download the dependencies https://ws.q3df.org/ lists for {quakeBsp.MapName}, extract them into {customContentDir} and convert it again.");
+		}
+
 		private void ReplaceToolTextures()
 		{
 			for (var i = 0; i < quakeBsp.Textures.Count; i++)
@@ -335,7 +409,7 @@ namespace BSPConvert.Lib
 			// these aren't drawn as surfaces; the engine reads the material off the CONTENTS_FOG brush for the
 			// overlay's fog appearance ($fogcolor / $fogdepthforopaque).
 			var generateFogMaterials = !options.q3.useObbFog;
-			return new MaterialConverter(contentManager.ContentDir, q3ContentDir, customContentDir, shaderDict, options.q3.flipbook, generateFogMaterials);
+			return new MaterialConverter(contentManager.ContentDir, searchPath, shaderDict, options.q3.flipbook, generateFogMaterials);
 		}
 
 		// Roughly how long converting the materials takes: baking a flipbook takes about 10 seconds at the default
@@ -393,13 +467,7 @@ namespace BSPConvert.Lib
 
 		private Dictionary<string, Shader> LoadShaderDictionary()
 		{
-			var q3Shaders = GetQ3Shaders();
-			var pk3Shaders = GetPK3Shaders();
-			var customShaders = GetCustomContentShaders();
-			// CustomContent shaders go last so they only fill gaps (ShaderLoader keeps the first entry per key).
-			var allShaders = q3Shaders.Concat(pk3Shaders).Concat(customShaders);
-
-			var loader = new ShaderLoader(allShaders);
+			var loader = new ShaderLoader(searchPath.GetShaderFiles());
 			return loader.LoadShaders();
 		}
 
@@ -407,33 +475,6 @@ namespace BSPConvert.Lib
 		{
 			var loader = new ExternalLightmapLoader(shaderDict, contentManager.ContentDir, logger);
 			return loader.LoadLightmaps();
-		}
-
-		private string[] GetQ3Shaders()
-		{
-			var q3ScriptsDir = Path.Combine(q3ContentDir, "scripts");
-			if (Directory.Exists(q3ScriptsDir))
-				return Directory.GetFiles(q3ScriptsDir, "*.shader");
-
-			return new string[0];
-		}
-
-		private string[] GetPK3Shaders()
-		{
-			var pk3ScriptsDir = Path.Combine(contentManager.ContentDir, "scripts");
-			if (Directory.Exists(pk3ScriptsDir))
-				return Directory.GetFiles(pk3ScriptsDir, "*.shader");
-
-			return new string[0];
-		}
-
-		private string[] GetCustomContentShaders()
-		{
-			var customScriptsDir = Path.Combine(customContentDir, "scripts");
-			if (Directory.Exists(customScriptsDir))
-				return Directory.GetFiles(customScriptsDir, "*.shader");
-
-			return new string[0];
 		}
 
 		private TextureConverter CreateTextureConverter()
@@ -550,8 +591,8 @@ namespace BSPConvert.Lib
 
 		private void ConvertSounds()
 		{
-			// Sounds the map doesn't bundle come from Q3 base content first, then CustomContent
-			var externalContent = new AssetSearchPath(q3ContentDir, customContentDir);
+			// Sounds are looked up like the textures, the map's own among them
+			var externalContent = new AssetSearchPath(searchPath.Folders.Select(folder => folder.Directory).ToArray());
 			var converter = options.noPak ?
 				new SoundConverter(contentManager.ContentDir, externalContent, options.outputDir, sourceBsp.Entities, logger) :
 				new SoundConverter(contentManager.ContentDir, externalContent, sourceBsp, sourceBsp.Entities, logger);
