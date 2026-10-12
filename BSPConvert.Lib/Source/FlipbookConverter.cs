@@ -191,7 +191,7 @@ namespace BSPConvert.Lib
 					if (imagePath == null || !File.Exists(imagePath))
 						return false; // missing a frame - leave it for the normal path
 
-					using var image = Image.Load<Rgba32>(imagePath);
+					using var image = ImageUtil.Load(imagePath);
 					if (width == 0)
 					{
 						width = image.Width;
@@ -280,7 +280,7 @@ namespace BSPConvert.Lib
 					if (imagePath == null || !File.Exists(imagePath))
 						return false; // can't composite without every layer - fall back to the normal path
 
-					using var image = Image.Load<Rgba32>(imagePath);
+					using var image = ImageUtil.Load(imagePath);
 					if (lw == 0) { lw = image.Width; lh = image.Height; }
 					if (image.Width != lw || image.Height != lh)
 						image.Mutate(x => x.Resize(lw, lh)); // frames of one stage must share size

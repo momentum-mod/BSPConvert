@@ -175,7 +175,7 @@ namespace BSPConvert.Lib
         {
             try
             {
-                var info = SixLabors.ImageSharp.Image.Identify(path);
+                var info = ImageUtil.Identify(path);
                 return (long)info.Width * info.Height;
             }
             catch (Exception)

@@ -612,7 +612,7 @@ namespace BSPConvert.Lib
 			{
 				try
 				{
-					using var image = Image.Load<Rgba32>(imagePath);
+					using var image = ImageUtil.Load(imagePath);
 					ulong total = 0;
 					image.ProcessPixelRows(accessor =>
 					{

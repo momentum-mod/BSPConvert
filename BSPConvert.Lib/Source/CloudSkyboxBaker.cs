@@ -131,7 +131,7 @@ namespace BSPConvert.Lib
 			if (imagePath == null || !File.Exists(imagePath))
 				return null;
 
-			using var image = Image.Load<Rgba32>(imagePath);
+			using var image = ImageUtil.Load(imagePath);
 			var pixels = new Rgba32[image.Width * image.Height];
 			image.CopyPixelDataTo(pixels);
 
@@ -172,7 +172,7 @@ namespace BSPConvert.Lib
 				if (imagePath == null || !File.Exists(imagePath))
 					continue; // skip a missing layer rather than abandoning the whole sky
 
-				using var image = Image.Load<Rgba32>(imagePath);
+				using var image = ImageUtil.Load(imagePath);
 				var pixels = new Rgba32[image.Width * image.Height];
 				image.CopyPixelDataTo(pixels);
 

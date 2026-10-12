@@ -87,7 +87,7 @@ namespace BSPConvert.Lib
 			if (lmFile == null || !validLightmapFormats.Contains(Path.GetExtension(lmFile)))
 				throw new Exception($"Lightmap image {lmImage} not found");
 
-			using var image = Image.Load<Rgba32>(lmFile);
+			using var image = ImageUtil.Load(lmFile);
 
 			var data = new byte[image.Height * image.Width * 3];
 			var curPixel = 0;
