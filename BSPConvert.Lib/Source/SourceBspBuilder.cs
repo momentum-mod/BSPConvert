@@ -50,7 +50,7 @@ namespace BSPConvert.Lib
 
 		public void CreatePakFile()
 		{
-			using (var archive = ZipArchive.Create())
+			using (var archive = (ZipArchive)ZipArchive.CreateArchive())
 			{
 				Bsp.PakFile.SetZipArchive(archive, true);
 			}
