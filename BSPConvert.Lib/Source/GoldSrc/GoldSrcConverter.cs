@@ -82,11 +82,16 @@ namespace BSPConvert.Lib.GoldSrc
 
 		// How a brush entity draws its faces: blended by its rendermode (Amount is renderamt as 0-1), scrolling its
 		// "scroll" textures at ScrollSpeed texels per second, and switching textures to their alternate frames when the
-		// entity's texture frame index is 1 (see GoldSrcEntityConverter.AddTextureToggles)
-		private record struct SurfaceStyle(BlendMode Mode, float Amount, float ScrollSpeed, bool ToggleTextures = false)
+		// entity's texture frame index is 1 (see GoldSrcEntityConverter.AddTextureToggles). Lit translucent and additive
+		// faces keep their lightmaps, where the map baked them into their textures (see RestoreEmbeddedLightmapTextures).
+		private record struct SurfaceStyle(BlendMode Mode, float Amount, float ScrollSpeed, bool ToggleTextures = false, bool Lit = false)
 		{
 			public static readonly SurfaceStyle World = new SurfaceStyle(BlendMode.Opaque, 1f, 0f);
 		}
+		// Textures VHLT baked a face's lightmap into, which no face draws once they're restored, and the brush models
+		// whose faces had them (see RestoreEmbeddedLightmapTextures)
+		private readonly HashSet<int> embeddedLightmapMipTextures = new HashSet<int>();
+		private readonly HashSet<int> embeddedLightmapModels = new HashSet<int>();
 		// Brush models whose entity switches their textures to their alternate frames
 		private readonly HashSet<int> textureToggleModels = new HashSet<int>();
 		// The BSP's texture names, which include every frame of the animations its faces use
@@ -170,6 +175,7 @@ namespace BSPConvert.Lib.GoldSrc
 
 			SetLumpVersions();
 			LogClipType();
+			RestoreEmbeddedLightmapTextures();
 
 			try
 			{
@@ -259,7 +265,7 @@ namespace BSPConvert.Lib.GoldSrc
 				.Count();
 
 			var textures = gs.MipTextures
-				.Where(mipTex => !string.IsNullOrEmpty(mipTex.name) && !IsToolTexture(mipTex.name))
+				.Where((mipTex, i) => !string.IsNullOrEmpty(mipTex.name) && !IsToolTexture(mipTex.name) && !embeddedLightmapMipTextures.Contains(i))
 				.Sum(mipTex => GetTextureSeconds(mipTex.name, mipTex.width, mipTex.height));
 			var skybox = gs.MipTextures.Any(mipTex => mipTex.name.Equals("sky", StringComparison.OrdinalIgnoreCase)) ? SkyboxSeconds : 0f;
 			var sprites = spriteCount * SecondsPerSprite + decalCount * SecondsPerDecal;
@@ -495,15 +501,17 @@ namespace BSPConvert.Lib.GoldSrc
 			entity.Remove("rendercolor");
 
 			var amount = Math.Clamp(int.TryParse(entity["renderamt"], out var renderAmt) ? renderAmt : 0, 0, 255) / 255f;
+			// The lighting a map baked into the textures of a fullbright entity's faces is in their lightmaps
+			var lit = embeddedLightmapModels.Contains(modelIndex);
 			switch (int.TryParse(entity["rendermode"], out var renderMode) ? renderMode : 0)
 			{
 				case RenderTransColor:
 				case RenderTransTexture:
-					style = style with { Mode = BlendMode.Translucent, Amount = amount };
+					style = style with { Mode = BlendMode.Translucent, Amount = amount, Lit = lit };
 					entity["rendermode"] = "0";
 					break;
 				case RenderTransAdd:
-					style = style with { Mode = BlendMode.Additive, Amount = amount };
+					style = style with { Mode = BlendMode.Additive, Amount = amount, Lit = lit };
 					entity["rendermode"] = "0";
 					break;
 				case RenderTransAlpha:
@@ -613,14 +621,74 @@ namespace BSPConvert.Lib.GoldSrc
 				builder.AppendPlane(plane.normal, plane.dist);
 		}
 
+		// VHLT's zhlt_embedlightmap bakes the lightmap of each face of a brush entity into a texture of its own (hlrad's
+		// EmbedLightmapInTextures), so it looks lit where GoldSrc draws the entity fullbright. Source batches a brush
+		// model's draws by material, and a material per face overflowed it on models with more than 128. The faces
+		// keep their lightmaps, so they go back to their original textures (lit by their style, see ConvertRenderMode).
+		private void RestoreEmbeddedLightmapTextures()
+		{
+			embeddedLightmapMipTextures.Clear();
+			embeddedLightmapModels.Clear();
+			for (var i = 0; i < gs.MipTextures.Length; i++)
+			{
+				if (GetEmbeddedLightmapOriginal(gs.MipTextures[i].name) >= 0)
+					embeddedLightmapMipTextures.Add(i);
+			}
+
+			if (embeddedLightmapMipTextures.Count == 0)
+				return;
+
+			var restored = 0;
+			for (var modelIndex = 0; modelIndex < gs.Models.Length; modelIndex++)
+			{
+				var model = gs.Models[modelIndex];
+				for (var i = model.firstFace; i < model.firstFace + model.numFaces && i < gs.Faces.Length; i++)
+				{
+					var texInfo = gs.Faces[i].texInfo;
+					if (texInfo < 0 || texInfo >= gs.TexInfos.Length || !embeddedLightmapMipTextures.Contains(gs.TexInfos[texInfo].mipTex))
+						continue;
+
+					gs.Faces[i].texInfo = GetEmbeddedLightmapOriginal(GetMipTexName(gs.TexInfos[texInfo]));
+					embeddedLightmapModels.Add(modelIndex);
+					restored++;
+				}
+			}
+
+			logger.Log($"Restored the original textures of {restored} faces with embedded lightmaps");
+		}
+
+		// The texinfo a texture with an embedded lightmap was made from, or -1 if it isn't one. VHLT names them "__rad"
+		// ("{_rad" for '{' textures), the original texinfo's index as 5 digits, then a hash and a counter.
+		private int GetEmbeddedLightmapOriginal(string mipTexName)
+		{
+			if (mipTexName.Length < 10 || !IsEmbeddedLightmapName(mipTexName) ||
+				!int.TryParse(mipTexName.AsSpan(5, 5), NumberStyles.None, CultureInfo.InvariantCulture, out var texInfo) ||
+				texInfo >= gs.TexInfos.Length || IsEmbeddedLightmapName(GetMipTexName(gs.TexInfos[texInfo])))
+				return -1;
+
+			return texInfo;
+		}
+
+		private static bool IsEmbeddedLightmapName(string mipTexName)
+		{
+			return mipTexName.StartsWith("__rad", StringComparison.OrdinalIgnoreCase) || mipTexName.StartsWith("{_rad", StringComparison.OrdinalIgnoreCase);
+		}
+
 		private void ConvertTexInfos()
 		{
 			FindTextures();
 			ConvertTextures();
 
+			// Restored embedded lightmap textures aren't drawn, so they get neither texture data nor texinfos
 			var texDataForMipTex = new int[gs.MipTextures.Length];
 			for (var i = 0; i < gs.MipTextures.Length; i++)
 			{
+				if (embeddedLightmapMipTextures.Contains(i))
+				{
+					texDataForMipTex[i] = -1;
+					continue;
+				}
+
 				var mipTex = gs.MipTextures[i];
 				var materialName = GetMaterialName(mipTex.name);
 				var textureDataIndex = builder.LookupTextureData(materialName);
@@ -640,7 +708,7 @@ namespace BSPConvert.Lib.GoldSrc
 			{
 				var texInfo = gs.TexInfos[i];
 				var textureDataIndex = texInfo.mipTex >= 0 && texInfo.mipTex < texDataForMipTex.Length ? texDataForMipTex[texInfo.mipTex] : 0;
-				texInfoMap[i] = AddTexInfo(i, GetMaterialName(GetMipTexName(texInfo)), textureDataIndex);
+				texInfoMap[i] = textureDataIndex < 0 ? -1 : AddTexInfo(i, GetMaterialName(GetMipTexName(texInfo)), textureDataIndex);
 			}
 		}
 
@@ -698,7 +766,7 @@ namespace BSPConvert.Lib.GoldSrc
 				if (!convertedMaterials.ContainsKey(material))
 				{
 					materialConverter.WriteVariant(material, converted.VtfMaterial, converted.Texture, converted.Animation, style.Mode, style.Amount,
-						style.ScrollSpeed, toggled != null);
+						style.ScrollSpeed, toggled != null, style.Lit);
 					convertedMaterials[material] = converted;
 				}
 
@@ -718,7 +786,7 @@ namespace BSPConvert.Lib.GoldSrc
 			return styleTexInfo;
 		}
 
-		// "_tex128" (translucent, renderamt 128), "_add255" (additive), "_scroll500" (scrolling at 500), or several
+		// "_tex128" (translucent, renderamt 128), "_add255_lit" (additive and lit), "_scroll500" (scrolling at 500), or several
 		private static string GetStyleSuffix(SurfaceStyle style)
 		{
 			var suffix = style.Mode switch
@@ -727,6 +795,8 @@ namespace BSPConvert.Lib.GoldSrc
 				BlendMode.Additive => FormattableString.Invariant($"_add{(int)MathF.Round(style.Amount * 255f)}"),
 				_ => "",
 			};
+			if (style.Lit)
+				suffix += "_lit";
 			if (style.ScrollSpeed != 0f)
 				suffix += FormattableString.Invariant($"_scroll{style.ScrollSpeed:0.##}");
 			if (style.ToggleTextures)
@@ -788,13 +858,17 @@ namespace BSPConvert.Lib.GoldSrc
 			var missing = new List<string>();
 			for (var i = 0; i < mipTextures.Length; i++)
 			{
+				if (embeddedLightmapMipTextures.Contains(i))
+					continue;
+
 				mipTextures[i] = textureFinder.Find(i);
 				var name = gs.MipTextures[i].name;
 				if (mipTextures[i] == null && !string.IsNullOrEmpty(name) && !IsToolTexture(name))
 					missing.Add(name);
 			}
 
-			logger.Log($"Found {mipTextures.Length - missing.Count}/{mipTextures.Length} textures");
+			var textureCount = mipTextures.Length - embeddedLightmapMipTextures.Count;
+			logger.Log($"Found {textureCount - missing.Count}/{textureCount} textures");
 			if (missing.Count > 0)
 				logger.Log($"Warning: Textures not found (pass the folder of the WADs that have them with --wads): {string.Join(", ", missing)}");
 		}

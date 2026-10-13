@@ -548,18 +548,20 @@ namespace BSPConvert.Lib.GoldSrc
 
 		// A material drawing an already converted texture (vtfMaterialName's VTF) the way a brush entity does: blended
 		// by its rendermode (amount is its renderamt as 0-1), scrolling at scrollSpeed, a func_conveyor's speed, and if
-		// toggled, drawing the frame of the VTF (see ConvertToggled) that the entity's texture frame index picks
+		// toggled, drawing the frame of the VTF (see ConvertToggled) that the entity's texture frame index picks. A lit
+		// translucent or additive one draws its lightmap, which GoldSrc doesn't, for faces whose map baked their
+		// lighting into their textures.
 		public void WriteVariant(string materialName, string vtfMaterialName, MipTexture texture, TextureAnimation animation, BlendMode blendMode,
-			float amount, float scrollSpeed, bool toggled)
+			float amount, float scrollSpeed, bool toggled, bool lit)
 		{
-			WriteVmt(materialName, vtfMaterialName, texture, IsAlphaTested(texture.Name), animation, blendMode, amount, scrollSpeed, toggled);
+			WriteVmt(materialName, vtfMaterialName, texture, IsAlphaTested(texture.Name), animation, blendMode, amount, scrollSpeed, toggled, lit);
 		}
 
 		private void WriteVmt(string materialName, string baseTexture, MipTexture texture, bool isAlphaTested, TextureAnimation animation,
-			BlendMode blendMode = BlendMode.Opaque, float amount = 1f, float scrollSpeed = 0f, bool toggled = false)
+			BlendMode blendMode = BlendMode.Opaque, float amount = 1f, float scrollSpeed = 0f, bool toggled = false, bool lit = false)
 		{
 			var vmtPath = GetBasePath(materialName) + ".vmt";
-			File.WriteAllText(vmtPath, CreateVmt(baseTexture, texture, isAlphaTested, animation, blendMode, amount, scrollSpeed, toggled));
+			File.WriteAllText(vmtPath, CreateVmt(baseTexture, texture, isAlphaTested, animation, blendMode, amount, scrollSpeed, toggled, lit));
 			writtenFiles.Add(vmtPath);
 		}
 
@@ -646,11 +648,11 @@ namespace BSPConvert.Lib.GoldSrc
 		}
 
 		private static string CreateVmt(string baseTexture, MipTexture texture, bool isAlphaTested, TextureAnimation animation, BlendMode blendMode,
-			float amount, float scrollSpeed, bool toggled)
+			float amount, float scrollSpeed, bool toggled, bool lit)
 		{
 			// Water isn't lightmapped in GoldSrc, and neither are translucent or additive brush entities
 			var isTurbulent = IsTurbulent(texture.Name);
-			var isUnlit = isTurbulent || blendMode != BlendMode.Opaque;
+			var isUnlit = isTurbulent || (blendMode != BlendMode.Opaque && !lit);
 			var shader = isUnlit ? "UnlitGeneric" : "LightmappedGeneric";
 
 			var vmt = new StringBuilder();
