@@ -56,6 +56,7 @@ Files are looked up in the order Defrag's engine searches them: the mod's before
 ```
   --wads                  Comma-separated folders to search (recursively) for the WAD files the map takes its textures from, its sky images (gfx/env), and the sounds, sprites and models its entities use, e.g. your Half-Life install or a folder of community WADs. The input's own folder and a default Steam Half-Life install are always searched.
   --studiomdl             Path to the studiomdl.exe that compiles the models entities use (in Momentum Mod's bin/win64 folder). Found next to the output game folder or in a default Steam Momentum Mod install if not given. Models aren't converted if it isn't found.
+  --pointsample           Draw textures point sampled (unfiltered) and without mips, like GoldSrc with texture filtering turned off. For maps made to look pixelated that way.
   --goldsrchulls          Copy the player clip hulls of this GoldSrc BSP into the input BSP(s) instead of converting them (see below).
 ```
 

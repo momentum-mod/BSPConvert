@@ -22,6 +22,9 @@ namespace BSPConvert.Lib.GoldSrc
 		// The studiomdl.exe that compiles the models entities use. Found next to the output game folder or in a default
 		// Steam Momentum Mod install if not given.
 		public string studiomdlPath;
+		// Draws textures point sampled (unfiltered) and without mips, like GoldSrc with texture filtering turned off
+		// (gl_texturemode GL_NEAREST), for maps made to look pixelated that way
+		public bool pointSample;
 	}
 
 	// Converts GoldSrc (Half-Life / Counter-Strike 1.6) BSPs (see IEngineConverter).
@@ -899,7 +902,7 @@ namespace BSPConvert.Lib.GoldSrc
 
 		private void ConvertTextures()
 		{
-			materialConverter = new GoldSrcMaterialConverter(contentManager.ContentDir);
+			materialConverter = new GoldSrcMaterialConverter(contentManager.ContentDir, options.goldSrc.pointSample);
 			convertedMaterials.Clear();
 
 			// Progress goes by each texture's estimated time, since a warped water texture takes many times longer

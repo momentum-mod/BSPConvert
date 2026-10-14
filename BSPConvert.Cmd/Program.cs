@@ -91,6 +91,9 @@ namespace BSPConvert.Cmd
 			[Option("studiomdl", Required = false, HelpText = "GoldSrc only: path to the studiomdl.exe that compiles the models entities use (in Momentum Mod's bin/win64 folder). Found next to the output game folder or in a default Steam Momentum Mod install if not given.")]
 			public string StudiomdlPath { get; set; }
 
+			[Option("pointsample", Required = false, HelpText = "GoldSrc only: draw textures point sampled (unfiltered) and without mips, like GoldSrc with texture filtering turned off. For maps made to look pixelated that way.")]
+			public bool PointSample { get; set; }
+
 			[Option("goldsrchulls", Required = false, HelpText = "Copy the player clip hulls of this GoldSrc BSP into the input BSP(s) instead of converting them. For a Strata BSP recompiled from a converted map (e.g. decompiled, given new visuals and recompiled with VBSP), so GoldSrc-hull game modes collide exactly as in the GoldSrc map.")]
 			public string GoldSrcHullSource { get; set; }
 
@@ -151,7 +154,8 @@ namespace BSPConvert.Cmd
 					goldSrc = new GoldSrcConverterOptions()
 					{
 						wadDirs = options.WadDirs?.ToArray(),
-						studiomdlPath = options.StudiomdlPath
+						studiomdlPath = options.StudiomdlPath,
+						pointSample = options.PointSample
 					},
 					q3 = new Q3ConverterOptions()
 					{
