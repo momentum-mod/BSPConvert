@@ -94,6 +94,21 @@ namespace BSPConvert.Cmd
 			[Option("pointsample", Required = false, HelpText = "GoldSrc only: draw textures point sampled (unfiltered) and without mips, like GoldSrc with texture filtering turned off. For maps made to look pixelated that way.")]
 			public bool PointSample { get; set; }
 
+			[Option("gamma", Required = false, Default = 2.2f, HelpText = "GoldSrc only: the gamma video setting the map's lighting and textures are matched to. Half-Life's default is 2.2; older configs have 2.5.")]
+			public float Gamma { get; set; }
+
+			[Option("brightness", Required = false, Default = 0f, HelpText = "GoldSrc only: the brightness video setting the map's lighting is matched to, which brightens dark lighting. Half-Life's default is 0; older configs have 1.")]
+			public float Brightness { get; set; }
+
+			[Option("nooverbright", Required = false, HelpText = "GoldSrc only: match the map's lighting to GoldSrc without overbright lighting (gl_use_shaders 0 and gl_overbright 0). Half-Life's shaders always draw it, whatever gl_overbright says.")]
+			public bool NoOverbright { get; set; }
+
+			[Option("lightgamma", Required = false, Default = 2.5f, HelpText = "GoldSrc only: the lightgamma setting the map's lighting is matched to.")]
+			public float LightGamma { get; set; }
+
+			[Option("texgamma", Required = false, Default = 2f, HelpText = "GoldSrc only: the texgamma setting the map's textures are matched to.")]
+			public float TexGamma { get; set; }
+
 			[Option("goldsrchulls", Required = false, HelpText = "Copy the player clip hulls of this GoldSrc BSP into the input BSP(s) instead of converting them. For a Strata BSP recompiled from a converted map (e.g. decompiled, given new visuals and recompiled with VBSP), so GoldSrc-hull game modes collide exactly as in the GoldSrc map.")]
 			public string GoldSrcHullSource { get; set; }
 
@@ -136,6 +151,9 @@ namespace BSPConvert.Cmd
 			if (options.Scale <= 0f)
 				throw new ArgumentOutOfRangeException("Scale must be greater than 0.");
 
+			if (options.Gamma <= 0f || options.LightGamma <= 0f || options.TexGamma <= 0f || options.Brightness < 0f)
+				throw new ArgumentOutOfRangeException("Gamma, light gamma and texture gamma must be greater than 0, and brightness can't be negative.");
+
 			foreach (var inputEntry in options.InputFiles)
 			{
 				var converterOptions = new BSPConverterOptions()
@@ -155,7 +173,15 @@ namespace BSPConvert.Cmd
 					{
 						wadDirs = options.WadDirs?.ToArray(),
 						studiomdlPath = options.StudiomdlPath,
-						pointSample = options.PointSample
+						pointSample = options.PointSample,
+						brightness = new GoldSrcBrightness()
+						{
+							gamma = options.Gamma,
+							brightness = options.Brightness,
+							overbright = !options.NoOverbright,
+							lightGamma = options.LightGamma,
+							texGamma = options.TexGamma
+						}
 					},
 					q3 = new Q3ConverterOptions()
 					{

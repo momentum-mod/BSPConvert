@@ -25,6 +25,8 @@ namespace BSPConvert.Lib.GoldSrc
 		// Draws textures point sampled (unfiltered) and without mips, like GoldSrc with texture filtering turned off
 		// (gl_texturemode GL_NEAREST), for maps made to look pixelated that way
 		public bool pointSample;
+		// The GoldSrc video settings the map's lighting and textures are matched to
+		public GoldSrcBrightness brightness = new GoldSrcBrightness();
 	}
 
 	// Converts GoldSrc (Half-Life / Counter-Strike 1.6) BSPs (see IEngineConverter).
@@ -214,7 +216,7 @@ namespace BSPConvert.Lib.GoldSrc
 
 				progress.Stage("Converting visibility", shares.visibility);
 				ConvertVisibility();
-				new GoldSrcModelLighting(gs, sourceBsp, sourceLeafForGoldSrcLeaf).Convert();
+				new GoldSrcModelLighting(gs, sourceBsp, sourceLeafForGoldSrcLeaf, options.goldSrc.brightness).Convert();
 
 				builder.AddPlaceholderArea();
 				builder.AddPlaceholderAreaPortal();
@@ -902,7 +904,7 @@ namespace BSPConvert.Lib.GoldSrc
 
 		private void ConvertTextures()
 		{
-			materialConverter = new GoldSrcMaterialConverter(contentManager.ContentDir, options.goldSrc.pointSample);
+			materialConverter = new GoldSrcMaterialConverter(contentManager.ContentDir, options.goldSrc.brightness, options.goldSrc.pointSample);
 			convertedMaterials.Clear();
 
 			// Progress goes by each texture's estimated time, since a warped water texture takes many times longer
@@ -1816,11 +1818,11 @@ namespace BSPConvert.Lib.GoldSrc
 					var lightmap = new byte[luxels * styleCount * 3];
 					gs.Lighting.AsSpan(lightOffset, Math.Min(lightmap.Length, gs.Lighting.Length - lightOffset)).CopyTo(lightmap);
 					for (var style = styleCount - 1; style >= 0; style--)
-						colors.Add(ColorUtil.AverageGoldSrcLightmapColor(lightmap.AsSpan(style * luxels * 3, luxels * 3)));
+						colors.Add(ColorUtil.AverageGoldSrcLightmapColor(lightmap.AsSpan(style * luxels * 3, luxels * 3), options.goldSrc.brightness));
 
 					sourceOffset = colors.Count * 4;
 					for (var i = 0; i < lightmap.Length; i += 3)
-						colors.Add(ColorUtil.ConvertGoldSrcLightmapToColorRGBExp32(lightmap[i], lightmap[i + 1], lightmap[i + 2]));
+						colors.Add(ColorUtil.ConvertGoldSrcLightmapToColorRGBExp32(lightmap[i], lightmap[i + 1], lightmap[i + 2], options.goldSrc.brightness));
 
 					sourceOffsets[lightOffset] = sourceOffset;
 				}

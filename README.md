@@ -57,6 +57,11 @@ Files are looked up in the order Defrag's engine searches them: the mod's before
   --wads                  Comma-separated folders to search (recursively) for the WAD files the map takes its textures from, its sky images (gfx/env), and the sounds, sprites and models its entities use, e.g. your Half-Life install or a folder of community WADs. The input's own folder and a default Steam Half-Life install are always searched.
   --studiomdl             Path to the studiomdl.exe that compiles the models entities use (in Momentum Mod's bin/win64 folder). Found next to the output game folder or in a default Steam Momentum Mod install if not given. Models aren't converted if it isn't found.
   --pointsample           Draw textures point sampled (unfiltered) and without mips, like GoldSrc with texture filtering turned off. For maps made to look pixelated that way.
+  --gamma                 The gamma video setting the map's lighting and textures are matched to (default 2.2, Half-Life's; older configs have 2.5).
+  --brightness            The brightness video setting the map's lighting is matched to, which brightens dark lighting (default 0, Half-Life's; older configs have 1).
+  --nooverbright          Match the map's lighting to GoldSrc without overbright lighting (gl_use_shaders 0 and gl_overbright 0). Half-Life's shaders always draw it, whatever gl_overbright says.
+  --lightgamma            The lightgamma setting the map's lighting is matched to (default 2.5).
+  --texgamma              The texgamma setting the map's textures are matched to (default 2).
   --goldsrchulls          Copy the player clip hulls of this GoldSrc BSP into the input BSP(s) instead of converting them (see below).
 ```
 

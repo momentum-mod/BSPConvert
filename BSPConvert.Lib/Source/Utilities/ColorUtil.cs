@@ -1,4 +1,6 @@
-﻿namespace BSPConvert.Lib
+﻿using BSPConvert.Lib.GoldSrc;
+
+namespace BSPConvert.Lib
 {
 	public static class ColorUtil
 	{
@@ -42,15 +44,15 @@
 			return PackColorRGBExp32(rf, gf, bf);
 		}
 
-		// GoldSrc lightmaps are plain 8-bit gamma-space RGB with no overbright.
-		// TODO: Calibrate the brightness against GoldSrc's lightgamma/brightness defaults in game
-		public static ColorRGBExp32 ConvertGoldSrcLightmapToColorRGBExp32(byte r, byte g, byte b)
+		// A GoldSrc lightmap luxel as a Source one, which stores linear light 255 times over (TexLightToLinear), as bright
+		// as GoldSrc draws it with the given settings
+		public static ColorRGBExp32 ConvertGoldSrcLightmapToColorRGBExp32(byte r, byte g, byte b, GoldSrcBrightness brightness)
 		{
-			return PackColorRGBExp32(GammaToLinear(r) * 4f, GammaToLinear(g) * 4f, GammaToLinear(b) * 4f);
+			return PackColorRGBExp32(brightness.LightmapToLinear(r) * 255f, brightness.LightmapToLinear(g) * 255f, brightness.LightmapToLinear(b) * 255f);
 		}
 
 		// The average of a run of GoldSrc lightmap luxels (RGB triplets), taken in linear space like VRAD's
-		public static ColorRGBExp32 AverageGoldSrcLightmapColor(ReadOnlySpan<byte> rgb)
+		public static ColorRGBExp32 AverageGoldSrcLightmapColor(ReadOnlySpan<byte> rgb, GoldSrcBrightness brightness)
 		{
 			var count = rgb.Length / 3;
 			if (count == 0)
@@ -59,22 +61,19 @@
 			float r = 0f, g = 0f, b = 0f;
 			for (var i = 0; i < count * 3; i += 3)
 			{
-				r += GammaToLinear(rgb[i]);
-				g += GammaToLinear(rgb[i + 1]);
-				b += GammaToLinear(rgb[i + 2]);
+				r += brightness.LightmapToLinear(rgb[i]);
+				g += brightness.LightmapToLinear(rgb[i + 1]);
+				b += brightness.LightmapToLinear(rgb[i + 2]);
 			}
 
-			return PackColorRGBExp32(r * 4f / count, g * 4f / count, b * 4f / count);
+			return PackColorRGBExp32(r * 255f / count, g * 255f / count, b * 255f / count);
 		}
 
-		// Light on a GoldSrc model (0-255, through the same gamma as lightmaps) as an ambient cube color as bright as a
-		// lightmap of that value. The engine reads ambient cube colors 255 times brighter than lightmaps.
-		public static ColorRGBExp32 ConvertGoldSrcLightToAmbientColorRGBExp32(float r, float g, float b)
+		// Light on a GoldSrc model (0-255) as an ambient cube color, which the engine reads 255 times brighter than
+		// lightmaps, so as linear light
+		public static ColorRGBExp32 ConvertGoldSrcLightToAmbientColorRGBExp32(float r, float g, float b, GoldSrcBrightness brightness)
 		{
-			return PackColorRGBExp32(
-				GammaToLinear(Math.Clamp(r, 0f, 255f)) * 4f / 255f,
-				GammaToLinear(Math.Clamp(g, 0f, 255f)) * 4f / 255f,
-				GammaToLinear(Math.Clamp(b, 0f, 255f)) * 4f / 255f);
+			return PackColorRGBExp32(brightness.ModelLightToLinear(r), brightness.ModelLightToLinear(g), brightness.ModelLightToLinear(b));
 		}
 
 		private static ColorRGBExp32 PackColorRGBExp32(float rf, float gf, float bf)

@@ -56,14 +56,16 @@ namespace BSPConvert.Lib.GoldSrc
 		private readonly int[] sourceLeafForGoldSrcLeaf;
 		private readonly int[] lightStyleValues = new int[256];
 		private readonly int worldHeadNode;
+		private readonly GoldSrcBrightness brightness;
 
 		// light_environment's color (scaled as the game sets sv_skycolor) and the direction its light travels
 		private Vector3 skyColor;
 		private Vector3 skyDirection;
 
-		public GoldSrcModelLighting(GoldSrcBsp gs, BSP sourceBsp, int[] sourceLeafForGoldSrcLeaf)
+		public GoldSrcModelLighting(GoldSrcBsp gs, BSP sourceBsp, int[] sourceLeafForGoldSrcLeaf, GoldSrcBrightness brightness)
 		{
 			this.gs = gs;
+			this.brightness = brightness;
 			this.sourceBsp = sourceBsp;
 			this.sourceLeafForGoldSrcLeaf = sourceLeafForGoldSrcLeaf;
 			worldHeadNode = gs.Models.Length > 0 ? gs.Models[0].headNodes[0] : -1;
@@ -208,7 +210,7 @@ namespace BSPConvert.Lib.GoldSrc
 				var wrapped = (lightCos + (Lambert - 1f)) / Lambert;
 				var illum = Math.Clamp(ambient + shade - shade * MathF.Max(wrapped, 0f), 0f, MaxLight);
 
-				var cubeColor = ColorUtil.ConvertGoldSrcLightToAmbientColorRGBExp32(illum * color.X, illum * color.Y, illum * color.Z);
+				var cubeColor = ColorUtil.ConvertGoldSrcLightToAmbientColorRGBExp32(illum * color.X, illum * color.Y, illum * color.Z, brightness);
 				sample.SetColor(i, Color.FromArgb(cubeColor.r, cubeColor.g, cubeColor.b));
 				sample.SetExponent(i, cubeColor.exponent);
 			}

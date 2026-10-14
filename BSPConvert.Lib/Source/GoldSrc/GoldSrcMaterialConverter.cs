@@ -37,13 +37,10 @@ namespace BSPConvert.Lib.GoldSrc
 		// GoldSrc advances animated textures at a fixed 10 frames per second
 		private const int AnimationFrameRate = 10;
 
-		// GoldSrc brightens the textures of BSPs, WADs and studio models as it loads them, apart from masked ones ('{'
-		// textures and masked model textures), to (c / 255)^(texgamma / gamma) with the default texgamma of 2 and gamma
-		// of 2.5 (BuildGammaTable, and Image_SetPalette's LUMP_TEXGAMMA in Xash). Its lightmaps go through a gamma table
-		// that's about the identity at the defaults, so they're converted without one.
-		private static readonly byte[] TexGammaTable = Enumerable.Range(0, 256)
-			.Select(i => (byte)Math.Clamp((int)(Math.Pow(i / 255.0, 2.0 / 2.5) * 255.0), 0, 255))
-			.ToArray();
+		// The texture gamma GoldSrc brightens textures with as it loads them, apart from masked ones ('{' textures and
+		// masked model textures), for the video settings the map is matched to (see GoldSrcBrightness). Its lightmaps have
+		// a gamma table of their own (see GoldSrcBrightness.LightmapToLinear).
+		private byte[] TexGammaTable => brightness.TexGammaTable;
 
 		// GoldSrc blends translucent surfaces in gamma space, where Strata, rendering in HDR, blends in linear space. That
 		// makes a dark translucent surface darken what's behind it much less, and a bright one brighten it more. So a
@@ -74,11 +71,14 @@ namespace BSPConvert.Lib.GoldSrc
 
 		private readonly string contentDir;
 		private readonly bool pointSample;
+		private readonly GoldSrcBrightness brightness;
 		private readonly List<string> writtenFiles = new List<string>();
 
-		public GoldSrcMaterialConverter(string contentDir, bool pointSample = false)
+		// brightness defaults to the game's own video settings
+		public GoldSrcMaterialConverter(string contentDir, GoldSrcBrightness? brightness = null, bool pointSample = false)
 		{
 			this.contentDir = contentDir;
+			this.brightness = brightness ?? new GoldSrcBrightness();
 			this.pointSample = pointSample;
 
 			vtfOptions = new VTF.CreationOptions
@@ -587,7 +587,7 @@ namespace BSPConvert.Lib.GoldSrc
 			writtenFiles.Add(vmtPath);
 		}
 
-		private static byte[] DecodeRGBA(MipTexture texture, bool isAlphaTested)
+		private byte[] DecodeRGBA(MipTexture texture, bool isAlphaTested)
 		{
 			var palette = texture.Palette;
 			var pixels = new byte[texture.Width * texture.Height * 4];
@@ -669,7 +669,7 @@ namespace BSPConvert.Lib.GoldSrc
 			while (newlyFilled.Count > 0);
 		}
 
-		private static string CreateVmt(string baseTexture, MipTexture texture, bool isAlphaTested, TextureAnimation animation, BlendMode blendMode,
+		private string CreateVmt(string baseTexture, MipTexture texture, bool isAlphaTested, TextureAnimation animation, BlendMode blendMode,
 			float amount, float scrollSpeed, bool toggled, bool lit)
 		{
 			// Water isn't lightmapped in GoldSrc, and neither are translucent or additive brush entities
@@ -768,7 +768,7 @@ namespace BSPConvert.Lib.GoldSrc
 
 		// The alpha that blends a texture in linear space over mid grey the way GoldSrc blends it by amount in gamma space
 		// (see BlendReferenceBackground)
-		private static float GetLinearBlendAlpha(MipTexture texture, bool isAlphaTested, float amount)
+		private float GetLinearBlendAlpha(MipTexture texture, bool isAlphaTested, float amount)
 		{
 			if (amount >= 1f)
 				return 1f;
@@ -787,7 +787,7 @@ namespace BSPConvert.Lib.GoldSrc
 		}
 
 		// The average brightness (0-1, gamma space) of a texture's visible texels as GoldSrc draws them
-		private static float GetAverageBrightness(MipTexture texture, bool isAlphaTested)
+		private float GetAverageBrightness(MipTexture texture, bool isAlphaTested)
 		{
 			var palette = texture.Palette;
 			double sum = 0;
