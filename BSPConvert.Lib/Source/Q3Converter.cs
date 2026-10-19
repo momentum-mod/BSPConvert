@@ -1272,7 +1272,11 @@ namespace BSPConvert.Lib
 				// it picks (see ConvertBrushes); every other side keeps its own texture.
 				var texture = fogBrushSideTexture.TryGetValue(i, out var fogTexture) ? fogTexture : qBrushSide.Texture;
 
-				builder.AddBrushSide(qBrushSide.PlaneIndex, GetBrushSideTextureInfoIndex(qBrushSide, texture));
+				// q3map2 writes the bevel sides it adds to brushes (AddBrushBevels) without a shader, and the BSP has
+				// no other bevel flag. Flagging them like vbsp does lets the engine (and zone generation) tell them apart.
+				var isBevel = qBrushSide.Texture.Name == "noshader";
+
+				builder.AddBrushSide(qBrushSide.PlaneIndex, GetBrushSideTextureInfoIndex(qBrushSide, texture), isBevel);
 			}
 		}
 

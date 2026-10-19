@@ -136,6 +136,7 @@ namespace BSPConvert.Lib
 		private Dictionary<string, List<Entity>> entityDict = new Dictionary<string, List<Entity>>();
 		private List<Entity> removeEntities = new List<Entity>(); // Entities to remove after conversion (ex: remove weapons after converting a trigger_multiple that references target_give). TODO: It might be better to convert entities by priority, such as trigger_multiples first so that target_give weapons can be ignored after
 		private int currentCheckpointIndex = 2;
+		private Dictionary<Entity, int> checkpointNumbers = new Dictionary<Entity, int>(); // Every trigger firing the same target_checkpoint shares its number
 		private Lump<Model> q3Models;
 
 		private const string MOMENTUM_START_ENTITY = "_momentum_player_start_";
@@ -619,8 +620,7 @@ namespace BSPConvert.Lib
 						ConvertEndZoneTrigger(entity, targets);
 						break;
 					case "target_checkpoint":
-						ConvertCheckpointTrigger(entity, currentCheckpointIndex, targets);
-						currentCheckpointIndex++;
+						ConvertCheckpointTrigger(entity, GetCheckpointNumber(target), targets);
 						break;
 					case "target_delay":
 						delay += ConvertTargetDelay(target);
@@ -1176,55 +1176,109 @@ namespace BSPConvert.Lib
 
 		private void ConvertStartZoneTrigger(Entity trigger, List<Entity> targets)
 		{
-			if (ignoreZones || !trigger.ClassName.StartsWith("trigger", StringComparison.OrdinalIgnoreCase))
-				return;
-
-			var newTrigger = new Entity();
-
-			newTrigger.ClassName = "zone_timer_start";
-			newTrigger.Model = trigger.Model;
-			newTrigger["restart_destination"] = "_momentum_player_start_";
-			newTrigger["checkpoints_required"] = "0";
-			newTrigger["checkpoints_ordered"] = "0";
-			newTrigger["safe_height"] = "-1"; // Full height
-
-			sourceEntities.Add(newTrigger);
-
-			if (!targets.Any(x => !string.Equals(x.ClassName, "target_startTimer", StringComparison.OrdinalIgnoreCase)))
-				sourceEntities.Remove(trigger);
+			CreateZoneEntities(trigger, targets, "target_startTimer", zone =>
+			{
+				zone.ClassName = "zone_timer_start";
+				zone["restart_destination"] = "_momentum_player_start_";
+				zone["checkpoints_required"] = "0";
+				zone["checkpoints_ordered"] = "0";
+				zone["safe_height"] = "-1"; // Full height
+			});
 		}
 
 		private void ConvertEndZoneTrigger(Entity trigger, List<Entity> targets)
 		{
-			if (ignoreZones || !trigger.ClassName.StartsWith("trigger", StringComparison.OrdinalIgnoreCase))
-				return;
-
-			var newTrigger = new Entity();
-
-			newTrigger.ClassName = "zone_timer_end";
-			newTrigger.Model = trigger.Model;
-
-			sourceEntities.Add(newTrigger);
-
-			if (!targets.Any(x => !string.Equals(x.ClassName, "target_stopTimer", StringComparison.OrdinalIgnoreCase)))
-				sourceEntities.Remove(trigger);
+			CreateZoneEntities(trigger, targets, "target_stopTimer", zone =>
+			{
+				zone.ClassName = "zone_timer_end";
+			});
 		}
 
 		private void ConvertCheckpointTrigger(Entity trigger, int checkpointNum, List<Entity> targets)
 		{
-			if (ignoreZones || !trigger.ClassName.StartsWith("trigger", StringComparison.OrdinalIgnoreCase))
+			CreateZoneEntities(trigger, targets, "target_checkpoint", zone =>
+			{
+				zone.ClassName = "zone_timer_checkpoint";
+				zone["checkpoint_number"] = checkpointNum.ToString(CultureInfo.InvariantCulture);
+			});
+		}
+
+		private int GetCheckpointNumber(Entity targetCheckpoint)
+		{
+			if (!checkpointNumbers.TryGetValue(targetCheckpoint, out var checkpointNum))
+			{
+				checkpointNum = currentCheckpointIndex++;
+				checkpointNumbers.Add(targetCheckpoint, checkpointNum);
+			}
+
+			return checkpointNum;
+		}
+
+		// Adds a zone entity (read by ZoneGenerator) for each trigger volume that fires a timer entity. That's the
+		// trigger itself, or for a target_relay/target_delay in the chain, every trigger that fires the relay.
+		private void CreateZoneEntities(Entity entity, List<Entity> targets, string timerClassName, Action<Entity> setupZone)
+		{
+			if (ignoreZones)
 				return;
 
-			var newTrigger = new Entity();
+			var isTrigger = entity.ClassName.StartsWith("trigger", StringComparison.OrdinalIgnoreCase);
+			var triggers = isTrigger ? new List<Entity> { entity } : GetTriggersFiringRelay(entity);
 
-			newTrigger.ClassName = "zone_timer_checkpoint";
-			newTrigger.Model = trigger.Model;
-			newTrigger["checkpoint_number"] = checkpointNum.ToString(CultureInfo.InvariantCulture);
+			foreach (var trigger in triggers)
+			{
+				var zone = new Entity();
+				zone.Model = trigger.Model;
+				if (trigger.ContainsKey("origin"))
+					zone["origin"] = trigger["origin"]; // Brush models are relative to their entity's origin
 
-			sourceEntities.Add(newTrigger);
+				setupZone(zone);
+				sourceEntities.Add(zone);
+			}
 
-			if (!targets.Any(x => !string.Equals(x.ClassName, "target_checkpoint", StringComparison.OrdinalIgnoreCase)))
-				sourceEntities.Remove(trigger);
+			// The zone replaces a trigger that only fired the timer. Relays stay, they're fired by other triggers too.
+			if (isTrigger && !targets.Any(x => !string.Equals(x.ClassName, timerClassName, StringComparison.OrdinalIgnoreCase)))
+				sourceEntities.Remove(entity);
+		}
+
+		// Walks back from a relay through any relays/delays firing it, to the triggers at the start of the chain
+		private List<Entity> GetTriggersFiringRelay(Entity relay)
+		{
+			var triggers = new List<Entity>();
+			if (!IsRelay(relay))
+				return triggers;
+
+			var visited = new HashSet<Entity> { relay };
+			var queue = new Queue<Entity>();
+			queue.Enqueue(relay);
+
+			while (queue.Count > 0)
+			{
+				var current = queue.Dequeue();
+				var firingEntities = q3Entities.Where(x => x.TryGetValue("target", out var target) && target == current.Name);
+
+				foreach (var firingEntity in firingEntities)
+				{
+					if (!visited.Add(firingEntity))
+						continue;
+
+					if (firingEntity.ClassName.StartsWith("trigger", StringComparison.OrdinalIgnoreCase))
+					{
+						if (!string.IsNullOrEmpty(firingEntity.Model))
+							triggers.Add(firingEntity);
+					}
+					else if (IsRelay(firingEntity))
+					{
+						queue.Enqueue(firingEntity);
+					}
+				}
+			}
+
+			return triggers;
+
+			static bool IsRelay(Entity entity)
+			{
+				return entity.ClassName is "target_relay" or "logic_relay" or "target_delay";
+			}
 		}
 
 		// TODO: Convert target_give for player spawn entities
