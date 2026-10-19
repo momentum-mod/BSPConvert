@@ -27,6 +27,7 @@ namespace BSPConvert.Lib
 		private BSP quakeBsp;
 		private BSP sourceBsp;
 		private bool clampOverbright;
+		private Q3Brightness brightness;
 
 		private Lump<LightGridPoint> gridPoints;
 		private Vector3 gridOrigin = Vector3.Zero;
@@ -34,10 +35,11 @@ namespace BSPConvert.Lib
 		private int[] gridBounds = new int[3];
 		private int[] gridStep = new int[3];
 
-		public LightGridConverter(BSP quakeBsp, BSP sourceBsp, bool clampOverbright)
+		public LightGridConverter(BSP quakeBsp, BSP sourceBsp, Q3Brightness brightness, bool clampOverbright)
 		{
 			this.quakeBsp = quakeBsp;
 			this.sourceBsp = sourceBsp;
+			this.brightness = brightness;
 			this.clampOverbright = clampOverbright;
 		}
 
@@ -123,16 +125,17 @@ namespace BSPConvert.Lib
 
 		private void ClampGridOverbright()
 		{
+			var ceiling = (int)brightness.OverbrightCeiling;
 			for (var i = 0; i < gridPoints.Count; i++)
 			{
 				var point = gridPoints[i];
 
 				var ambient = point.Ambient;
-				var (ar, ag, ab) = ColorUtil.ApplyOverbrightClamp(ambient.R, ambient.G, ambient.B);
+				var (ar, ag, ab) = ColorUtil.ApplyOverbrightClamp(ambient.R, ambient.G, ambient.B, ceiling);
 				point.Ambient = Color.FromArgb(ar, ag, ab);
 
 				var directed = point.Directed;
-				var (dr, dg, db) = ColorUtil.ApplyOverbrightClamp(directed.R, directed.G, directed.B);
+				var (dr, dg, db) = ColorUtil.ApplyOverbrightClamp(directed.R, directed.G, directed.B, ceiling);
 				point.Directed = Color.FromArgb(dr, dg, db);
 			}
 		}
@@ -338,7 +341,7 @@ namespace BSPConvert.Lib
 				var g = ambient[1] * AMBIENT_SCALE + directed[1] * DIRECTED_SCALE * dot;
 				var b = ambient[2] * AMBIENT_SCALE + directed[2] * DIRECTED_SCALE * dot;
 
-				var color = ColorUtil.ConvertQ3LightGridColorToColorRGBExp32(r, g, b, clampOverbright);
+				var color = ColorUtil.ConvertQ3LightGridColorToColorRGBExp32(r, g, b, brightness, clampOverbright);
 				sample.SetColor(i, Color.FromArgb(color.r, color.g, color.b));
 				sample.SetExponent(i, color.exponent);
 			}

@@ -47,6 +47,8 @@ namespace BSPConvert.Lib
 		// When set, applies Quake 3's hue-preserving overbright clamp to lightmap luxels (flattens
 		// over-bright highlights toward white). Off by default. See ColorUtil.ConvertQ3LightmapToColorRGBExp32.
 		public bool clampOverbright;
+		// The Quake 3 video settings (r_gamma, r_mapOverBrightBits) the map's lightmaps and light grid are matched to
+		public Q3Brightness brightness = new Q3Brightness();
 		// Settings for baking Q3 multi-pass scrolling shaders (e.g. liquids water) into looping animated
 		// flipbook VTFs. See FlipbookConverter.
 		public FlipbookOptions flipbook = new FlipbookOptions();
@@ -2242,6 +2244,7 @@ namespace BSPConvert.Lib
 							qLightmapData[q3LightmapOffset + index * 3 + 0],
 							qLightmapData[q3LightmapOffset + index * 3 + 1],
 							qLightmapData[q3LightmapOffset + index * 3 + 2],
+							options.q3.brightness,
 							options.q3.clampOverbright);
 
 						lmColors.Add(color);
@@ -2320,8 +2323,9 @@ namespace BSPConvert.Lib
 							lmData.data[index * 3 + 0],
 							lmData.data[index * 3 + 1],
 							lmData.data[index * 3 + 2],
+							options.q3.brightness,
 							options.q3.clampOverbright,
-							applyOverbright: false); // Don't apply overbright to external lightmaps
+							external: true); // External lightmaps are drawn without the overbright
 
 						lmColors.Add(color);
 					}
@@ -2364,7 +2368,7 @@ namespace BSPConvert.Lib
 
 		private void ConvertLightGrid()
 		{
-			var lightGridConverter = new LightGridConverter(quakeBsp, sourceBsp, options.q3.clampOverbright);
+			var lightGridConverter = new LightGridConverter(quakeBsp, sourceBsp, options.q3.brightness, options.q3.clampOverbright);
 			lightGridConverter.Convert();
 		}
 

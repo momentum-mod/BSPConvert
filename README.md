@@ -38,6 +38,8 @@ The input files are Quake 3 BSP/PK3 or GoldSrc (Half-Life, CS 1.6) BSP/ZIP files
   --fogminheight          (Default: 256) Minimum vertical height (units) for converted fog volumes. Only used with --fogobb.
   --nofogoverlay          Don't draw fog shader visible stages (e.g. scrolling clouds) as an overlay face; fog brush faces are just dropped.
   --clampoverbright       Apply Quake 3's hue-preserving overbright clamp to lightmaps, flattening over-bright highlights toward white.
+  --q3gamma               (Default: 1) The r_gamma video setting the map's lighting is matched to, which brightens dark lighting [0.5-3].
+  --mapoverbrightbits     (Default: 2) The r_mapOverBrightBits setting the map's lighting is matched to, which draws it 2^n as bright [0-4].
   --noanim                Disable baking multi-pass / animated shaders (scrolling liquids, layered effects, animMaps) into animated flipbook textures.
   --animbudget            (Default: 16) Target max size (MB) of each baked animated VTF. Resolution adapts down as the seamless loop needs more frames.
   --animmaxres            (Default: 512) Sharpness ceiling (px) for baked animated textures.
@@ -46,6 +48,8 @@ The input files are Quake 3 BSP/PK3 or GoldSrc (Half-Life, CS 1.6) BSP/ZIP files
   --animalpha             (Default: 1) Translucency [0-1] for baked liquids. 1 derives per-texel translucency from each texture's alpha/luminance; below 1 uses a flat constant alpha.
   --q3mod                 Quake 3 mod whose content maps use besides Quake 3's: its folder in Q3Mods, e.g. missionpack for Team Arena, or baseq3 for Quake 3's content alone. Detected by default.
 ```
+
+The defaults are Quake 3's, and convert lighting as bright as earlier versions did. Raise `--q3gamma` (or `--mapoverbrightbits`) for maps made with a brighter config that look too dark. Quake 3's gamma also brightens textures, which these leave alone.
 
 ### Quake 3 content
 Maps use textures, shaders and sounds from Quake 3 without shipping them. BSP Convert reads Quake 3's from the `Q3Content` folder next to it (extract `baseq3/pak0.pk3` there) and packs what a map uses into it. Mods and expansions go in `Q3Mods/<mod folder>`, e.g. Team Arena's `missionpack/pak0.pk3` in `Q3Mods/missionpack`. The mod a map needs is picked from the textures it uses that neither it nor Quake 3 has, and the log says which; `--q3mod` overrides that.
@@ -57,11 +61,11 @@ Files are looked up in the order Defrag's engine searches them: the mod's before
   --wads                  Comma-separated folders to search (recursively) for the WAD files the map takes its textures from, its sky images (gfx/env), and the sounds, sprites and models its entities use, e.g. your Half-Life install or a folder of community WADs. The input's own folder and a default Steam Half-Life install are always searched.
   --studiomdl             Path to the studiomdl.exe that compiles the models entities use (in Momentum Mod's bin/win64 folder). Found next to the output game folder or in a default Steam Momentum Mod install if not given. Models aren't converted if it isn't found.
   --pointsample           Draw textures point sampled (unfiltered) and without mips, like GoldSrc with texture filtering turned off. For maps made to look pixelated that way.
-  --gamma                 The gamma video setting the map's lighting and textures are matched to (default 2.2, Half-Life's; older configs have 2.5).
-  --brightness            The brightness video setting the map's lighting is matched to, which brightens dark lighting (default 0, Half-Life's; older configs have 1).
-  --nooverbright          Match the map's lighting to GoldSrc without overbright lighting (gl_use_shaders 0 and gl_overbright 0). Half-Life's shaders always draw it, whatever gl_overbright says.
-  --lightgamma            The lightgamma setting the map's lighting is matched to (default 2.5).
-  --texgamma              The texgamma setting the map's textures are matched to (default 2).
+  --gamma                 The gamma video setting the map's lighting and textures are matched to (default 2.2, Half-Life's; older configs have 2.5).
+  --brightness            The brightness video setting the map's lighting is matched to, which brightens dark lighting (default 0, Half-Life's; older configs have 1).
+  --nooverbright          Match the map's lighting to GoldSrc without overbright lighting (gl_use_shaders 0 and gl_overbright 0). Half-Life's shaders always draw it, whatever gl_overbright says.
+  --lightgamma            The lightgamma setting the map's lighting is matched to (default 2.5).
+  --texgamma              The texgamma setting the map's textures are matched to (default 2).
   --goldsrchulls          Copy the player clip hulls of this GoldSrc BSP into the input BSP(s) instead of converting them (see below).
 ```
 

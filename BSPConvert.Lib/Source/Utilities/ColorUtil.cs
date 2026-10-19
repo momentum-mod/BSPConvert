@@ -4,44 +4,32 @@ namespace BSPConvert.Lib
 {
 	public static class ColorUtil
 	{
-		// Quake 3 applies a 4x overbright to lightmapped surfaces at display time (R_ColorShiftLightingBytes
-		// in tr_bsp.c, with the default r_mapOverBrightBits = 2, i.e. << 2). We bake that factor directly
-		// into the stored RGBExp32 luxels (below) so the lighting is display-ready and renders identically on
-		// world geometry and brush entities.
-		private const int OVERBRIGHT = 4;
-
-		public static ColorRGBExp32 ConvertQ3LightmapToColorRGBExp32(byte r, byte g, byte b, bool clampOverbright = false, bool applyOverbright = true)
+		// Quake 3 draws lightmapped surfaces overbright (R_ColorShiftLightingBytes in tr_bsp.c, 4x with the default
+		// r_mapOverBrightBits 2). We bake that, and the rest of the brightness its video settings give the light (see
+		// Q3Brightness), into the stored RGBExp32 luxels so the lighting is display-ready and renders identically on
+		// world geometry and brush entities. External lightmaps are drawn like textures, without the overbright.
+		public static ColorRGBExp32 ConvertQ3LightmapToColorRGBExp32(byte r, byte g, byte b, Q3Brightness brightness, bool clampOverbright = false, bool external = false)
 		{
-			// The white point (brightest surviving luxel) is 255/OVERBRIGHT when the overbright clamp is
-			// active, otherwise the full 8-bit range survives; the black-point lift remaps against it.
-			var ceiling = clampOverbright ? 255 / OVERBRIGHT : 255;
-
 			if (clampOverbright)
-				(r, g, b) = ApplyOverbrightClamp(r, g, b);
+				(r, g, b) = ApplyOverbrightClamp(r, g, b, (int)brightness.OverbrightCeiling);
 
-			var overbright = applyOverbright ? OVERBRIGHT : 1; // External lightmaps don't need the 4x overbright, only apply to internal lightmaps.
-
-			// The * 4f maps into the 0-4 HDR range Source's lightmap format expects; the * OVERBRIGHT bakes
-			// in Quake 3's display overbright so the renderer needs no extra per-material scaling.
-			var rf = GammaToLinear(r) * 4f * overbright;
-			var gf = GammaToLinear(g) * 4f * overbright;
-			var bf = GammaToLinear(b) * 4f * overbright;
-
-			return PackColorRGBExp32(rf, gf, bf);
+			// Source's lightmaps store linear light 255 times over (TexLightToLinear)
+			return PackColorRGBExp32(
+				brightness.LightToLinear(r, external) * 255f,
+				brightness.LightToLinear(g, external) * 255f,
+				brightness.LightToLinear(b, external) * 255f);
 		}
 
-		public static ColorRGBExp32 ConvertQ3LightGridColorToColorRGBExp32(float r, float g, float b, bool clampOverbright = false)
+		// Light grid light as an ambient cube color, which the engine reads 255 times brighter than lightmaps, so as
+		// linear light
+		public static ColorRGBExp32 ConvertQ3LightGridColorToColorRGBExp32(float r, float g, float b, Q3Brightness brightness, bool clampOverbright = false)
 		{
-			var ceiling = clampOverbright ? 255f / OVERBRIGHT : 255f;
+			var ceiling = clampOverbright ? brightness.OverbrightCeiling : 255f;
 			r = Math.Min(r, ceiling);
 			g = Math.Min(g, ceiling);
 			b = Math.Min(b, ceiling);
 
-			var rf = GammaToLinear(r) * 4f * OVERBRIGHT / 255f;
-			var gf = GammaToLinear(g) * 4f * OVERBRIGHT / 255f;
-			var bf = GammaToLinear(b) * 4f * OVERBRIGHT / 255f;
-
-			return PackColorRGBExp32(rf, gf, bf);
+			return PackColorRGBExp32(brightness.LightToLinear(r), brightness.LightToLinear(g), brightness.LightToLinear(b));
 		}
 
 		// A GoldSrc lightmap luxel as a Source one, which stores linear light 255 times over (TexLightToLinear), as bright
@@ -97,15 +85,13 @@ namespace BSPConvert.Lib
 		// Replicates the saturation behaviour of Quake 3's R_ColorShiftLightingBytes (tr_bsp.c). Q3
 		// multiplies lightmap colors by the overbright factor and, when a channel exceeds 255, scales ALL
 		// channels down together (hue-preserving) so a bright luxel flattens toward white instead of
-		// clipping per channel. Because we bake that overbright (x4) into the encoded luxels (not in this
+		// clipping per channel. Because we bake that overbright into the encoded luxels (not in this
 		// clamp step), here we only enforce the matching ceiling: the brightest pre-overbright luxel that survives is
-		// 255/OVERBRIGHT (= 63), above which the engine's x4 would blow past white. Bytes at or below the
-		// ceiling (most of the map, incl. midtones) pass through unchanged, so the look there is preserved;
-		// only the over-bright luxels Q3 discards get flattened, fixing the too-bright/blotchy highlights.
-		public static (byte r, byte g, byte b) ApplyOverbrightClamp(byte r, byte g, byte b)
+		// 255 / the overbright (Q3Brightness.OverbrightCeiling, 63 for the default x4), above which it would blow past
+		// white. Bytes at or below the ceiling (most of the map, incl. midtones) pass through unchanged, so the look
+		// there is preserved; only the over-bright luxels Q3 discards get flattened, fixing the too-bright/blotchy highlights.
+		public static (byte r, byte g, byte b) ApplyOverbrightClamp(byte r, byte g, byte b, int ceiling)
 		{
-			const int ceiling = 255 / OVERBRIGHT; // 63
-
 			var max = Math.Max(r, Math.Max(g, b));
 			if (max <= ceiling)
 				return (r, g, b);
@@ -114,11 +100,6 @@ namespace BSPConvert.Lib
 				(byte)(r * ceiling / max),
 				(byte)(g * ceiling / max),
 				(byte)(b * ceiling / max));
-		}
-
-		private static float GammaToLinear(float gamma)
-		{
-			return (float)(255.0 * Math.Pow(gamma / 255.0, 2.2));
 		}
 
 		private static int CalcExponent(float max)

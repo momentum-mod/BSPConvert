@@ -46,6 +46,12 @@ namespace BSPConvert.Cmd
 			[Option("clampoverbright", Required = false, HelpText = "Apply Quake 3's hue-preserving overbright clamp to lightmaps, flattening over-bright highlights toward white instead of letting the engine's 4x overbright blow past white.")]
 			public bool ClampOverbright { get; set; }
 
+			[Option("q3gamma", Required = false, Default = 1f, HelpText = "Quake 3 only: the r_gamma video setting the map's lighting is matched to, which brightens dark lighting [0.5-3]. Quake 3's default is 1.")]
+			public float Q3Gamma { get; set; }
+
+			[Option("mapoverbrightbits", Required = false, Default = 2, HelpText = "Quake 3 only: the r_mapOverBrightBits setting the map's lighting is matched to, which draws it 2^n as bright. Quake 3's default is 2 (4x).")]
+			public int MapOverBrightBits { get; set; }
+
 			[Option("scale", Required = false, Default = 1f, HelpText = "Uniformly scale the map's geometry and entity positions by this factor (e.g. 2 doubles the world size). Mover speed/wait times, jump pad and teleport velocities, and other gameplay-tuning values are not scaled and may need manual retuning to feel the same at the new size.")]
 			public float Scale { get; set; }
 
@@ -154,6 +160,9 @@ namespace BSPConvert.Cmd
 			if (options.Gamma <= 0f || options.LightGamma <= 0f || options.TexGamma <= 0f || options.Brightness < 0f)
 				throw new ArgumentOutOfRangeException("Gamma, light gamma and texture gamma must be greater than 0, and brightness can't be negative.");
 
+			if (options.Q3Gamma < Q3Brightness.MinGamma || options.Q3Gamma > Q3Brightness.MaxGamma || options.MapOverBrightBits < 0 || options.MapOverBrightBits > Q3Brightness.MaxMapOverBrightBits)
+				throw new ArgumentOutOfRangeException($"Quake 3 gamma must be between {Q3Brightness.MinGamma} and {Q3Brightness.MaxGamma}, and map overbright bits between 0 and {Q3Brightness.MaxMapOverBrightBits}.");
+
 			foreach (var inputEntry in options.InputFiles)
 			{
 				var converterOptions = new BSPConverterOptions()
@@ -194,6 +203,11 @@ namespace BSPConvert.Cmd
 						noFogOverlay = options.NoFogOverlay,
 						offModeEntityFallback = options.OffModeEntityFallback,
 						clampOverbright = options.ClampOverbright,
+						brightness = new Q3Brightness()
+						{
+							gamma = options.Q3Gamma,
+							mapOverBrightBits = options.MapOverBrightBits
+						},
 						mod = options.Q3Mod,
 						flipbook = new FlipbookOptions()
 						{
