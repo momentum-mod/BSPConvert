@@ -260,6 +260,8 @@ namespace BSPConvert.Lib
 
 		private void OnFinishedConvertingTextures()
 		{
+			TextureNames.FixDottedTextureNames(pk3Dir);
+
 			// TODO: Find textures using shader texture paths
 			var vtfFiles = Directory.GetFiles(pk3Dir, "*.vtf", SearchOption.AllDirectories);
 			var vmtFiles = Directory.GetFiles(pk3Dir, "*.vmt", SearchOption.AllDirectories);
