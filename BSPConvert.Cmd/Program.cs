@@ -52,6 +52,9 @@ namespace BSPConvert.Cmd
 			[Option("mapoverbrightbits", Required = false, Default = 2, HelpText = "Quake 3 only: the r_mapOverBrightBits setting the map's lighting is matched to, which draws it 2^n as bright. Quake 3's default is 2 (4x).")]
 			public int MapOverBrightBits { get; set; }
 
+			[Option("minlight", Required = false, Default = 0, HelpText = "The least light the map's lightmaps and model lighting get [0-255 per color channel], like the map compilers' -minlight, before the gamma and brightness settings. Evens out dark, splotchy lighting, which a high gamma brings out. For Quake 3 and GoldSrc maps.")]
+			public int MinLight { get; set; }
+
 			[Option("scale", Required = false, Default = 1f, HelpText = "Uniformly scale the map's geometry and entity positions by this factor (e.g. 2 doubles the world size). Mover speed/wait times, jump pad and teleport velocities, and other gameplay-tuning values are not scaled and may need manual retuning to feel the same at the new size.")]
 			public float Scale { get; set; }
 
@@ -163,6 +166,9 @@ namespace BSPConvert.Cmd
 			if (options.Q3Gamma < Q3Brightness.MinGamma || options.Q3Gamma > Q3Brightness.MaxGamma || options.MapOverBrightBits < 0 || options.MapOverBrightBits > Q3Brightness.MaxMapOverBrightBits)
 				throw new ArgumentOutOfRangeException($"Quake 3 gamma must be between {Q3Brightness.MinGamma} and {Q3Brightness.MaxGamma}, and map overbright bits between 0 and {Q3Brightness.MaxMapOverBrightBits}.");
 
+			if (options.MinLight < 0 || options.MinLight > 255)
+				throw new ArgumentOutOfRangeException("Minimum light must be between 0 and 255.");
+
 			foreach (var inputEntry in options.InputFiles)
 			{
 				var converterOptions = new BSPConverterOptions()
@@ -189,7 +195,8 @@ namespace BSPConvert.Cmd
 							brightness = options.Brightness,
 							overbright = !options.NoOverbright,
 							lightGamma = options.LightGamma,
-							texGamma = options.TexGamma
+							texGamma = options.TexGamma,
+							minLight = options.MinLight
 						}
 					},
 					q3 = new Q3ConverterOptions()
@@ -206,7 +213,8 @@ namespace BSPConvert.Cmd
 						brightness = new Q3Brightness()
 						{
 							gamma = options.Q3Gamma,
-							mapOverBrightBits = options.MapOverBrightBits
+							mapOverBrightBits = options.MapOverBrightBits,
+							minLight = options.MinLight
 						},
 						mod = options.Q3Mod,
 						flipbook = new FlipbookOptions()

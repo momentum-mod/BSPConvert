@@ -21,6 +21,10 @@ namespace BSPConvert.Lib.GoldSrc
 		// does, whatever gl_overbright says; without it is GoldSrc's fixed function path (gl_use_shaders 0) with
 		// gl_overbright 0.
 		public bool overbright = true;
+		// Not a video setting: the least light (0-255 per channel, like hlrad's -minlight) lightmaps of the always-on
+		// light style and model lighting get, before the settings above. Evens out dark, splotchy lighting, which a
+		// high gamma or brightness brings out. 0 leaves the light alone.
+		public int minLight = 0;
 
 		// Strata draws sRGB textures and linear light on a gamma 2.2 display
 		private const float DisplayGamma = 2.2f;
@@ -75,8 +79,12 @@ namespace BSPConvert.Lib.GoldSrc
 		// and 2^(1 / lightgamma) * 256 without it, and stores the table's value / 4. The world shader draws that 4/3 as
 		// bright (2 * albedo * lightmap * 128 / 192), and so does R_BlendLightmaps' 2x blend of 2/3 of it with
 		// gl_overbright. Matched against screenshots of Half-Life 25 within about 5% (10-20% darker in deep shadow).
-		public float LightmapToLinear(byte value)
+		// Luxels of the always-on light style (style 0) are at least minLight; other styles add to it, so they aren't.
+		public float LightmapToLinear(byte value, bool baseStyle = true)
 		{
+			if (baseStyle)
+				value = (byte)Math.Max(value, Math.Clamp(minLight, 0, 255));
+
 			var scale = overbright ? 256 : (int)(Math.Pow(2.0, 1.0 / lightGamma) * 256.0 + 0.5);
 			var index = Math.Min(value * NormalLightStyle * scale >> 14, LightTableSize - 1);
 			var light = (LightGammaTable[index] >> 2) / 255f;
@@ -86,11 +94,11 @@ namespace BSPConvert.Lib.GoldSrc
 			return MathF.Pow(light, DisplayGamma);
 		}
 
-		// Light on a model (0-255) as linear light. R_StudioLighting indexes the light table at 4 times the light;
-		// overbright doesn't touch models.
+		// Light on a model (0-255, at least minLight) as linear light. R_StudioLighting indexes the light table at 4
+		// times the light; overbright doesn't touch models.
 		public float ModelLightToLinear(float value)
 		{
-			var index = Math.Min((int)(Math.Clamp(value, 0f, 255f) * 4f), LightTableSize - 1);
+			var index = Math.Min((int)(Math.Clamp(Math.Max(value, minLight), 0f, 255f) * 4f), LightTableSize - 1);
 			return MathF.Pow(LightGammaTable[index] / (float)(LightTableSize - 1), DisplayGamma);
 		}
 	}

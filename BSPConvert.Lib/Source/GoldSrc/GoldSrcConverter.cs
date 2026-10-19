@@ -1817,12 +1817,14 @@ namespace BSPConvert.Lib.GoldSrc
 					// A lightmap cut short by the end of the data is padded with black, so the engine doesn't read past it
 					var lightmap = new byte[luxels * styleCount * 3];
 					gs.Lighting.AsSpan(lightOffset, Math.Min(lightmap.Length, gs.Lighting.Length - lightOffset)).CopyTo(lightmap);
+					// Only the always-on light style gets the minimum light; switchable styles add to it
+					bool IsBaseStyle(int style) => face.LightmapStyles[style] == 0;
 					for (var style = styleCount - 1; style >= 0; style--)
-						colors.Add(ColorUtil.AverageGoldSrcLightmapColor(lightmap.AsSpan(style * luxels * 3, luxels * 3), options.goldSrc.brightness));
+						colors.Add(ColorUtil.AverageGoldSrcLightmapColor(lightmap.AsSpan(style * luxels * 3, luxels * 3), options.goldSrc.brightness, IsBaseStyle(style)));
 
 					sourceOffset = colors.Count * 4;
 					for (var i = 0; i < lightmap.Length; i += 3)
-						colors.Add(ColorUtil.ConvertGoldSrcLightmapToColorRGBExp32(lightmap[i], lightmap[i + 1], lightmap[i + 2], options.goldSrc.brightness));
+						colors.Add(ColorUtil.ConvertGoldSrcLightmapToColorRGBExp32(lightmap[i], lightmap[i + 1], lightmap[i + 2], options.goldSrc.brightness, IsBaseStyle(i / 3 / luxels)));
 
 					sourceOffsets[lightOffset] = sourceOffset;
 				}

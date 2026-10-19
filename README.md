@@ -20,6 +20,7 @@ The input files are Quake 3 BSP/PK3 or GoldSrc (Half-Life, CS 1.6) BSP/ZIP files
   --prefix                Prefix for the converted BSP's file name.
   --output                Output game directory for converted BSP/materials. Defaults to the input file's folder.
   --maps                  Convert only the named BSP(s) from an archive instead of every BSP it contains. Comma-separated map names without extension (e.g. --maps pgrocket,pgplasma). Case-insensitive.
+  --minlight              (Default: 0) The least light the map's lightmaps and model lighting get [0-255 per color channel], like the map compilers' -minlight, before the gamma and brightness settings. Evens out dark, splotchy lighting, which a high gamma brings out.
   --help                  Display this help screen.
   --version               Display version information.
 ```
@@ -49,7 +50,7 @@ The input files are Quake 3 BSP/PK3 or GoldSrc (Half-Life, CS 1.6) BSP/ZIP files
   --q3mod                 Quake 3 mod whose content maps use besides Quake 3's: its folder in Q3Mods, e.g. missionpack for Team Arena, or baseq3 for Quake 3's content alone. Detected by default.
 ```
 
-The defaults are Quake 3's, and convert lighting as bright as earlier versions did. Raise `--q3gamma` (or `--mapoverbrightbits`) for maps made with a brighter config that look too dark. Quake 3's gamma also brightens textures, which these leave alone.
+The defaults are Quake 3's, and convert lighting as bright as earlier versions did. Raise `--q3gamma` (or `--mapoverbrightbits`) for maps made with a brighter config that look too dark. Quake 3's gamma also brightens textures, which these leave alone. If a high gamma makes dark lighting splotchy, `--minlight` evens it out.
 
 ### Quake 3 content
 Maps use textures, shaders and sounds from Quake 3 without shipping them. BSP Convert reads Quake 3's from the `Q3Content` folder next to it (extract `baseq3/pak0.pk3` there) and packs what a map uses into it. Mods and expansions go in `Q3Mods/<mod folder>`, e.g. Team Arena's `missionpack/pak0.pk3` in `Q3Mods/missionpack`. The mod a map needs is picked from the textures it uses that neither it nor Quake 3 has, and the log says which; `--q3mod` overrides that.

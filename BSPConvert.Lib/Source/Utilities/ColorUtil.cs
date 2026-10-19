@@ -33,14 +33,14 @@ namespace BSPConvert.Lib
 		}
 
 		// A GoldSrc lightmap luxel as a Source one, which stores linear light 255 times over (TexLightToLinear), as bright
-		// as GoldSrc draws it with the given settings
-		public static ColorRGBExp32 ConvertGoldSrcLightmapToColorRGBExp32(byte r, byte g, byte b, GoldSrcBrightness brightness)
+		// as GoldSrc draws it with the given settings. baseStyle: it's of the always-on light style (see LightmapToLinear).
+		public static ColorRGBExp32 ConvertGoldSrcLightmapToColorRGBExp32(byte r, byte g, byte b, GoldSrcBrightness brightness, bool baseStyle = true)
 		{
-			return PackColorRGBExp32(brightness.LightmapToLinear(r) * 255f, brightness.LightmapToLinear(g) * 255f, brightness.LightmapToLinear(b) * 255f);
+			return PackColorRGBExp32(brightness.LightmapToLinear(r, baseStyle) * 255f, brightness.LightmapToLinear(g, baseStyle) * 255f, brightness.LightmapToLinear(b, baseStyle) * 255f);
 		}
 
 		// The average of a run of GoldSrc lightmap luxels (RGB triplets), taken in linear space like VRAD's
-		public static ColorRGBExp32 AverageGoldSrcLightmapColor(ReadOnlySpan<byte> rgb, GoldSrcBrightness brightness)
+		public static ColorRGBExp32 AverageGoldSrcLightmapColor(ReadOnlySpan<byte> rgb, GoldSrcBrightness brightness, bool baseStyle = true)
 		{
 			var count = rgb.Length / 3;
 			if (count == 0)
@@ -49,9 +49,9 @@ namespace BSPConvert.Lib
 			float r = 0f, g = 0f, b = 0f;
 			for (var i = 0; i < count * 3; i += 3)
 			{
-				r += brightness.LightmapToLinear(rgb[i]);
-				g += brightness.LightmapToLinear(rgb[i + 1]);
-				b += brightness.LightmapToLinear(rgb[i + 2]);
+				r += brightness.LightmapToLinear(rgb[i], baseStyle);
+				g += brightness.LightmapToLinear(rgb[i + 1], baseStyle);
+				b += brightness.LightmapToLinear(rgb[i + 2], baseStyle);
 			}
 
 			return PackColorRGBExp32(r * 255f / count, g * 255f / count, b * 255f / count);

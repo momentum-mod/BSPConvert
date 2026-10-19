@@ -13,6 +13,10 @@ namespace BSPConvert.Lib
 		public float gamma = 1f;
 		// "r_mapOverBrightBits": lightmaps and the light grid are drawn 2^n as bright (2, 4x, by default)
 		public int mapOverBrightBits = 2;
+		// Not a video setting: the least light (0-255 per channel, like q3map2's _minlight) lightmaps and the light grid
+		// get, before the settings above. Evens out dark, splotchy lighting, which a high gamma brings out. 0 leaves the
+		// light alone.
+		public int minLight = 0;
 
 		// Quake 3's r_gamma range, and the most map overbright bits taken (16x, which already whitens all but the
 		// darkest light)
@@ -31,13 +35,15 @@ namespace BSPConvert.Lib
 		private const double DefaultLinear = 16.0;
 		private const double DefaultExternalLinear = 4.0;
 
-		// Light (0-255) of a lightmap luxel or the light grid as linear light, where 1 lights a texture at its full
-		// color. External lightmaps are images a shader draws like a texture, which r_mapOverBrightBits doesn't touch.
+		// Light (0-255, at least minLight) of a lightmap luxel or the light grid as linear light, where 1 lights a texture
+		// at its full color. External lightmaps are images a shader draws like a texture, which r_mapOverBrightBits
+		// doesn't touch.
 		public float LightToLinear(float value, bool external = false)
 		{
 			var defaultLight = external ? 1.0 : 4.0;
 			var defaultLinear = external ? DefaultExternalLinear : DefaultLinear;
-			return (float)(defaultLinear * Math.Pow(DrawnLight(Math.Max(value, 0f) / 255.0, external) / defaultLight, DisplayGamma));
+			var light = Math.Max(value, Math.Max(minLight, 0)) / 255.0;
+			return (float)(defaultLinear * Math.Pow(DrawnLight(light, external) / defaultLight, DisplayGamma));
 		}
 
 		// The largest light (0-255) R_ColorShiftLightingBytes keeps a luxel's hue under with these settings, if
