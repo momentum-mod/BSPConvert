@@ -387,9 +387,9 @@ namespace BSPConvert.Lib
 
 		private void PrepareAssets()
 		{
-			// Patches converted to primitives use invisible displacements for collisions
+			// Patches converted to primitives and nodraw patches use invisible displacements for collisions
 			if (quakeBsp.Faces.Any(x => x.Type == FaceType.Patch &&
-				(options.q3.patchesAsPrimitives || x.Texture.Name.StartsWith("tools/", StringComparison.OrdinalIgnoreCase))))
+				(options.q3.patchesAsPrimitives || IsNoDrawPatch(x) || x.Texture.Name.StartsWith("tools/", StringComparison.OrdinalIgnoreCase))))
 			{
 				// Copy invisible displacement assets to content dir
 				FileUtil.CopyBuiltinMaterialAsset(Path.Combine("tools", "toolsinvisibledisplacement.vmt"), contentManager.ContentDir);
@@ -1530,13 +1530,19 @@ namespace BSPConvert.Lib
 				return;
 			}
 
+			var qFace = quakeBsp.Faces[faceIndex];
+			if (IsNoDrawPatch(qFace))
+			{
+				ConvertPatchAsCollision(faceIndex);
+				return;
+			}
+
 			if (options.q3.patchesAsPrimitives)
 			{
 				ConvertPatchAsPrimitive(faceIndex);
 				return;
 			}
 
-			var qFace = quakeBsp.Faces[faceIndex];
 			var numPatchesWidth = ((int)qFace.PatchSize.X - 1) / 2;
 			var numPatchesHeight = ((int)qFace.PatchSize.Y - 1) / 2;
 			splitFaceDict[faceIndex] = new int[numPatchesWidth * numPatchesHeight];
@@ -1573,6 +1579,35 @@ namespace BSPConvert.Lib
 
 					if (skipCollision)
 						continue;
+
+					var collisionFaceIndex = CreatePatchCollisionFace(faceIndex, patchStartVertex);
+					if (collisionFaceIndex >= 0)
+						faceIndices.Add(collisionFaceIndex);
+				}
+			}
+
+			splitFaceDict[faceIndex] = faceIndices.ToArray();
+		}
+
+		// q3map2 keeps patches with a nodraw shader (e.g. textures/common/cushion laid over a floor to stop fall
+		// damage) for their collision alone. The engine draws every face that isn't a displacement whatever its
+		// SURF_NODRAW flag, since VBSP never writes one, so a visible primitive would hide what's behind it.
+		private static bool IsNoDrawPatch(Face qFace)
+		{
+			return ((Q3SurfaceFlags)qFace.Texture.Flags).HasFlag(Q3SurfaceFlags.SURF_NODRAW);
+		}
+
+		// Converts a nodraw patch (see IsNoDrawPatch) to just its invisible collision displacements.
+		private void ConvertPatchAsCollision(int faceIndex)
+		{
+			var qFace = quakeBsp.Faces[faceIndex];
+
+			var faceIndices = new List<int>();
+			for (var y = 0; y < qFace.PatchSize.Y - 1; y += 2)
+			{
+				for (var x = 0; x < qFace.PatchSize.X - 1; x += 2)
+				{
+					var patchStartVertex = qFace.FirstVertexIndex + x + y * (int)qFace.PatchSize.X;
 
 					var collisionFaceIndex = CreatePatchCollisionFace(faceIndex, patchStartVertex);
 					if (collisionFaceIndex >= 0)
