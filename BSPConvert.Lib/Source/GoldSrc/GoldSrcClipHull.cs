@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Numerics;
 
 namespace BSPConvert.Lib.GoldSrc
@@ -10,6 +11,12 @@ namespace BSPConvert.Lib.GoldSrc
 	// (CM_ClipBoxToBrush), which lands it exactly on the clip hull plane. The brushes carry the hull's own contents
 	// bit, because a hull's brushes only line up for the box size they were shrunk for; GoldSrc-hull game modes pick
 	// the bit by the size of the box they trace.
+	//
+	// Modes with a bigger box than the hull trace the same brushes, which then push each plane out by the extra size
+	// too. That only grows each region by the extra size (its Minkowski sum with the extra box) if the brush also has
+	// the region's bevel planes, like VBSP gives every brush. Without them a thin region whose end is a sharp edge
+	// between two sloped planes stretches out far along that edge (kz_lain's cave mouth grew a floor 60 units past
+	// the ledge for Bhop's taller box).
 	public static class GoldSrcClipHull
 	{
 		// Half extents of the GoldSrc player hulls (Momentum's GoldSrc-hull game modes use the same sizes)
@@ -28,9 +35,14 @@ namespace BSPConvert.Lib.GoldSrc
 
 		// Padding around a model's bounds when closing off the outermost BSP regions
 		private const float BoundsPadding = 1f;
+		// How close a bevel's normal can be to a face's or another bevel's to count as the same plane
+		private const float BevelNormalEpsilon = 0.0001f;
+		// Distance from a bevel plane within which an edge counts as touching it
+		private const float BevelEdgeEpsilon = 0.01f;
 
-		// A solid clip hull region: where the player's origin can't be, and the brush sides that block it there
-		public readonly record struct Brush(ConvexRegion Region, IReadOnlyList<HalfSpace> Sides);
+		// A solid clip hull region: where the player's origin can't be, the brush sides that block it there, and the
+		// bevel sides that keep it from overgrowing for bigger boxes
+		public readonly record struct Brush(ConvexRegion Region, IReadOnlyList<HalfSpace> Sides, IReadOnlyList<HalfSpace> Bevels);
 
 		// The brushes of one of a model's clip hulls
 		public static List<Brush> GetBrushes(GoldSrcBsp gs, int modelIndex, int hull, Vector3 hullExtents)
@@ -50,7 +62,7 @@ namespace BSPConvert.Lib.GoldSrc
 			{
 				// Clip hulls only distinguish solid from non-solid (water etc. is empty to the player hulls)
 				if (clipNodeIndex == GoldSrcBsp.CONTENTS_SOLID && ConvexRegion.Create(path) is ConvexRegion region)
-					brushes.Add(new Brush(region, GetShrunkSides(region, hullExtents)));
+					brushes.Add(new Brush(region, GetShrunkSides(region, hullExtents), GetShrunkBevels(region, hullExtents)));
 
 				return;
 			}
@@ -75,13 +87,70 @@ namespace BSPConvert.Lib.GoldSrc
 		{
 			var sides = new List<HalfSpace>(region.Faces.Count);
 			foreach (var face in region.Faces)
-			{
-				var n = face.Normal;
-				var offset = MathF.Abs(n.X) * hullExtents.X + MathF.Abs(n.Y) * hullExtents.Y + MathF.Abs(n.Z) * hullExtents.Z;
-				sides.Add(new HalfSpace(n, face.Dist - offset));
-			}
+				sides.Add(Shrink(face.Normal, face.Dist, hullExtents));
 
 			return sides;
+		}
+
+		// The region's bevel planes, shrunk like its sides: the axial planes and the planes through each edge parallel
+		// to an axis that touch the region without cutting it. Those and the faces are every plane of the region's
+		// Minkowski sum with a box. They touch the region, so at the hull's own size they change nothing.
+		private static List<HalfSpace> GetShrunkBevels(ConvexRegion region, Vector3 hullExtents)
+		{
+			var normals = new List<Vector3>();
+			bool IsNew(Vector3 normal) =>
+				!region.Faces.Any(face => Vector3.Dot(face.Normal, normal) > 1f - BevelNormalEpsilon) &&
+				!normals.Any(other => Vector3.Dot(other, normal) > 1f - BevelNormalEpsilon);
+
+			for (var axis = 0; axis < 3; axis++)
+			{
+				for (var sign = -1; sign <= 1; sign += 2)
+				{
+					var normal = Vector3.Zero;
+					normal[axis] = sign;
+					if (IsNew(normal))
+						normals.Add(normal);
+				}
+			}
+
+			foreach (var winding in region.Windings)
+			{
+				for (var i = 0; i < winding.Count; i++)
+				{
+					var a = winding[i];
+					var edge = winding[(i + 1) % winding.Count] - a;
+					for (var axis = 0; axis < 3; axis++)
+					{
+						var axisVector = Vector3.Zero;
+						axisVector[axis] = 1f;
+						var cross = Vector3.Cross(edge, axisVector);
+						if (cross.Length() < BevelEdgeEpsilon)
+							continue;
+
+						// Whichever way round has the edge on the region's outermost point touches it there
+						for (var sign = -1; sign <= 1; sign += 2)
+						{
+							var normal = Vector3.Normalize(cross) * sign;
+							if (Vector3.Dot(normal, a) >= GetSupport(region, normal) - BevelEdgeEpsilon && IsNew(normal))
+								normals.Add(normal);
+						}
+					}
+				}
+			}
+
+			return normals.Select(normal => Shrink(normal, GetSupport(region, normal), hullExtents)).ToList();
+		}
+
+		// How far the region reaches along a direction
+		private static float GetSupport(ConvexRegion region, Vector3 normal)
+		{
+			return region.Vertices.Max(v => Vector3.Dot(normal, v));
+		}
+
+		private static HalfSpace Shrink(Vector3 n, float dist, Vector3 hullExtents)
+		{
+			var offset = MathF.Abs(n.X) * hullExtents.X + MathF.Abs(n.Y) * hullExtents.Y + MathF.Abs(n.Z) * hullExtents.Z;
+			return new HalfSpace(n, dist - offset);
 		}
 
 		// A model's bounds as half-spaces, closing off the regions at the edge of its BSP tree

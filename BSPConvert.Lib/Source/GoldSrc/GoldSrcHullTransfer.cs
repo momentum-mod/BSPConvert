@@ -323,14 +323,15 @@ namespace BSPConvert.Lib.GoldSrc
 		// Adds a hull brush, moved by offset, and lists it in the leaves of the model's tree its region overlaps
 		private void AddBrush(GoldSrcClipHull.Brush brush, Vector3 offset, int contents, int headNode)
 		{
+			var numSides = brush.Sides.Count + brush.Bevels.Count;
 			using (var writer = new BinaryWriter(newBrushSides, Encoding.ASCII, true))
 			{
-				foreach (var side in brush.Sides)
+				foreach (var (side, isBevel) in brush.Sides.Select(side => (side, false)).Concat(brush.Bevels.Select(bevel => (bevel, true))))
 				{
 					writer.Write((uint)AddPlane(side.Normal, side.Dist + Vector3.Dot(side.Normal, offset)));
 					writer.Write(-1); // texinfo
 					writer.Write(0); // dispinfo
-					writer.Write((byte)0); // bevel
+					writer.Write((byte)(isBevel ? 1 : 0)); // bevel
 					writer.Write((byte)0); // thin
 					writer.Write((short)0); // padding
 				}
@@ -339,11 +340,11 @@ namespace BSPConvert.Lib.GoldSrc
 			using (var writer = new BinaryWriter(newBrushes, Encoding.ASCII, true))
 			{
 				writer.Write(brushSideCount);
-				writer.Write(brush.Sides.Count);
+				writer.Write(numSides);
 				writer.Write(contents);
 			}
 
-			brushSideCount += brush.Sides.Count;
+			brushSideCount += numSides;
 			var vertices = brush.Region.Vertices.Select(v => v + offset).ToArray();
 			RegisterInLeaves(headNode, vertices, brushCount++);
 		}

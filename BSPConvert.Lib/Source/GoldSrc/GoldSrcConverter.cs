@@ -2091,11 +2091,13 @@ namespace BSPConvert.Lib.GoldSrc
 			var firstSide = sourceBsp.BrushSides.Count;
 			foreach (var side in brush.Sides)
 				builder.AddBrushSide(builder.AddPlane(side.Normal, side.Dist), -1);
+			foreach (var bevel in brush.Bevels)
+				builder.AddBrushSide(builder.AddPlane(bevel.Normal, bevel.Dist), -1, isBevel: true);
 
 			// Ladders are world brushes (see ConvertLadder)
 			var isLadder = ladderModels.Contains(modelIndex);
 			var brushContents = (int)contents | (isLadder ? (int)SourceContentsFlags.CONTENTS_LADDER : 0);
-			var brushIndex = builder.AddBrush(firstSide, brush.Sides.Count, brushContents);
+			var brushIndex = builder.AddBrush(firstSide, brush.Sides.Count + brush.Bevels.Count, brushContents);
 			modelBrushes[modelIndex].Add(brushIndex);
 
 			// A box trace only tests the brushes of leaves it passes through, and its center is somewhere inside
