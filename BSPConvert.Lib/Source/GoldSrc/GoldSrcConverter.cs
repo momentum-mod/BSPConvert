@@ -132,6 +132,8 @@ namespace BSPConvert.Lib.GoldSrc
 		// Compiles the studio models entities use (see ConvertStudioModels), in a temp folder of its own
 		private GoldSrcModelCompiler? modelCompiler;
 		private string? modelWorkDir;
+		// The entities drawing the compiled models, which get samples of their own lighting (see GoldSrcModelLighting)
+		private readonly List<GoldSrcModelLighting.ModelEntity> modelEntities = new List<GoldSrcModelLighting.ModelEntity>();
 		// The folder the map's converted assets go in under materials, models and sound ("goldsrc/<map>"). Maps keep
 		// theirs apart because Strata keeps assets loaded across maps by name, and GoldSrc maps often have different
 		// textures, models and sounds of the same name.
@@ -171,6 +173,7 @@ namespace BSPConvert.Lib.GoldSrc
 			triggerModelRegions.Clear();
 			soundFiles.Clear();
 			modelCompiler = null;
+			modelEntities.Clear();
 			modelBrushes = new List<int>[gs.Models.Length];
 			for (var i = 0; i < modelBrushes.Length; i++)
 				modelBrushes[i] = new List<int>();
@@ -216,7 +219,7 @@ namespace BSPConvert.Lib.GoldSrc
 
 				progress.Stage("Converting visibility", shares.visibility);
 				ConvertVisibility();
-				new GoldSrcModelLighting(gs, sourceBsp, sourceLeafForGoldSrcLeaf, options.goldSrc.brightness).Convert();
+				new GoldSrcModelLighting(gs, sourceBsp, sourceLeafForGoldSrcLeaf, options.goldSrc.brightness, modelEntities).Convert();
 
 				builder.AddPlaceholderArea();
 				builder.AddPlaceholderAreaPortal();
@@ -1515,7 +1518,21 @@ namespace BSPConvert.Lib.GoldSrc
 			var angles = TryParseVector(entity["angles"], out var parsedAngles) ? parsedAngles : Vector3.Zero;
 			if (!TryParseVector(entity["angles"], out _) && float.TryParse(entity["angle"], NumberStyles.Float, CultureInfo.InvariantCulture, out var yaw))
 				angles.Y = yaw;
-			entity["angles"] = string.Create(CultureInfo.InvariantCulture, $"{(angles.X == 0f ? 0f : -angles.X):0.###} {angles.Y:0.###} {angles.Z:0.###}");
+			angles.X = angles.X == 0f ? 0f : -angles.X;
+			entity["angles"] = string.Create(CultureInfo.InvariantCulture, $"{angles.X:0.###} {angles.Y:0.###} {angles.Z:0.###}");
+
+			// Source's effects flags mean other things (GoldSrc's EF_INVLIGHT is its EF_NOSHADOW, and its EF_NOINTERP
+			// is EF_NODRAW), so only EF_NODRAW carries over
+			var effects = int.TryParse(entity["effects"], out var parsedEffects) ? parsedEffects : 0;
+			if ((effects & GoldSrcEF_NODRAW) != 0)
+				entity["effects"] = SourceEF_NODRAW.ToString(CultureInfo.InvariantCulture);
+			else
+				entity.Remove("effects");
+
+			// The model is lit by the light GoldSrc gives it at its origin, where Source lights it
+			var origin = TryParseVector(entity["origin"], out var parsedOrigin) ? parsedOrigin : Vector3.Zero;
+			if (modelCompiler!.GetIllumPosition(sourceModel) is Vector3 illumPosition)
+				modelEntities.Add(new GoldSrcModelLighting.ModelEntity(origin, origin + RotateByAngles(illumPosition, angles), (effects & GoldSrcEF_INVLIGHT) != 0));
 
 			foreach (var key in new[] { "sequence", "sequencename", "framerate", "spawnflags", "angle" })
 				entity.Remove(key);
@@ -1529,6 +1546,23 @@ namespace BSPConvert.Lib.GoldSrc
 			var renderAmt = int.TryParse(entity["renderamt"], out var parsedRenderAmt) ? parsedRenderAmt : 0;
 			if (renderMode is RenderTransColor or RenderTransTexture or RenderTransAlpha)
 				entity["rendermode"] = renderAmt >= 255 ? "0" : RenderTransTexture.ToString(CultureInfo.InvariantCulture);
+		}
+
+		// GoldSrc's effects flags (const.h) and Source's EF_NODRAW
+		private const int GoldSrcEF_INVLIGHT = 16;
+		private const int GoldSrcEF_NODRAW = 128;
+		private const int SourceEF_NODRAW = 32;
+
+		// A point in an entity's space in the world's, turned by its Source angles (AngleMatrix)
+		private static Vector3 RotateByAngles(Vector3 point, Vector3 angles)
+		{
+			var (sp, cp) = MathF.SinCos(angles.X * MathF.PI / 180f);
+			var (sy, cy) = MathF.SinCos(angles.Y * MathF.PI / 180f);
+			var (sr, cr) = MathF.SinCos(angles.Z * MathF.PI / 180f);
+			var forward = new Vector3(cp * cy, cp * sy, -sp);
+			var left = new Vector3(sr * sp * cy - cr * sy, sr * sp * sy + cr * cy, sr * cp);
+			var up = new Vector3(cr * sp * cy + sr * sy, cr * sp * sy - sr * cy, cr * cp);
+			return forward * point.X + left * point.Y + up * point.Z;
 		}
 
 		// The mod the map is for: the folder above its maps folder (without a _downloads or similar suffix), or

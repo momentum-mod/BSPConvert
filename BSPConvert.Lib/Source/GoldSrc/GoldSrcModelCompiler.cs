@@ -23,6 +23,8 @@ namespace BSPConvert.Lib.GoldSrc
 		private const int SpinFrames = 72;
 		// How long a model may take to compile before studiomdl is assumed to be stuck
 		private const int StudiomdlTimeoutMs = 120000;
+		// Offset of illumposition in a compiled model's studiohdr_t
+		private const int IllumPositionOffset = 92;
 
 		private readonly string studiomdlPath;
 		private readonly string workDir;
@@ -264,6 +266,26 @@ namespace BSPConvert.Lib.GoldSrc
 			}
 
 			return true;
+		}
+
+		// The point in a compiled model Source lights it at (its illumposition, the center of its bounds), or null if it
+		// can't be read
+		public Vector3? GetIllumPosition(string sourceModel)
+		{
+			var file = Path.Combine(gameDir, sourceModel.Replace('/', Path.DirectorySeparatorChar));
+			try
+			{
+				using var reader = new BinaryReader(File.OpenRead(file));
+				if (reader.BaseStream.Length < IllumPositionOffset + 12)
+					return null;
+
+				reader.BaseStream.Position = IllumPositionOffset;
+				return new Vector3(reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle());
+			}
+			catch (IOException)
+			{
+				return null;
+			}
 		}
 
 		// Skin families become a texture group of the textures that differ between them

@@ -16,8 +16,14 @@ namespace BSPConvert.Lib.GoldSrc
 	// is directional and 10% ambient, and each vertex gets the ambient part plus the directional part scaled by a
 	// wrapped Lambert term (R_StudioLighting). Each leaf gets ambient cubes holding what that lighting gives the six
 	// axis directions, sampled at a few points in the leaf.
+	// A sample at a model's origin can differ a lot from the leaf's samples around it (a pool of light on the floor
+	// below it, say), so each model entity also gets samples of its own light where Source lights it from.
 	public class GoldSrcModelLighting
 	{
+		// A model entity: its origin, where GoldSrc samples its light, the point Source lights it at (its model's
+		// illumination position), and whether GoldSrc takes its light from the ceiling (EF_INVLIGHT)
+		public record struct ModelEntity(Vector3 Origin, Vector3 LightingOrigin, bool LitFromCeiling);
+
 		private const int MaxSamplesPerAxis = 4;
 		private const int MaxSamplesPerLeaf = 16;
 		// Spacing of the samples in a leaf, before the limits above
@@ -43,6 +49,9 @@ namespace BSPConvert.Lib.GoldSrc
 		// Spacing of the samples the direction of light from the floor is taken from
 		private const float GradientOffset = 16f;
 
+		// Source's light cache cells are 2^5 x 2^5 x 2^6 units (HASH_GRID_SIZEX/Y/Z in lightcache.cpp)
+		private static readonly int[] LightCacheCellShifts = { 5, 5, 6 };
+
 		// Ambient cube sides, in the order Source stores them
 		private static readonly Vector3[] BoxDirections =
 		{
@@ -57,17 +66,19 @@ namespace BSPConvert.Lib.GoldSrc
 		private readonly int[] lightStyleValues = new int[256];
 		private readonly int worldHeadNode;
 		private readonly GoldSrcBrightness brightness;
+		private readonly IReadOnlyList<ModelEntity> modelEntities;
 
 		// light_environment's color (scaled as the game sets sv_skycolor) and the direction its light travels
 		private Vector3 skyColor;
 		private Vector3 skyDirection;
 
-		public GoldSrcModelLighting(GoldSrcBsp gs, BSP sourceBsp, int[] sourceLeafForGoldSrcLeaf, GoldSrcBrightness brightness)
+		public GoldSrcModelLighting(GoldSrcBsp gs, BSP sourceBsp, int[] sourceLeafForGoldSrcLeaf, GoldSrcBrightness brightness, IReadOnlyList<ModelEntity> modelEntities)
 		{
 			this.gs = gs;
 			this.brightness = brightness;
 			this.sourceBsp = sourceBsp;
 			this.sourceLeafForGoldSrcLeaf = sourceLeafForGoldSrcLeaf;
+			this.modelEntities = modelEntities;
 			worldHeadNode = gs.Models.Length > 0 ? gs.Models[0].headNodes[0] : -1;
 		}
 
@@ -90,6 +101,9 @@ namespace BSPConvert.Lib.GoldSrc
 				if (sourceLeafIndex > 0 && sourceLeafIndex < leafSamples.Count)
 					AddLeafSamples(gsLeafIndex, sourceBsp.Leaves[sourceLeafIndex], leafSamples[sourceLeafIndex]);
 			}
+
+			foreach (var modelEntity in modelEntities)
+				AddModelSamples(modelEntity, leafSamples);
 
 			if (leafSamples.Any(samples => samples.Count > 0))
 				LeafAmbientLightingWriter.Write(sourceBsp, leafSamples);
@@ -183,17 +197,122 @@ namespace BSPConvert.Lib.GoldSrc
 							continue;
 
 						var sample = LeafAmbientLightingWriter.CreateSample(sourceBsp, fraction.X, fraction.Y, fraction.Z);
-						SetAmbientCube(sample, position);
+						var (light, lightDirection) = GetLight(position, false);
+						SetAmbientCube(sample, light, lightDirection);
 						samples.Add(sample);
 					}
 				}
 			}
 		}
 
-		private void SetAmbientCube(LeafAmbientLighting sample, Vector3 origin)
+		// Samples of the light GoldSrc gives a model entity, where Source samples its leaf's ambient lighting for it:
+		// at its lighting origin, and where its light cache moves that to (see GetLightCacheOrigin), which is what
+		// Source samples at. It weights a leaf's samples by their inverse square distance, so the sample there
+		// outweighs the leaf's others.
+		private void AddModelSamples(ModelEntity modelEntity, List<List<LeafAmbientLighting>> leafSamples)
 		{
-			var (light, lightDirection) = GetLight(origin);
+			var lightingOrigin = modelEntity.LightingOrigin;
+			var gsLeafIndex = FindLeaf(lightingOrigin);
+			if (gsLeafIndex <= 0 || gsLeafIndex >= sourceLeafForGoldSrcLeaf.Length || IsOpaque(gsLeafIndex))
+				return;
 
+			var sourceLeafIndex = sourceLeafForGoldSrcLeaf[gsLeafIndex];
+			if (sourceLeafIndex <= 0 || sourceLeafIndex >= leafSamples.Count)
+				return;
+
+			var leaf = sourceBsp.Leaves[sourceLeafIndex];
+			var mins = leaf.Minimums;
+			var size = leaf.Maximums - mins;
+			var (light, lightDirection) = GetLight(modelEntity.Origin, modelEntity.LitFromCeiling);
+
+			var positions = new[] { lightingOrigin, GetLightCacheOrigin(lightingOrigin, gsLeafIndex) };
+			foreach (var position in positions.Distinct())
+			{
+				if (FindLeaf(position) != gsLeafIndex)
+					continue;
+
+				var fraction = Vector3.Clamp(new Vector3(
+					size.X > 0f ? (position.X - mins.X) / size.X : 0.5f,
+					size.Y > 0f ? (position.Y - mins.Y) / size.Y : 0.5f,
+					size.Z > 0f ? (position.Z - mins.Z) / size.Z : 0.5f), Vector3.Zero, Vector3.One);
+				var sample = LeafAmbientLightingWriter.CreateSample(sourceBsp, fraction.X, fraction.Y, fraction.Z);
+				SetAmbientCube(sample, light, lightDirection);
+				leafSamples[sourceLeafIndex].Add(sample);
+			}
+		}
+
+		// Where Source's light cache samples the lighting of a model whose lighting origin is here, in the given leaf
+		// (AdjustLightCacheOrigin): the center of the cache cell it's in, moved into its leaf, if that's in sight of
+		// it, or else the cell's center at its height, moved into its leaf, or else the origin itself. Source's tree
+		// is GoldSrc's hull 0 tree with the same planes, so it's followed here.
+		private Vector3 GetLightCacheOrigin(Vector3 origin, int leafIndex)
+		{
+			var cellCenter = GetLightCacheCellCenter(origin);
+			var center = cellCenter;
+			var centerLeaf = FindLeaf(center);
+			var traceToCenter = !(centerLeaf != leafIndex && IsOpaque(centerLeaf));
+			if (traceToCenter && centerLeaf != leafIndex)
+				center = SnapPointToLeaf(origin, center);
+
+			if (traceToCenter && FirstBlockingContents(worldHeadNode, origin, center) == null)
+				return center;
+
+			center = SnapPointToLeaf(origin, new Vector3(cellCenter.X, cellCenter.Y, origin.Z));
+			return FirstBlockingContents(worldHeadNode, origin, center) == null ? center : origin;
+		}
+
+		// Pushes a point across each plane on the way to the leaf the reference point is in that it's on the wrong side
+		// of, so it ends up in that leaf (CM_SnapPointToReferenceLeaf)
+		private Vector3 SnapPointToLeaf(Vector3 reference, Vector3 point)
+		{
+			const float tolerance = 0.5f;
+			var nodeIndex = worldHeadNode;
+			while (nodeIndex >= 0)
+			{
+				var node = gs.Nodes[nodeIndex];
+				var plane = gs.Planes[node.planeIndex];
+				var referenceDist = Vector3.Dot(reference, plane.normal) - plane.dist;
+				var pointDist = Vector3.Dot(point, plane.normal) - plane.dist;
+				if (referenceDist < 0f)
+				{
+					nodeIndex = node.child1;
+					if (pointDist > 0f)
+						point -= plane.normal * (pointDist + tolerance);
+				}
+				else
+				{
+					nodeIndex = node.child0;
+					if (pointDist < 0f)
+						point += plane.normal * (-pointDist + tolerance);
+				}
+			}
+
+			return point;
+		}
+
+		// Whether Source's leaf for a GoldSrc leaf blocks sight (MASK_OPAQUE)
+		private bool IsOpaque(int leafIndex)
+		{
+			return gs.Leaves[leafIndex].contents is GoldSrcBsp.CONTENTS_SOLID or GoldSrcBsp.CONTENTS_SKY;
+		}
+
+		// The center of the light cache cell a point is in (ComputeLightcacheBounds)
+		private static Vector3 GetLightCacheCellCenter(Vector3 point)
+		{
+			var center = Vector3.Zero;
+			for (var i = 0; i < 3; i++)
+			{
+				var shift = LightCacheCellShifts[i];
+				var cell = (int)MathF.Abs(point[i]) >> shift;
+				var min = (point[i] >= 0f ? cell : -(cell + 1)) << shift;
+				center[i] = min + (1 << shift) * 0.5f;
+			}
+
+			return center;
+		}
+
+		private void SetAmbientCube(LeafAmbientLighting sample, Vector3 light, Vector3 lightDirection)
+		{
 			var total = MathF.Max(light.X, MathF.Max(light.Y, light.Z));
 			var color = total > 0f ? light / total : Vector3.One;
 			if (total == 0f)
@@ -216,22 +335,24 @@ namespace BSPConvert.Lib.GoldSrc
 			}
 		}
 
-		// The light a model with its origin here gets, and the direction it travels
-		private (Vector3 light, Vector3 direction) GetLight(Vector3 origin)
+		// The light a model with its origin here gets, and the direction it travels. A model lit from the ceiling
+		// samples it from below its origin up, and its light travels up.
+		private (Vector3 light, Vector3 direction) GetLight(Vector3 origin, bool fromCeiling)
 		{
-			var start = origin + new Vector3(0f, 0f, SampleHeight);
+			var lightDirectionZ = fromCeiling ? 1f : -1f;
+			var start = origin - new Vector3(0f, 0f, lightDirectionZ * SampleHeight);
 
 			if (skyColor != Vector3.Zero && TraceHitsSky(start, origin - skyDirection * SkyDistance))
 				return (skyColor, skyDirection);
 
-			var down = new Vector3(0f, 0f, -FloorDistance);
-			var light = LightPoint(start, start + down);
+			var trace = new Vector3(0f, 0f, lightDirectionZ * FloorDistance);
+			var light = LightPoint(start, start + trace);
 
 			// The direction leans away from where the floor is brighter
 			float Gradient(float dx, float dy)
 			{
 				var offset = new Vector3(dx, dy, 0f);
-				var sample = LightPoint(start + offset, start + offset + down);
+				var sample = LightPoint(start + offset, start + offset + trace);
 				return (sample.X + sample.Y + sample.Z) / 768f;
 			}
 
@@ -239,7 +360,7 @@ namespace BSPConvert.Lib.GoldSrc
 			var g1 = Gradient(GradientOffset, -GradientOffset);
 			var g2 = Gradient(GradientOffset, GradientOffset);
 			var g3 = Gradient(-GradientOffset, GradientOffset);
-			var direction = Vector3.Normalize(new Vector3(g0 - g1 - g2 + g3, g1 + g0 - g2 - g3, -1f));
+			var direction = Vector3.Normalize(new Vector3(g0 - g1 - g2 + g3, g1 + g0 - g2 - g3, lightDirectionZ));
 
 			return (light, direction);
 		}
