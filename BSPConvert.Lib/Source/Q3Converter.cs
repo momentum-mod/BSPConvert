@@ -106,6 +106,8 @@ namespace BSPConvert.Lib
 		// large external lightmap atlases (e.g. 2048x2048) can give a single large surface a luxel block bigger
 		// than this, so GetFaceLightmapBlock downscales such blocks to fit.
 		private const int MAX_LIGHTMAP_EXTENT = 1023;
+		// vbsp's MAXEDGES; the engine drops decals on faces over 48 verts
+		private const int MAX_FACE_EDGES = 32;
 		private const string invisibleDisplacementTexture = "tools/toolsinvisibledisplacement";
 
 		// Quake 3 base game content (pak0.pk3 extracted by the user), used for assets maps reference without bundling
@@ -1365,22 +1367,123 @@ namespace BSPConvert.Lib
 				return;
 			}
 
-			var sFace = builder.AddFace();
 			// TODO: Re-use brush planes?
-			sFace.PlaneIndex = CreatePlane(qFace); // Quake faces don't have planes, so create one
-			sFace.TextureInfoIndex = CreateTextureInfo(qFace, qFace.FirstIndexIndex);
-			sFace.DisplacementIndex = -1;
+			var planeIndex = CreatePlane(qFace); // Quake faces don't have planes, so create one
 
-			// Surface edges
-			(var surfEdgeIndex, var numEdges) = CreateSurfaceEdges(faceIndex);
-			sFace.FirstEdgeIndexIndex = surfEdgeIndex;
-			sFace.NumEdgeIndices = numEdges;
+			// Non-planar triangle soups have a zero normal, which passes every engine decal plane test
+			var hasPlane = qFace.Normal != Vector3.Zero;
+			var textureInfoIndex = CreateTextureInfo(qFace, qFace.FirstIndexIndex,
+				extraFlags: hasPlane ? 0 : (int)SourceSurfaceFlags.SURF_NODECALS);
 
-			// Primitives
-			sFace.FirstPrimitive = CreatePrimitive(qFace.Vertices.ToArray(), qFace.Indices.ToArray(), qFace);
-			sFace.NumPrimitives = 1;
+			var vertices = qFace.Vertices.ToArray();
+			var indices = qFace.Indices.ToArray();
+			var hullVerts = HullConverter.ConvertConvexHull(vertices, qFace.Normal);
 
-			splitFaceDict[faceIndex] = new int[] { sourceBsp.Faces.Count - 1 };
+			var pieces = new List<int[]> { Enumerable.Range(0, hullVerts.Count).ToArray() };
+			var pieceIndices = new[] { indices };
+			if (hasPlane && hullVerts.Count > MAX_FACE_EDGES)
+			{
+				var splitPieces = SplitConvexHull(hullVerts.Count);
+				var splitIndices = AssignTrianglesToPieces(vertices, indices, hullVerts, splitPieces, qFace.Normal);
+				if (splitIndices.All(x => x.Length > 0))
+				{
+					pieces = splitPieces;
+					pieceIndices = splitIndices;
+				}
+			}
+
+			splitFaceDict[faceIndex] = new int[pieces.Count];
+			for (var p = 0; p < pieces.Count; p++)
+			{
+				var sFace = builder.AddFace();
+				sFace.PlaneIndex = planeIndex;
+				sFace.TextureInfoIndex = textureInfoIndex;
+				sFace.DisplacementIndex = -1;
+
+				// Surface edges
+				var piece = pieces[p];
+				sFace.FirstEdgeIndexIndex = sourceBsp.FaceEdges.Count;
+				sFace.NumEdgeIndices = piece.Length;
+				for (var i = 0; i < piece.Length; i++)
+					builder.AddEdge(hullVerts[piece[(i + 1) % piece.Length]], hullVerts[piece[i]], faceIndex);
+
+				// Primitives
+				sFace.FirstPrimitive = CreatePrimitive(vertices, pieceIndices[p], qFace);
+				sFace.NumPrimitives = 1;
+
+				splitFaceDict[faceIndex][p] = sourceBsp.Faces.Count - 1;
+			}
+		}
+
+		// Splits a convex hull into convex pieces of at most MAX_FACE_EDGES verts, fanned from hull vert 0.
+		// Returns each piece's hull vert indices in hull order.
+		private static List<int[]> SplitConvexHull(int vertCount)
+		{
+			var numPieces = (vertCount - 2 + MAX_FACE_EDGES - 3) / (MAX_FACE_EDGES - 2);
+			var pieces = new List<int[]>();
+			var start = 1;
+			for (var p = 0; p < numPieces; p++)
+			{
+				var end = 1 + (int)Math.Round((p + 1) * (vertCount - 2) / (double)numPieces);
+				var piece = new int[end - start + 2];
+				for (var i = start; i <= end; i++)
+					piece[i - start + 1] = i;
+
+				pieces.Add(piece);
+				start = end;
+			}
+
+			return pieces;
+		}
+
+		// Gives each triangle to the piece holding its centroid. A triangle may overhang its piece; decals clip to the piece's edge loop.
+		private static int[][] AssignTrianglesToPieces(Vertex[] vertices, int[] indices, List<Vertex> hullVerts, List<int[]> pieces, Vector3 normal)
+		{
+			var pieceIndices = pieces.Select(_ => new List<int>()).ToArray();
+			for (var i = 0; i + 2 < indices.Length; i += 3)
+			{
+				var centroid = (vertices[indices[i]].position + vertices[indices[i + 1]].position + vertices[indices[i + 2]].position) / 3f;
+
+				var bestPiece = 0;
+				var bestDistance = float.MaxValue;
+				for (var p = 0; p < pieces.Count; p++)
+				{
+					var distance = GetDistanceOutsidePiece(centroid, hullVerts, pieces[p], normal);
+					if (distance < bestDistance)
+					{
+						bestDistance = distance;
+						bestPiece = p;
+					}
+				}
+
+				pieceIndices[bestPiece].AddRange(new[] { indices[i], indices[i + 1], indices[i + 2] });
+			}
+
+			return pieceIndices.Select(x => x.ToArray()).ToArray();
+		}
+
+		// How far a point lies outside a convex hull piece, in units (<= 0 when inside)
+		private static float GetDistanceOutsidePiece(Vector3 point, List<Vertex> hullVerts, int[] piece, Vector3 normal)
+		{
+			var origin = hullVerts[piece[0]].position;
+			var winding = 0f;
+			for (var i = 1; i + 1 < piece.Length; i++)
+				winding += Vector3.Dot(Vector3.Cross(hullVerts[piece[i]].position - origin, hullVerts[piece[i + 1]].position - origin), normal);
+
+			var sign = winding >= 0f ? 1f : -1f;
+			var distance = float.MinValue;
+			for (var i = 0; i < piece.Length; i++)
+			{
+				var a = hullVerts[piece[i]].position;
+				var edge = hullVerts[piece[(i + 1) % piece.Length]].position - a;
+				var length = edge.Length();
+				if (length < 0.001f)
+					continue;
+
+				distance = Math.Max(distance, -sign * Vector3.Dot(Vector3.Cross(edge, point - a), normal) / length);
+			}
+
+			return distance;
 		}
 
 		// Draws a fog brush face as the fog shader's visible overlay stages (e.g. the scrolling cloud layers on
@@ -2042,19 +2145,19 @@ namespace BSPConvert.Lib
 			return (surfEdgeIndex, numEdges);
 		}
 
-		private int CreateTextureInfo(Face qFace, int firstIndex, string nameOverride = null)
+		private int CreateTextureInfo(Face qFace, int firstIndex, string nameOverride = null, int extraFlags = 0)
 		{
 			(var uAxis, var vAxis) = GetTextureVectors(qFace, firstIndex);
-			return CreateTextureInfo(qFace.Texture, uAxis, vAxis, nameOverride);
+			return CreateTextureInfo(qFace.Texture, uAxis, vAxis, nameOverride, extraFlags);
 		}
 
 		// nameOverride points the texinfo (and its name->index lookup) at a different material than the source
 		// texture's name, keeping the source texture's surface flags. Used for fog overlay faces, whose geometry
 		// comes from a fog brush face but whose material is the sibling overlay (see TryCreateFogOverlayFace).
-		private int CreateTextureInfo(Texture texture, Vector3 uAxis, Vector3 vAxis, string nameOverride = null)
+		private int CreateTextureInfo(Texture texture, Vector3 uAxis, Vector3 vAxis, string nameOverride = null, int extraFlags = 0)
 		{
 			var textureName = nameOverride ?? texture.Name;
-			var flags = GetSourceSurfaceFlags(texture);
+			var flags = GetSourceSurfaceFlags(texture) | extraFlags;
 
 			// Tool-textured patches keep their surface flags after being rewritten onto the shared
 			// invisible displacement material, so they need its per-flag texdata variants too - see
@@ -2124,6 +2227,10 @@ namespace BSPConvert.Lib
 
 			if (q3Flags.HasFlag(Q3SurfaceFlags.SURF_NOIMPACT))
 				flags |= (int)SourceSurfaceFlags.SURF_NOIMPACT;
+
+			// Q3 leaves no marks on either
+			if ((q3Flags & (Q3SurfaceFlags.SURF_NOMARKS | Q3SurfaceFlags.SURF_NOIMPACT)) != 0)
+				flags |= (int)SourceSurfaceFlags.SURF_NODECALS;
 
 			return flags;
 		}
