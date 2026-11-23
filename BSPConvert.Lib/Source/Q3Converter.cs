@@ -1890,13 +1890,15 @@ namespace BSPConvert.Lib
 				// but preserve physics-relevant surface flags (e.g. SURF_SLICK) from the original
 				// patch texture so slick ice physics still apply to the collision displacement.
 				var qFace = quakeBsp.Faces[faceIndex];
-				sFace.TextureInfoIndex = CreateInvisibleDisplacementTextureInfo(uAxis, vAxis, GetPhysicsSurfaceFlags(qFace.Texture));
+				var flags = GetPhysicsSurfaceFlags(qFace.Texture) | GetInvisibleDisplacementModelFlags(faceIndex);
+				sFace.TextureInfoIndex = CreateInvisibleDisplacementTextureInfo(uAxis, vAxis, flags);
 			}
 			else
 			{
 				var qFace = quakeBsp.Faces[faceIndex];
 				ReplaceToolTextureWithInvisibleDisplacement(qFace);
-				sFace.TextureInfoIndex = CreateTextureInfo(qFace.Texture, uAxis, vAxis);
+				var extraFlags = qFace.Texture.Name == invisibleDisplacementTexture ? GetInvisibleDisplacementModelFlags(faceIndex) : 0;
+				sFace.TextureInfoIndex = CreateTextureInfo(qFace.Texture, uAxis, vAxis, extraFlags: extraFlags);
 			}
 
 			// Create face edges
@@ -1909,6 +1911,14 @@ namespace BSPConvert.Lib
 			builder.AddEdge(faceVerts[1], faceVerts[0], faceIndex);
 
 			return sourceBsp.Faces.Count - 1;
+		}
+
+		// The engine crashes batching opaque displacements in brush entities, so keep theirs in the translucent pass
+		private int GetInvisibleDisplacementModelFlags(int qFaceIndex)
+		{
+			var world = quakeBsp.Models[0];
+			var inWorld = qFaceIndex >= world.FirstFaceIndex && qFaceIndex < world.FirstFaceIndex + world.NumFaces;
+			return inWorld ? 0 : (int)SourceSurfaceFlags.SURF_TRANS;
 		}
 
 		private void ReplaceToolTextureWithInvisibleDisplacement(Face qFace)
@@ -2280,12 +2290,12 @@ namespace BSPConvert.Lib
 		}
 
 		// Texture info pointing at the invisible displacement material, used for collision-only
-		// displacement faces (see CreatePatchCollisionFace). physicsFlags carries surface flags
+		// displacement faces (see CreatePatchCollisionFace). surfaceFlags carries surface flags
 		// (e.g. SURF_SLICK) that must survive onto the collision surface even though it never renders.
-		private int CreateInvisibleDisplacementTextureInfo(Vector3 uAxis, Vector3 vAxis, int physicsFlags = 0)
+		private int CreateInvisibleDisplacementTextureInfo(Vector3 uAxis, Vector3 vAxis, int surfaceFlags = 0)
 		{
-			var textureDataIndex = GetInvisibleDisplacementTextureDataIndex(physicsFlags);
-			return builder.AddTextureInfo(uAxis, vAxis, uAxis / 32f, vAxis / 32f, physicsFlags, textureDataIndex);
+			var textureDataIndex = GetInvisibleDisplacementTextureDataIndex(surfaceFlags);
+			return builder.AddTextureInfo(uAxis, vAxis, uAxis / 32f, vAxis / 32f, surfaceFlags, textureDataIndex);
 		}
 
 		// The engine ORs surface flags per-texdata, not per-texinfo, and displacements read their
