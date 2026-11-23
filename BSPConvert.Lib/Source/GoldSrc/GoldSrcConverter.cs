@@ -1877,6 +1877,8 @@ namespace BSPConvert.Lib.GoldSrc
 			}
 
 			builder.SetLightmaps(colors);
+			// GoldSrc lighting is often darker than the engine's LDR lightmap table resolves
+			sourceBsp.MapFlags.Flags |= LevelFlags.ExactLDRLightmaps;
 		}
 
 		// Nodes are copied index for index. Their leaf children are filled in by ConvertHull0, since GoldSrc
