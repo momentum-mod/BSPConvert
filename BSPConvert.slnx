@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="BSPConvert.Cmd/BSPConvert.Cmd.csproj" />
+  <Project Path="BSPConvert.Lib/BSPConvert.Lib.csproj" />
+  <Project Path="BSPConvert.Test/BSPConvert.Test.csproj" />
+</Solution>
