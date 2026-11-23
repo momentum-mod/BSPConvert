@@ -8,6 +8,7 @@ using System.Diagnostics;
 using System.Collections;
 using System.Xml.Linq;
 using BSPConvert.Lib.Source;
+using BSPConvert.Lib.Vis;
 
 using Plane = System.Numerics.Plane;
 using Vector3 = System.Numerics.Vector3;
@@ -55,6 +56,10 @@ namespace BSPConvert.Lib
 		// The Quake 3 mod (a folder of Q3Mods, e.g. missionpack for Team Arena) whose content maps use besides Quake 3's,
 		// or Q3Mods.BaseGame (baseq3) for Quake 3's alone. Null detects it from the textures the maps use, see Q3Mods.Detect.
 		public string? mod;
+		// How the visibility of maps compiled without it is computed, and the vvis.exe that does it (null finds
+		// Momentum Mod's, see MomentumTools.Find)
+		public VisMode vis = VisMode.Auto;
+		public string? vvisPath;
 	}
 
 	// Converts Quake 3 BSPs (see IEngineConverter). Shaders and external lightmaps are loaded once per input
@@ -200,11 +205,13 @@ namespace BSPConvert.Lib
 			progress.Stage("Converting light grid", shares.lightGrid);
 			ConvertLightGrid();
 
-			progress.Stage("Converting visibility", shares.visibility);
-			ConvertVisData();
 			builder.AddPlaceholderArea();
 			builder.AddPlaceholderAreaPortal();
 			builder.AddPlaceholderWorldLight();
+
+			// Last, since vvis reads the finished BSP
+			progress.Stage(GeneratesVisData ? "Computing visibility" : "Converting visibility", shares.visibility);
+			ConvertVisData();
 		}
 
 		private void ClearDictionaries()
@@ -498,6 +505,8 @@ namespace BSPConvert.Lib
 		private const float LightmapSeconds = 0.3f;
 		private const float LightGridSeconds = 1f;
 		private const float VisibilitySeconds = 0.05f;
+		// vvis on maps compiled without vis, unless --vis full makes it flow through a void the map is open to
+		private const float VvisSecondsPerLeaf = 0.0005f;
 
 		// Divides share of the map's progress between the stages after the materials, by how long they're estimated to
 		// take from how long the textures are estimated to take and the map's faces
@@ -505,10 +514,11 @@ namespace BSPConvert.Lib
 		{
 			var sounds = textures * SoundSecondsPerTextureSecond;
 			var geometry = GeometrySeconds + quakeBsp.Faces.Count * GeometrySecondsPerFace;
-			var total = textures + EntitySeconds + sounds + geometry + LightmapSeconds + LightGridSeconds + VisibilitySeconds;
+			var visibility = GeneratesVisData ? quakeBsp.Leaves.Count * VvisSecondsPerLeaf : VisibilitySeconds;
+			var total = textures + EntitySeconds + sounds + geometry + LightmapSeconds + LightGridSeconds + visibility;
 
 			float Share(float seconds) => share * seconds / total;
-			return (Share(textures), Share(EntitySeconds), Share(sounds), Share(geometry), Share(LightmapSeconds), Share(LightGridSeconds), Share(VisibilitySeconds));
+			return (Share(textures), Share(EntitySeconds), Share(sounds), Share(geometry), Share(LightmapSeconds), Share(LightGridSeconds), Share(visibility));
 		}
 
 		private void ConvertEntities()
@@ -2514,11 +2524,13 @@ namespace BSPConvert.Lib
 			lightGridConverter.Convert();
 		}
 
+		private bool GeneratesVisData => quakeBsp.Visibility.Data.Length == 0 && options.q3.vis != VisMode.None;
+
 		private void ConvertVisData()
 		{
 			if (quakeBsp.Visibility.Data.Length == 0) // No VisData
 			{
-				sourceBsp.Visibility.Data = new byte[0];
+				sourceBsp.Visibility.Data = (GeneratesVisData ? GenerateVisData() : null) ?? new byte[0];
 				return;
 			}
 
@@ -2563,6 +2575,113 @@ namespace BSPConvert.Lib
 
 			sourceBsp.Visibility.Data = visData;
 		}
+
+		// Maps compiled without vis still number their leaves' clusters. The portals between them are rebuilt from the Q3
+		// tree, which the Source BSP has node for node and leaf for leaf.
+		private byte[]? GenerateVisData()
+		{
+			var vvis = MomentumTools.Find("vvis.exe", options.q3.vvisPath, options.outputDir);
+			if (vvis == null)
+			{
+				logger.Log("Warning: vvis.exe wasn't found, so the map, compiled without visibility, is drawn whole everywhere (pass the one in Momentum Mod's bin/win64 folder with --vvis)");
+				return null;
+			}
+
+			var leafClusters = quakeBsp.Leaves.Select(leaf => leaf.Visibility).ToList();
+			if (quakeBsp.Nodes.Count == 0 || leafClusters.DefaultIfEmpty(-1).Max() < 1)
+				return null;
+
+			var planes = quakeBsp.Planes.Select(plane => new TreePortals.TreePlane(ToVector3d(plane.Normal), plane.Distance)).ToList();
+			var nodes = quakeBsp.Nodes.Select(node => new TreePortals.TreeNode(node.PlaneIndex, node.Child1Index, node.Child2Index)).ToList();
+			var world = quakeBsp.Models[0];
+			var headNode = quakeBsp.Nodes[0];
+			var mins = ToVector3d(Vector3.Min(world.Minimums, headNode.Minimums));
+			var maxs = ToVector3d(Vector3.Max(world.Maximums, headNode.Maximums));
+
+			var clusterPortals = TreePortals.Build(planes, nodes, 0, leafClusters, mins, maxs);
+
+			// Filled like q3map2 fills the outside of maps that don't leak, since vvis takes hours to flow through it
+			var voidClusters = clusterPortals.FindVoid(GetEntityClusters(planes, nodes, leafClusters));
+			if (voidClusters.Count > 0)
+				logger.Log($"Filling the void around the map ({voidClusters.Count} clusters), which it leaks into");
+
+			// The engine counts the clusters up to the highest a leaf has, which the visibility's count must match
+			var newClusters = new int[clusterPortals.NumClusters];
+			var numClusters = 0;
+			for (var cluster = 0; cluster < newClusters.Length; cluster++)
+				newClusters[cluster] = voidClusters.Contains(cluster) ? -1 : numClusters++;
+			var portals = clusterPortals.Portals
+				.Where(portal => newClusters[portal.FrontCluster] >= 0)
+				.Select(portal => portal with { FrontCluster = newClusters[portal.FrontCluster], BackCluster = newClusters[portal.BackCluster] })
+				.ToList();
+
+			logger.Log($"Computing visibility from {portals.Count} portals between {numClusters} clusters");
+			VvisResult? result;
+			using (var compiler = new VvisCompiler(vvis, logger, progress, builder, quakeBsp.MapName, numClusters, portals))
+				result = RunVvis(compiler, numClusters);
+			if (result == null)
+				return null;
+
+			for (var i = 0; i < sourceBsp.Leaves.Count; i++)
+			{
+				var leaf = sourceBsp.Leaves[i];
+				if (leaf.Visibility >= 0 && leaf.Visibility < newClusters.Length)
+					leaf.Visibility = newClusters[leaf.Visibility];
+			}
+
+			return result.Value.VisData;
+		}
+
+		// Total clusters seen in the fast visibility above which the full one takes hours (2.4 million took vvis 5 seconds,
+		// 32 million over 10 minutes)
+		private const long MaxFullVisClusters = 10_000_000;
+		private static readonly TimeSpan FullVisTimeLimit = TimeSpan.FromMinutes(5);
+
+		private VvisResult? RunVvis(VvisCompiler compiler, int numClusters)
+		{
+			switch (options.q3.vis)
+			{
+				case VisMode.Full:
+					return compiler.Run(fast: false, timeLimit: null, 0, 20);
+				case VisMode.Fast:
+					return compiler.Run(fast: true, timeLimit: null, 0, 10);
+			}
+
+			var fastResult = compiler.Run(fast: true, timeLimit: null, 0, 30);
+			if (fastResult == null)
+				return null;
+
+			if (fastResult.Value.VisibleClusters > MaxFullVisClusters)
+			{
+				logger.Log($"Using the fast visibility, which draws more: its clusters could see {fastResult.Value.VisibleClusters / numClusters} of the {numClusters} each, too many to compute the full visibility in reasonable time (--vis full does anyway)");
+				return fastResult;
+			}
+
+			var fullResult = compiler.Run(fast: false, FullVisTimeLimit, 10, 30);
+			if (fullResult == null)
+				logger.Log($"Using the fast visibility, which draws more: the full visibility took over {FullVisTimeLimit.TotalMinutes} minutes (--vis full waits for it)");
+
+			return fullResult ?? fastResult;
+		}
+
+		// The clusters entities' origins are in. Brush entities without one, like triggers, often stick out into the void.
+		private HashSet<int> GetEntityClusters(List<TreePortals.TreePlane> planes, List<TreePortals.TreeNode> nodes, List<int> leafClusters)
+		{
+			var result = new HashSet<int>();
+			foreach (var entity in quakeBsp.Entities)
+			{
+				if (entity.ClassName == "worldspawn" || !entity.ContainsKey("origin"))
+					continue;
+
+				var cluster = leafClusters[TreePortals.FindLeaf(planes, nodes, 0, ToVector3d(entity.Origin))];
+				if (cluster >= 0)
+					result.Add(cluster);
+			}
+
+			return result;
+		}
+
+		private static Vector3d ToVector3d(Vector3 vector) => new Vector3d(vector.X, vector.Y, vector.Z);
 
 	}
 }

@@ -56,9 +56,6 @@ namespace BSPConvert.Lib.GoldSrc
 		// Where Steam installs Half-Life by default, searched for WADs last
 		private static readonly string DefaultHalfLifeDir = Path.Combine(
 			Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Steam", "steamapps", "common", "Half-Life");
-		// Where Steam installs Momentum Mod by default, whose studiomdl compiles the models
-		private static readonly string DefaultMomentumDir = Path.Combine(
-			Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), "Steam", "steamapps", "common", "Momentum Mod Playtest");
 
 		private readonly BSPConverterOptions options;
 		private readonly ILogger logger;
@@ -1375,7 +1372,7 @@ namespace BSPConvert.Lib.GoldSrc
 
 		private bool CreateModelCompiler()
 		{
-			var studiomdl = FindStudiomdl();
+			var studiomdl = MomentumTools.Find("studiomdl.exe", options.goldSrc.studiomdlPath, options.outputDir);
 			if (studiomdl == null)
 			{
 				logger.Log("Warning: studiomdl.exe wasn't found, so models aren't converted (pass the one in Momentum Mod's bin/win64 folder with --studiomdl)");
@@ -1385,20 +1382,6 @@ namespace BSPConvert.Lib.GoldSrc
 			modelWorkDir = Path.Combine(Path.GetTempPath(), "BSPConvert_models_" + Path.GetRandomFileName());
 			modelCompiler = new GoldSrcModelCompiler(studiomdl, modelWorkDir, assetDir, materialConverter, logger);
 			return true;
-		}
-
-		// The given studiomdl, or the one of the game the output folder is in, or of a default Steam Momentum Mod install
-		private string? FindStudiomdl()
-		{
-			if (!string.IsNullOrEmpty(options.goldSrc.studiomdlPath))
-				return File.Exists(options.goldSrc.studiomdlPath) ? options.goldSrc.studiomdlPath : null;
-
-			var candidates = new List<string>();
-			if (Path.GetDirectoryName(Path.GetFullPath(options.outputDir)) is string gameDir)
-				candidates.Add(Path.Combine(gameDir, "bin", "win64", "studiomdl.exe"));
-			candidates.Add(Path.Combine(DefaultMomentumDir, "bin", "win64", "studiomdl.exe"));
-
-			return candidates.FirstOrDefault(File.Exists);
 		}
 
 		// Reads a model and adds it to the compiler, returning its path in the game, or null if it can't be read

@@ -1,5 +1,6 @@
 using BSPConvert.Lib;
 using BSPConvert.Lib.GoldSrc;
+using BSPConvert.Lib.Vis;
 using CommandLine;
 using CommandLine.Text;
 using System.Reflection;
@@ -81,6 +82,12 @@ namespace BSPConvert.Cmd
 
 			[Option("q3mod", Required = false, HelpText = "Quake 3 mod whose content maps use besides Quake 3's: its folder in Q3Mods, e.g. missionpack for Team Arena, or baseq3 for Quake 3's content alone. Detected by default from the textures the map uses that neither it nor Quake 3 has.")]
 			public string Q3Mod { get; set; }
+
+			[Option("vis", Required = false, Default = VisMode.Auto, HelpText = "Quake 3 only: how vvis computes the visibility of maps compiled without it, which otherwise draw the whole map everywhere: full (the least drawn, but hours on maps with large open areas), fast (quick, draws more), auto (full, unless the fast visibility shows it would take too long) or none.")]
+			public VisMode Vis { get; set; }
+
+			[Option("vvis", Required = false, HelpText = "Quake 3 only: path to the vvis.exe that computes the visibility of maps compiled without it (in Momentum Mod's bin/win64 folder). Found next to the output game folder or in a default Steam Momentum Mod install if not given.")]
+			public string VvisPath { get; set; }
 
 			[Option("prefix", Required = false, HelpText = "Prefix for the converted BSP's file name.")]
 			public string Prefix { get; set; }
@@ -217,6 +224,8 @@ namespace BSPConvert.Cmd
 							minLight = options.MinLight
 						},
 						mod = options.Q3Mod,
+						vis = options.Vis,
+						vvisPath = options.VvisPath,
 						flipbook = new FlipbookOptions()
 						{
 							enabled = !options.NoAnim,

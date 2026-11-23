@@ -48,9 +48,14 @@ The input files are Quake 3 BSP/PK3 or GoldSrc (Half-Life, CS 1.6) BSP/ZIP files
   --animmaxframes         (Default: 512) Hard cap on baked frame count. Longer loops are sped up to fit while staying seamless.
   --animalpha             (Default: 1) Translucency [0-1] for baked liquids. 1 derives per-texel translucency from each texture's alpha/luminance; below 1 uses a flat constant alpha.
   --q3mod                 Quake 3 mod whose content maps use besides Quake 3's: its folder in Q3Mods, e.g. missionpack for Team Arena, or baseq3 for Quake 3's content alone. Detected by default.
+  --vis                   (Default: auto) How vvis computes the visibility of maps compiled without it: full (the least drawn, but hours on maps with large open areas), fast (quick, draws more), auto (full, unless the fast visibility shows it would take too long) or none.
+  --vvis                  Path to the vvis.exe that computes it (in Momentum Mod's bin/win64 folder). Found next to the output game folder or in a default Steam Momentum Mod install if not given.
 ```
 
 The defaults are Quake 3's, and convert lighting as bright as earlier versions did. Raise `--q3gamma` (or `--mapoverbrightbits`) for maps made with a brighter config that look too dark. Quake 3's gamma also brightens textures, which these leave alone. If a high gamma makes dark lighting splotchy, `--minlight` evens it out.
+
+### Visibility
+Maps compiled without vis, often because they leak, would draw the whole map from everywhere. BSP Convert rebuilds the portals between their leaves from the BSP tree and runs Momentum Mod's vvis on them. The void a leaking map is open to is filled first, as long as no entity is in it, like q3map2 fills the outside of maps that don't leak.
 
 ### Quake 3 content
 Maps use textures, shaders and sounds from Quake 3 without shipping them. BSP Convert reads Quake 3's from the `Q3Content` folder next to it (extract `baseq3/pak0.pk3` there) and packs what a map uses into it. Mods and expansions go in `Q3Mods/<mod folder>`, e.g. Team Arena's `missionpack/pak0.pk3` in `Q3Mods/missionpack`. The mod a map needs is picked from the textures it uses that neither it nor Quake 3 has, and the log says which; `--q3mod` overrides that.
