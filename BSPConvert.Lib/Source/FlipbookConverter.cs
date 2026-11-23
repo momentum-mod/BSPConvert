@@ -892,7 +892,7 @@ namespace BSPConvert.Lib
 		private void WriteStackVmt(string textureName, Shader shader, int fps, OutputMode mode, Vector2? basetextureScale,
 			ShaderStage? envStage = null, bool hasReflectionMask = false)
 		{
-			var shaderType = shader.surfaceFlags.HasFlag(Q3SurfaceFlags.SURF_NOLIGHTMAP) ? "UnlitGeneric" : "LightmappedGeneric";
+			var shaderType = shader.IsUnlit() ? "UnlitGeneric" : "LightmappedGeneric";
 
 			var sb = new StringBuilder();
 			sb.AppendLine(shaderType);

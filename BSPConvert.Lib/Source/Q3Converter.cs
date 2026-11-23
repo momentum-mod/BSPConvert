@@ -83,6 +83,7 @@ namespace BSPConvert.Lib
 		private Dictionary<int, int[]> splitFaceDict = new Dictionary<int, int[]>(); // Maps the original face index to the new face indices split by triangles
 		private Dictionary<int, Texture> fogBrushSideTexture = new Dictionary<int, Texture>(); // Maps a fog brush's side index to the brush's fog texture, so every side carries the fog material
 		private HashSet<int> triggerPatchFaces = new HashSet<int>(); // Q3 patch faces that belong to trigger entities; converted without collision (see MarkTriggerPatchFaces)
+		private Dictionary<int, VertexLitLightmap> vertexLitLightmaps = new Dictionary<int, VertexLitLightmap>(); // Q3 face index -> lightmap baked from its vertex colors (see BakeVertexLitLightmaps)
 		private SkyboxSwapPlan? skyboxSwapPlan; // Multi-skybox swap regions for the current map (see ConvertSkyboxSwappers)
 
 		// TODO: Replace weapon clip textures
@@ -111,6 +112,8 @@ namespace BSPConvert.Lib
 		// large external lightmap atlases (e.g. 2048x2048) can give a single large surface a luxel block bigger
 		// than this, so GetFaceLightmapBlock downscales such blocks to fit.
 		private const int MAX_LIGHTMAP_EXTENT = 1023;
+		// Units between the luxels of patch lightmaps baked from vertex colors (q3map2's default sample size)
+		private const float VERTEX_LIT_LUXEL_SIZE = 16f;
 		// vbsp's MAXEDGES; the engine drops decals on faces over 48 verts
 		private const int MAX_FACE_EDGES = 32;
 		private const string invisibleDisplacementTexture = "tools/toolsinvisibledisplacement";
@@ -179,6 +182,7 @@ namespace BSPConvert.Lib
 			progress.Stage("Converting geometry", shares.geometry);
 			ConvertTextures();
 			ConvertPlanes();
+			BakeVertexLitLightmaps();
 			//ConvertFaces_SplitFaces();
 			ConvertFaces();
 			ConvertLeaves_SplitFaces();
@@ -220,6 +224,7 @@ namespace BSPConvert.Lib
 			fogBrushSideTexture.Clear();
 			invisibleDispTexDataByFlags.Clear();
 			triggerPatchFaces.Clear();
+			vertexLitLightmaps.Clear();
 		}
 
 		// Uniformly scales the Quake BSP's geometry in place before conversion, so every downstream
@@ -1307,6 +1312,76 @@ namespace BSPConvert.Lib
 			return CreateTextureInfo(texture, uAxis, vAxis);
 		}
 
+		// q3map2 lights some surfaces by their vertex colors instead of a lightmap, which Source world surfaces can't draw,
+		// so they get lightmaps baked from the colors
+		private void BakeVertexLitLightmaps()
+		{
+			for (var faceIndex = 0; faceIndex < quakeBsp.Faces.Count; faceIndex++)
+			{
+				var qFace = quakeBsp.Faces[faceIndex];
+				if (!TryGetVertexLight(qFace, out var vertexLight))
+					continue;
+
+				var colors = qFace.Vertices.Select(x => GetVertexColor(x.color)).ToArray();
+				var brightness = options.q3.brightness;
+				Vector3 ToLinear(Vector3 color) => new Vector3(
+					brightness.LightToLinear(color.X * vertexLight),
+					brightness.LightToLinear(color.Y * vertexLight),
+					brightness.LightToLinear(color.Z * vertexLight));
+
+				vertexLitLightmaps[faceIndex] = qFace.Type == FaceType.Patch ?
+					VertexLitLightmapBaker.BakePatch(qFace.Vertices.Select(x => x.position).ToArray(), colors,
+						(int)qFace.PatchSize.X, (int)qFace.PatchSize.Y, VERTEX_LIT_LUXEL_SIZE * options.scale, ToLinear) :
+					VertexLitLightmapBaker.BakeTriangles(colors, qFace.Indices.ToArray(), ToLinear);
+			}
+
+			if (vertexLitLightmaps.Count > 0)
+				logger.Log($"Baked lightmaps from the vertex colors of {vertexLitLightmaps.Count} faces");
+		}
+
+		// Whether Quake 3 lights the face with its vertex colors, and how brightly (1 for rgbGen exactVertex, which draws
+		// them like lightmaps)
+		private bool TryGetVertexLight(Face qFace, out float vertexLight)
+		{
+			vertexLight = 1f;
+			if (qFace.Lightmap >= 0 || qFace.NumVertices == 0 || qFace.Type is not (FaceType.Polygon or FaceType.Mesh or FaceType.Patch))
+				return false;
+
+			var texture = qFace.Texture;
+			var flags = (Q3SurfaceFlags)texture.Flags;
+			if ((flags & (Q3SurfaceFlags.SURF_NODRAW | Q3SurfaceFlags.SURF_SKY)) != 0)
+				return false;
+
+			// Quake 3 draws a texture with no shader exactVertex on surfaces lit by vertex. Only a shader gives nolightmap,
+			// so one that has it is missing. Tool textures were renamed (ReplaceToolTextures).
+			if (!shaderDict.TryGetValue(texture.Name, out var shader))
+				return !flags.HasFlag(Q3SurfaceFlags.SURF_NOLIGHTMAP) && !texture.Name.StartsWith("tools/", StringComparison.OrdinalIgnoreCase);
+
+			var stage = shader.GetVertexColorStage();
+			if (stage == null || shader.fogParms != null || HasExternalLightmap(shader))
+				return false;
+
+			if (stage.rgbGen == ColorGen.CGEN_VERTEX)
+				vertexLight = options.q3.brightness.IdentityLight;
+
+			return true;
+		}
+
+		// A vertex color as Quake 3 loads it (0-255)
+		private Vector3 GetVertexColor(System.Drawing.Color color)
+		{
+			var (r, g, b) = (color.R, color.G, color.B);
+			if (options.q3.clampOverbright)
+				(r, g, b) = ColorUtil.ApplyOverbrightClamp(r, g, b, (int)options.q3.brightness.OverbrightCeiling);
+
+			return new Vector3(r, g, b);
+		}
+
+		private static bool HasExternalLightmap(Shader shader)
+		{
+			return shader.stages.Any(x => x.bundles[0].tcGen == TexCoordGen.TCGEN_LIGHTMAP && x.bundles[0].images[0] != "$lightmap");
+		}
+
 		private void ConvertFaces()
 		{
 			if (!options.oldBSP)
@@ -1389,6 +1464,8 @@ namespace BSPConvert.Lib
 			var vertices = qFace.Vertices.ToArray();
 			var indices = qFace.Indices.ToArray();
 			var hullVerts = HullConverter.ConvertConvexHull(vertices, qFace.Normal);
+			if (vertexLitLightmaps.TryGetValue(faceIndex, out var vertexLitLightmap))
+				(vertices, indices) = SplitTriangleVertices(vertices, indices, vertexLitLightmap);
 
 			var pieces = new List<int[]> { Enumerable.Range(0, hullVerts.Count).ToArray() };
 			var pieceIndices = new[] { indices };
@@ -1419,11 +1496,24 @@ namespace BSPConvert.Lib
 					builder.AddEdge(hullVerts[piece[(i + 1) % piece.Length]], hullVerts[piece[i]], faceIndex);
 
 				// Primitives
-				sFace.FirstPrimitive = CreatePrimitive(vertices, pieceIndices[p], qFace);
+				sFace.FirstPrimitive = CreatePrimitive(vertices, pieceIndices[p], faceIndex);
 				sFace.NumPrimitives = 1;
 
 				splitFaceDict[faceIndex][p] = sourceBsp.Faces.Count - 1;
 			}
+		}
+
+		// Gives each triangle vertices of its own, which sample its cell of the lightmap baked from its vertex colors
+		private static (Vertex[] vertices, int[] indices) SplitTriangleVertices(Vertex[] vertices, int[] indices, VertexLitLightmap lightmap)
+		{
+			var split = new Vertex[indices.Length];
+			for (var i = 0; i < indices.Length; i++)
+			{
+				split[i] = vertices[indices[i]];
+				split[i].uv1 = lightmap.Coords[i];
+			}
+
+			return (split, Enumerable.Range(0, indices.Length).ToArray());
 		}
 
 		// Splits a convex hull into convex pieces of at most MAX_FACE_EDGES verts, fanned from hull vert 0.
@@ -1523,7 +1613,7 @@ namespace BSPConvert.Lib
 			sFace.NumEdgeIndices = numEdges;
 
 			// Primitives
-			sFace.FirstPrimitive = CreatePrimitive(qFace.Vertices.ToArray(), qFace.Indices.ToArray(), qFace);
+			sFace.FirstPrimitive = CreatePrimitive(qFace.Vertices.ToArray(), qFace.Indices.ToArray(), faceIndex);
 			sFace.NumPrimitives = 1;
 
 			splitFaceDict[faceIndex] = new int[] { sourceBsp.Faces.Count - 1 };
@@ -1950,8 +2040,10 @@ namespace BSPConvert.Lib
 			var subdiv = (1 << power) + 1;
 
 			var posControlPoints = GetPatchControlPoints(patchStartVertex, patchWidth);
-			var uv0ControlPoints = GetPatchUVControlPoints(patchStartVertex, patchWidth, v => v.uv0);
-			var uv1ControlPoints = GetPatchUVControlPoints(patchStartVertex, patchWidth, v => v.uv1);
+			var uv0ControlPoints = GetPatchUVControlPoints(patchStartVertex, patchWidth, i => quakeBsp.Vertices[i].uv0);
+			var uv1ControlPoints = vertexLitLightmaps.TryGetValue(qFaceIndex, out var vertexLitLightmap) ?
+				GetPatchUVControlPoints(patchStartVertex, patchWidth, i => vertexLitLightmap.Coords[i - qFace.FirstVertexIndex]) :
+				GetPatchUVControlPoints(patchStartVertex, patchWidth, i => quakeBsp.Vertices[i].uv1);
 
 			var patch = new BezierPatch(posControlPoints);
 			var vertexCount = subdiv * subdiv;
@@ -1995,31 +2087,32 @@ namespace BSPConvert.Lib
 				}
 			}
 
-			sFace.FirstPrimitive = CreatePrimitive(positions, uvs, lightmapUVs, indices, qFace);
+			sFace.FirstPrimitive = CreatePrimitive(positions, uvs, lightmapUVs, indices, qFaceIndex);
 			sFace.NumPrimitives = 1;
 
 			return sourceBsp.Faces.Count - 1;
 		}
 
-		private Vector2[] GetPatchUVControlPoints(int patchStartVertex, int patchWidth, Func<Vertex, Vector2> selector)
+		// selector maps a Q3 vertex index to its UV
+		private Vector2[] GetPatchUVControlPoints(int patchStartVertex, int patchWidth, Func<int, Vector2> selector)
 		{
 			var controlPoints = new Vector2[9];
 			for (var i = 0; i < 3; i++)
 			{
 				for (var j = 0; j < 3; j++)
-					controlPoints[i + j * 3] = selector(quakeBsp.Vertices[patchStartVertex + i + j * patchWidth]);
+					controlPoints[i + j * 3] = selector(patchStartVertex + i + j * patchWidth);
 			}
 			return controlPoints;
 		}
 
-		private int CreatePrimitive(Vector3[] positions, Vector2[] uvs, Vector2[] lightmapUVs, int[] indices, Face qFace)
+		private int CreatePrimitive(Vector3[] positions, Vector2[] uvs, Vector2[] lightmapUVs, int[] indices, int qFaceIndex)
 		{
 			// Normalize lightmap coords against the SAME rect that ConvertInternalLightmaps copies for
 			// this face: the whole patch's control-point lightmap UV extents. The engine feeds a
 			// primitive vertex's lightCoord straight to the lightmap sampler (it doesn't use the face's
 			// LightmapStart/vecs for prims), so [0,1] must span exactly that copied rect. Using the
 			// local tessellated sub-patch extents here instead shifts each sub-patch's lightmap sideways.
-			(var lmStart, var lmEnd, var lightmapSize) = GetFaceLightmapBlock(qFace);
+			(var lmStart, var lmEnd, var lightmapSize) = GetFaceLightmapBlock(qFaceIndex);
 			var extents = lmEnd - lmStart;
 
 			var lightmapCoords = new Vector2[positions.Length];
@@ -2029,13 +2122,13 @@ namespace BSPConvert.Lib
 			return builder.AddPrimitive(positions, uvs, lightmapCoords, indices);
 		}
 
-		private int CreatePrimitive(Vertex[] vertices, int[] indices, Face qFace)
+		private int CreatePrimitive(Vertex[] vertices, int[] indices, int qFaceIndex)
 		{
 			var positions = vertices.Select(x => x.position).ToArray();
 			var uvs = vertices.Select(x => x.uv0).ToArray();
 			var lightmapUVs = vertices.Select(x => x.uv1).ToArray();
 
-			return CreatePrimitive(positions, uvs, lightmapUVs, indices, qFace);
+			return CreatePrimitive(positions, uvs, lightmapUVs, indices, qFaceIndex);
 		}
 
 		private int CreatePlane(Face face)
@@ -2070,8 +2163,13 @@ namespace BSPConvert.Lib
 		// copied lightmap luxels (ConvertExternalLightmaps) MUST derive from these same values, or they won't
 		// line up. Lightmaps are low frequency, so the reduced resolution on an oversized surface isn't
 		// noticeable. Internal Q3 lightmaps (128x128 pages) never exceed the limit, so this is a no-op for them.
-		private (Vector2 lmStart, Vector2 lmEnd, float lightmapSize) GetFaceLightmapBlock(Face qFace)
+		private (Vector2 lmStart, Vector2 lmEnd, float lightmapSize) GetFaceLightmapBlock(int qFaceIndex)
 		{
+			// Lightmaps baked from vertex colors place their coords in luxels
+			if (vertexLitLightmaps.TryGetValue(qFaceIndex, out var vertexLitLightmap))
+				return (Vector2.Zero, new Vector2(vertexLitLightmap.Width - 1, vertexLitLightmap.Height - 1), 1f);
+
+			var qFace = quakeBsp.Faces[qFaceIndex];
 			float lightmapSize = GetFaceLightmapSize(qFace);
 			(var lmStart, var lmEnd) = GetLightmapExtents(qFace.Vertices, lightmapSize);
 			var extents = lmEnd - lmStart;
@@ -2226,7 +2324,8 @@ namespace BSPConvert.Lib
 			if (q3Flags.HasFlag(Q3SurfaceFlags.SURF_SLICK))
 				flags |= (int)SourceSurfaceFlags.SURF_SLICK;
 
-			if (q3Flags.HasFlag(Q3SurfaceFlags.SURF_NOLIGHTMAP))
+			var isVertexLit = shaderDict.TryGetValue(texture.Name, out var shader) && shader.GetVertexColorStage() != null;
+			if (q3Flags.HasFlag(Q3SurfaceFlags.SURF_NOLIGHTMAP) && !isVertexLit)
 				flags |= (int)SourceSurfaceFlags.SURF_NOLIGHT;
 
 			// Reveal Source's global skybox on real sky surfaces (see IsSkySurface).
@@ -2348,6 +2447,12 @@ namespace BSPConvert.Lib
 
 			for (var faceIndex = 0; faceIndex < quakeBsp.Faces.Count; faceIndex++)
 			{
+				if (vertexLitLightmaps.TryGetValue(faceIndex, out var vertexLitLightmap))
+				{
+					AddVertexLitLightmap(faceIndex, vertexLitLightmap, lmColors);
+					continue;
+				}
+
 				var qFace = quakeBsp.Faces[faceIndex];
 				var lmIndex = qFace.Lightmap;
 				if (lmIndex < 0)
@@ -2425,6 +2530,12 @@ namespace BSPConvert.Lib
 
 			for (var faceIndex = 0; faceIndex < quakeBsp.Faces.Count; faceIndex++)
 			{
+				if (vertexLitLightmaps.TryGetValue(faceIndex, out var vertexLitLightmap))
+				{
+					AddVertexLitLightmap(faceIndex, vertexLitLightmap, lmColors);
+					continue;
+				}
+
 				var qFace = quakeBsp.Faces[faceIndex];
 				var texture = qFace.Texture.Name;
 				if (!shaderDict.TryGetValue(texture, out var shader))
@@ -2445,7 +2556,7 @@ namespace BSPConvert.Lib
 
 				// lmStart/lmEnd/lightmapSize are in the (possibly downscaled) atlas space GetFaceLightmapBlock
 				// caps to the engine's max lightmap extent; the same values feed the baked prim lightCoords.
-				(var lmStart, var lmEnd, var lightmapSize) = GetFaceLightmapBlock(qFace);
+				(var lmStart, var lmEnd, var lightmapSize) = GetFaceLightmapBlock(faceIndex);
 				var lmSize = lmEnd - lmStart;
 
 				var lightmapOffset = lmColors.Count * 4;
@@ -2494,6 +2605,33 @@ namespace BSPConvert.Lib
 			}
 
 			builder.SetLightmaps(lmColors);
+		}
+
+		// Copies a lightmap baked from vertex colors, with the guard band of ConvertInternalLightmaps
+		private void AddVertexLitLightmap(int faceIndex, VertexLitLightmap lightmap, List<ColorRGBExp32> lmColors)
+		{
+			if (!splitFaceDict.TryGetValue(faceIndex, out var splitFaces) || splitFaces.Length == 0)
+				return;
+
+			var lightmapOffset = lmColors.Count * 4;
+			var border = FaceOutputUsesPrimitives(faceIndex) ? LIGHTMAP_BORDER : 0;
+			for (var y = -border; y < lightmap.Height + border; y++)
+			{
+				var sy = Math.Clamp(y, 0, lightmap.Height - 1);
+				for (var x = -border; x < lightmap.Width + border; x++)
+				{
+					var sx = Math.Clamp(x, 0, lightmap.Width - 1);
+					lmColors.Add(ColorUtil.PackLinearLightmapColor(lightmap.Luxels[sx + sy * lightmap.Width]));
+				}
+			}
+
+			foreach (var splitFaceIndex in splitFaces)
+			{
+				var sFace = sourceBsp.Faces[splitFaceIndex];
+				sFace.Lightmap = lightmapOffset;
+				sFace.LightmapStart = builder.GetLightmapStart(sFace);
+				sFace.LightmapSize = new Vector2(lightmap.Width - 1 + 2 * border, lightmap.Height - 1 + 2 * border);
+			}
 		}
 
 		private (Vector2, Vector2) GetLightmapExtents(IEnumerable<Vertex> vertices, float lightmapSize)

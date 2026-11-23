@@ -254,7 +254,7 @@ namespace BSPConvert.Lib
 
 			// Lit surfaces keep their lightmap via LightmappedGeneric; unlit ones use UnlitGeneric. Both honor the
 			// independent $detailtexturetransform the detail proxy drives.
-			var shaderType = shader.surfaceFlags.HasFlag(Q3SurfaceFlags.SURF_NOLIGHTMAP) ? "UnlitGeneric" : "LightmappedGeneric";
+			var shaderType = shader.IsUnlit() ? "UnlitGeneric" : "LightmappedGeneric";
 
 			var sb = new StringBuilder();
 			sb.AppendLine(shaderType);

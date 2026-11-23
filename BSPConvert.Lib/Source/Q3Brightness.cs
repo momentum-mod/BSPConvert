@@ -50,6 +50,10 @@ namespace BSPConvert.Lib
 		// Quake 3 did all of the overbright on the light (r_overBrightBits 0, as in a window)
 		public float OverbrightCeiling => 255f / (1 << Math.Clamp(mapOverBrightBits, 0, MaxMapOverBrightBits));
 
+		// How bright rgbGen vertex draws vertex colors next to rgbGen exactVertex, which draws them like lightmaps:
+		// identityLight
+		public float IdentityLight => 1f / (1 << Math.Min(OverBrightBits, Math.Max(mapOverBrightBits, 0)));
+
 		// How bright Quake 3 draws light (0-1), on a texture of full color, before the screen's own gamma.
 		// R_ColorShiftLightingBytes shifts lightmaps and the light grid by r_mapOverBrightBits - r_overBrightBits,
 		// shaders draw external lightmaps with identityLight (1 / 2^r_overBrightBits), and the gamma ramp raises the

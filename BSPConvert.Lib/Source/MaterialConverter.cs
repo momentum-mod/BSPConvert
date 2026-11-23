@@ -282,7 +282,7 @@ namespace BSPConvert.Lib
 			if (IsModulateBlend(shader))
 				return "Modulate";
 
-			if (shader.surfaceFlags.HasFlag(Q3SurfaceFlags.SURF_NOLIGHTMAP))
+			if (shader.IsUnlit())
 				return "UnlitGeneric";
 
 			return "LightmappedGeneric";

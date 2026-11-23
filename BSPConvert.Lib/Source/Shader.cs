@@ -216,5 +216,17 @@ namespace BSPConvert.Lib
 			return stages.Where(s => !string.IsNullOrEmpty(s.bundles[0].images[0]) &&
 				!s.bundles[0].images[0].StartsWith('$'));
 		}
+
+		// The stage drawn with the vertex colors q3map2 lights the surface with (rgbGen vertex or exactVertex), if any
+		public ShaderStage? GetVertexColorStage()
+		{
+			return GetImageStages().FirstOrDefault(s => s.rgbGen is ColorGen.CGEN_VERTEX or ColorGen.CGEN_EXACT_VERTEX);
+		}
+
+		// Drawn without light: nolightmap, and not lit by vertex colors
+		public bool IsUnlit()
+		{
+			return surfaceFlags.HasFlag(Q3SurfaceFlags.SURF_NOLIGHTMAP) && GetVertexColorStage() == null;
+		}
 	}
 }

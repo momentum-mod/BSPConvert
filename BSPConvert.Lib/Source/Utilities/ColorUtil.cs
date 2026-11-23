@@ -1,4 +1,5 @@
 ﻿using BSPConvert.Lib.GoldSrc;
+using System.Numerics;
 
 namespace BSPConvert.Lib
 {
@@ -18,6 +19,12 @@ namespace BSPConvert.Lib
 				brightness.LightToLinear(r, external) * 255f,
 				brightness.LightToLinear(g, external) * 255f,
 				brightness.LightToLinear(b, external) * 255f);
+		}
+
+		// Linear light (1 lights a texture at its full color) as a lightmap luxel
+		public static ColorRGBExp32 PackLinearLightmapColor(Vector3 light)
+		{
+			return PackColorRGBExp32(light.X * 255f, light.Y * 255f, light.Z * 255f);
 		}
 
 		// Light grid light as an ambient cube color, which the engine reads 255 times brighter than lightmaps, so as
