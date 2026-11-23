@@ -2421,6 +2421,8 @@ namespace BSPConvert.Lib
 		private void ConvertLightmaps()
 		{
 			builder.SetLumpVersion(Lightmaps.GetIndexForLump(sourceBsp.MapType), 1);
+			// Quake 3 draws every lightmap byte level, which the engine's LDR lightmap table rounds away in the dark
+			sourceBsp.MapFlags.Flags |= LevelFlags.ExactLDRLightmaps;
 
 			if (quakeBsp.Lightmaps.Data.Length > 0)
 				ConvertInternalLightmaps();
