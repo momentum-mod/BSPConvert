@@ -527,7 +527,8 @@ namespace BSPConvert.Lib
 			// ConvertSkyboxSwappers can emit the swap triggers later, once the Source brushes/models exist.
 			skyboxSwapPlan = new SkyboxSwapConverter(quakeBsp, ResolveSkyboxName, logger, GetSkyName()).Build();
 
-			var converter = new EntityConverter(quakeBsp.Models, quakeBsp.Entities, sourceBsp.Entities, skyboxSwapPlan.DefaultSkyName!, options.minDamageToRespawnPlayer, options.ignoreZones, options.q3.offModeEntityFallback);
+			var converter = new EntityConverter(quakeBsp.Models, quakeBsp.Entities, sourceBsp.Entities, skyboxSwapPlan.DefaultSkyName!, options.minDamageToRespawnPlayer, options.ignoreZones, options.q3.offModeEntityFallback,
+				new Q3PlayerCollision(quakeBsp), logger);
 			converter.Convert();
 		}
 

@@ -138,13 +138,17 @@ namespace BSPConvert.Lib
 		private int currentCheckpointIndex = 2;
 		private Dictionary<Entity, int> checkpointNumbers = new Dictionary<Entity, int>(); // Every trigger firing the same target_checkpoint shares its number
 		private Lump<Model> q3Models;
+		private Q3PlayerCollision playerCollision;
+		private ILogger logger;
 
 		private const string MOMENTUM_START_ENTITY = "_momentum_player_start_";
 		private const string MOMENTUM_MATH_COUNTER = "_momentum_math_counter_";
 		private const int q3LipMod = 2; // Quake adds 2 units to button/door lip for some reason
 
-		public EntityConverter(Lump<Model> q3Models, Entities q3Entities, Entities sourceEntities, string skyName, int minDamageToRespawnPlayer, bool ignoreZones, string offModeEntityFallback)
+		public EntityConverter(Lump<Model> q3Models, Entities q3Entities, Entities sourceEntities, string skyName, int minDamageToRespawnPlayer, bool ignoreZones, string offModeEntityFallback, Q3PlayerCollision playerCollision, ILogger logger)
 		{
+			this.playerCollision = playerCollision;
+			this.logger = logger;
 			this.q3Entities = q3Entities;
 			this.sourceEntities = sourceEntities;
 			this.skyName = skyName;
@@ -1786,7 +1790,20 @@ namespace BSPConvert.Lib
 		private void SetTeleportOrigin(Entity teleDest)
 		{
 			var origin = teleDest.Origin;
-			origin.Z -= 23; // Teleport destinations are 23 units too high once converted
+			origin.Z -= 23; // TeleportPlayer puts the player's origin 1 unit above the destination, 24 units above its feet
+
+			// target_position and target_location have centered editor boxes, so they're often placed lower than that
+			switch (playerCollision.Place(origin, out var placed))
+			{
+				case Q3PlayerCollision.Placement.SteppedUp:
+					logger.Log($"Raised {teleDest.ClassName} \"{teleDest.Name}\" {placed.Z - origin.Z:0.##} units onto the floor it's in");
+					origin = placed;
+					break;
+				case Q3PlayerCollision.Placement.Stuck:
+					logger.Log($"Warning: {teleDest.ClassName} \"{teleDest.Name}\" at {teleDest.Origin} puts the player deeper into solid than Quake 3 can step out of");
+					break;
+			}
+
 			teleDest.Origin = origin;
 		}
 
