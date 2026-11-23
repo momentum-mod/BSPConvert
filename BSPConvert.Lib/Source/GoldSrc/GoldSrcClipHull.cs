@@ -56,6 +56,23 @@ namespace BSPConvert.Lib.GoldSrc
 			return brushes;
 		}
 
+		// The contents of one of a model's clip hulls at a player origin (SV_HullPointContents)
+		public static int GetPointContents(GoldSrcBsp gs, int modelIndex, int hull, Vector3 point)
+		{
+			var clipNodeIndex = gs.Models[modelIndex].headNodes[hull];
+			while (clipNodeIndex >= 0)
+			{
+				if (clipNodeIndex >= gs.ClipNodes.Length)
+					return GoldSrcBsp.CONTENTS_EMPTY; // No clip hull (see Walk)
+
+				var clipNode = gs.ClipNodes[clipNodeIndex];
+				var plane = gs.Planes[clipNode.planeIndex];
+				clipNodeIndex = Vector3.Dot(plane.normal, point) - plane.dist < 0f ? clipNode.child1 : clipNode.child0;
+			}
+
+			return clipNodeIndex;
+		}
+
 		private static void Walk(GoldSrcBsp gs, int clipNodeIndex, List<HalfSpace> path, Vector3 hullExtents, List<Brush> brushes)
 		{
 			if (clipNodeIndex < 0)

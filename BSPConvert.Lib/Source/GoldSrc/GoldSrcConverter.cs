@@ -389,7 +389,8 @@ namespace BSPConvert.Lib.GoldSrc
 				entities.Add(entity);
 			}
 
-			var entityConverter = new GoldSrcEntityConverter(logger);
+			var entityConverter = new GoldSrcEntityConverter(logger,
+				origin => GoldSrcClipHull.GetPointContents(gs, 0, GoldSrcClipHull.StandingHull, origin) != GoldSrcBsp.CONTENTS_SOLID);
 			entityConverter.ConvertTargets(entities, HasAlternateTextures);
 			foreach (var entity in entityConverter.TextureToggleEntities)
 			{

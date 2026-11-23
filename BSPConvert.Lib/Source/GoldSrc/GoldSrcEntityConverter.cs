@@ -26,6 +26,11 @@ namespace BSPConvert.Lib.GoldSrc
 		// trigger_teleport VelocityMode (TeleportVelocityMode_t) that resets the velocity
 		private const string TeleportVelocityModeReset = "1";
 
+		// Spawn points mark the player's origin, the middle of the hull, where Momentum puts the player's feet
+		private static readonly HashSet<string> SpawnClasses = new HashSet<string> { "info_player_start", "info_player_deathmatch", "info_player_coop" };
+		// Spawn puts the origin 1 unit above the spawn point, and the standing hull reaches 36 units below it
+		private const float SpawnFeetOffset = 1f - 36f;
+
 		// GoldSrc ambient_generic spawnflags. Play everywhere, start silent and not looped mean the same in Source,
 		// which takes a radius instead of the radius flags.
 		private const int SF_AMBIENT_SOUND_EVERYWHERE = 1;
@@ -145,7 +150,11 @@ namespace BSPConvert.Lib.GoldSrc
 		}
 
 		private readonly ILogger logger;
+		// Whether the standing player's origin can be at a point in the world's clip hull
+		private readonly Func<Vector3, bool> isStandingOriginClear;
 		private List<Entity> entities;
+		// The names trigger_teleports teleport to, including those trigger_changetargets give them
+		private readonly HashSet<string> teleportTargetNames = new HashSet<string>();
 		// GoldSrc classname of each entity with a targetname, by targetname, from before any class is converted
 		private ILookup<string, (Entity entity, string className)> targetsByName;
 		// The targets trigger_changetargets can give the entities with each name, in order
@@ -186,9 +195,10 @@ namespace BSPConvert.Lib.GoldSrc
 			public bool NeverTriggered;
 		}
 
-		public GoldSrcEntityConverter(ILogger logger)
+		public GoldSrcEntityConverter(ILogger logger, Func<Vector3, bool> isStandingOriginClear)
 		{
 			this.logger = logger;
+			this.isStandingOriginClear = isStandingOriginClear;
 		}
 
 		// GoldSrc entities fire their "target" (SUB_UseTargets): after their "delay" they remove the entities named by
@@ -209,6 +219,15 @@ namespace BSPConvert.Lib.GoldSrc
 				.Where(entity => entity.ClassName == "trigger_changetarget" && !string.IsNullOrEmpty(entity["target"]) && !string.IsNullOrEmpty(entity["m_iszNewTarget"]))
 				.GroupBy(entity => entity["target"])
 				.ToDictionary(group => group.Key, group => group.Select(entity => entity["m_iszNewTarget"]).Distinct().ToList());
+			teleportTargetNames.Clear();
+			foreach (var teleport in entities.Where(entity => entity.ClassName == "trigger_teleport"))
+			{
+				if (!string.IsNullOrEmpty(teleport["target"]))
+					teleportTargetNames.Add(teleport["target"]);
+
+				if (!string.IsNullOrEmpty(teleport["targetname"]) && newTargetsByName.TryGetValue(teleport["targetname"], out var newTargets))
+					teleportTargetNames.UnionWith(newTargets);
+			}
 			entitiesWithTargetRelays.Clear();
 			startLocked.Clear();
 			addedNames.Clear();
@@ -911,6 +930,8 @@ namespace BSPConvert.Lib.GoldSrc
 			if (UnusedClasses.Contains(entity.ClassName))
 				return false;
 
+			ConvertPlayerPosition(entity);
+
 			switch (entity.ClassName)
 			{
 				case "trigger_camera":
@@ -1095,6 +1116,37 @@ namespace BSPConvert.Lib.GoldSrc
 			"func_vip_safetyzone", "info_vip_start", "func_escapezone", "armoury_entity", "info_map_parameters", "info_overview_point",
 			"info_texlights", "info_compile_parameters", "gchimp_info",
 		};
+
+		// Moves spawn points and teleport destinations so Momentum puts the player where GoldSrc did
+		private void ConvertPlayerPosition(Entity entity)
+		{
+			if (!entity.ContainsKey("origin"))
+				return;
+
+			var origin = entity.Origin;
+			if (!string.IsNullOrEmpty(entity["targetname"]) && teleportTargetNames.Contains(entity["targetname"]))
+			{
+				// TeleportTouch puts the feet 1 unit above whatever it teleports to, spawn points included
+				origin.Z += 1f;
+			}
+			else if (SpawnClasses.Contains(entity.ClassName))
+			{
+				// Where GoldSrc would spawn the player in solid, Momentum's drop to the floor from higher up still works
+				if (!isStandingOriginClear(origin + new Vector3(0f, 0f, 1f)))
+				{
+					logger.Log($"Warning: {entity.ClassName} at {entity["origin"]} spawns the player in solid in GoldSrc, so it's left where it is");
+					return;
+				}
+
+				origin.Z += SpawnFeetOffset;
+			}
+			else
+			{
+				return;
+			}
+
+			entity.Origin = origin;
+		}
 
 		// A trigger_camera shows a player the view from it, looking at its target, while it's on, like Source's
 		// point_viewcontrol, which has the same keys and flags. Counter-Strike also uses the ones nothing triggers as
