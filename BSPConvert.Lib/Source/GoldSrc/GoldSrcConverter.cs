@@ -105,8 +105,8 @@ namespace BSPConvert.Lib.GoldSrc
 		// GoldSrc marksurface (one past the end too), to remap face ranges once nodraw faces are dropped
 		private int[] facesBefore;
 		private int[] markSurfacesBefore;
-		// The converted faces with lightmaps, with where theirs is in the GoldSrc lighting data and how big it is, for
-		// ConvertLighting to place it in Source's
+		// The converted faces with lightmaps, with where theirs is in the GoldSrc lighting data (-1 for black) and how
+		// big it is, for ConvertLighting to place it in Source's
 		private readonly List<(Face face, int lightOffset, int luxels, int styleCount)> litFaces = new List<(Face, int, int, int)>();
 		private Dictionary<int, List<int>> leafBrushes = new Dictionary<int, List<int>>();
 		private List<int>[] modelBrushes;
@@ -1701,9 +1701,8 @@ namespace BSPConvert.Lib.GoldSrc
 				face.DisplacementIndex = -1;
 				face.Area = (float)GetFaceArea(gsFace);
 
-				// hlrad gives faces without lightmap styles the offset the lighting data had reached, which is past the
-				// end when they come last. The engine ignores it, but Source rejects any offset outside the data.
-				if ((texInfo.flags & GoldSrcBsp.TEX_SPECIAL) != 0 || gsFace.lightOffset < 0 || gsFace.lightOffset >= gs.Lighting.Length || gsFace.styles[0] == 255)
+				// GoldSrc draws special faces, and every face of a map without lighting, fullbright
+				if ((texInfo.flags & GoldSrcBsp.TEX_SPECIAL) != 0 || gs.Lighting.Length == 0)
 				{
 					face.Lightmap = -1;
 					face.LightmapStyles = new byte[] { 255, 255, 255, 255 };
@@ -1711,13 +1710,24 @@ namespace BSPConvert.Lib.GoldSrc
 				else
 				{
 					// Its lightmap is placed in Source's lighting data by ConvertLighting
-					face.LightmapStyles = gsFace.styles;
-
 					var (mins, size) = GetLightmapExtents(gsFace, texInfo);
 					face.LightmapStart = mins;
 					face.LightmapSize = size;
-					var styleCount = gsFace.styles.TakeWhile(style => style != 255).Count();
-					litFaces.Add((face, gsFace.lightOffset, ((int)size.X + 1) * ((int)size.Y + 1), styleCount));
+					var luxels = ((int)size.X + 1) * ((int)size.Y + 1);
+
+					// GoldSrc draws a face without lighting black, where Source would draw it fullbright. hlrad gives
+					// these the offset the lighting data had reached, which can be past its end.
+					if (gsFace.lightOffset < 0 || gsFace.lightOffset >= gs.Lighting.Length || gsFace.styles[0] == 255)
+					{
+						face.LightmapStyles = new byte[] { 0, 255, 255, 255 };
+						litFaces.Add((face, -1, luxels, 1));
+					}
+					else
+					{
+						face.LightmapStyles = gsFace.styles;
+						var styleCount = gsFace.styles.TakeWhile(style => style != 255).Count();
+						litFaces.Add((face, gsFace.lightOffset, luxels, styleCount));
+					}
 				}
 
 				// Vertex normals: one per face, indexed once per face vertex (the engine walks this list by edge count)
@@ -1826,10 +1836,26 @@ namespace BSPConvert.Lib.GoldSrc
 		{
 			var colors = new List<ColorRGBExp32>(gs.Lighting.Length / 3 + litFaces.Count);
 			var sourceOffsets = new Dictionary<int, int>();
+			// Unlit faces share a black lightmap per luxel count
+			var blackOffsets = new Dictionary<int, int>();
 			foreach (var (litFace, lightOffset, luxels, styleCount) in litFaces)
 			{
 				// Faces share their data with the BSP's copy
 				var face = litFace;
+				if (lightOffset < 0)
+				{
+					if (!blackOffsets.TryGetValue(luxels, out var blackOffset))
+					{
+						colors.Add(default);
+						blackOffset = colors.Count * 4;
+						colors.AddRange(Enumerable.Repeat(default(ColorRGBExp32), luxels));
+						blackOffsets[luxels] = blackOffset;
+					}
+
+					face.Lightmap = blackOffset;
+					continue;
+				}
+
 				if (!sourceOffsets.TryGetValue(lightOffset, out var sourceOffset))
 				{
 					// A lightmap cut short by the end of the data is padded with black, so the engine doesn't read past it
