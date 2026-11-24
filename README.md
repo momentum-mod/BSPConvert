@@ -33,7 +33,7 @@ The input files are Quake 3 BSP/PK3 or GoldSrc (Half-Life, CS 1.6) BSP/ZIP files
   --mindmg                (Default: 50) Minimum damage for trigger_hurt to respawn player.
   --lavatriggers          Duplicate lava brushes into trigger_hurt volumes that kill/respawn the player on contact.
   --nozones               Ignore timer zone triggers (no zone file is written).
-  --offmodeents           (Default: cpm) For maps with different cpm/vq3 entities, choose which entities to use when played in non-defrag modes (cpm or vq3).
+  --offmodeents           (Default: vq3) For maps with different cpm/vq3 entities, choose which entities to use when played in non-defrag modes (cpm or vq3).
   --scale                 (Default: 1) Uniformly scale the map's geometry and entity positions by this factor (e.g. 2 doubles the world size). Mover speed/wait times, jump pad and teleport velocities, and other gameplay-tuning values are not scaled.
   --fogobb                Use legacy obb_volumefog entities instead of the default Fog shader. Handles arbitrary brush shapes but can flicker on thin volumes.
   --fogminheight          (Default: 256) Minimum vertical height (units) for converted fog volumes. Only used with --fogobb.

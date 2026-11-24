@@ -98,7 +98,7 @@ namespace BSPConvert.Cmd
 			[Option("maps", Required = false, Separator = ',', HelpText = "Convert only the named BSP(s) from a pk3 instead of every BSP it contains. Comma-separated map names without extension (e.g. --maps pgrocket,pgplasma). Case-insensitive.")]
 			public IEnumerable<string> Maps { get; set; }
 
-			[Option("offmodeents", Required = false, Default = "cpm", HelpText = "For maps with different cpm/vq3 entities, choose which entities to use when played in non-defrag modes (e.g. --offmodeents vq3).")]
+			[Option("offmodeents", Required = false, Default = "vq3", HelpText = "For maps with different cpm/vq3 entities, choose which entities to use when played in non-defrag modes (e.g. --offmodeents cpm).")]
 			public string OffModeEntityFallback { get; set; }
 
 			[Option("wads", Required = false, Separator = ',', HelpText = "GoldSrc only: comma-separated folders to search (recursively) for the WAD files the map takes its textures from and its sky images (gfx/env), e.g. your Half-Life install or a folder of community WADs. The input's own folder and a default Steam Half-Life install are always searched.")]
