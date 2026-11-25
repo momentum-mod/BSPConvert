@@ -86,7 +86,9 @@ namespace BSPConvert.Lib.GoldSrc
 		// "scroll" textures at ScrollSpeed texels per second, and switching textures to their alternate frames when the
 		// entity's texture frame index is 1 (see GoldSrcEntityConverter.AddTextureToggles). Lit translucent and additive
 		// faces keep their lightmaps, where the map baked them into their textures (see RestoreEmbeddedLightmapTextures).
-		private record struct SurfaceStyle(BlendMode Mode, float Amount, float ScrollSpeed, bool ToggleTextures = false, bool Lit = false)
+		// Color is the rendercolor (0-255) that faces are drawn flat in instead of their textures, for the Color rendermode.
+		private record struct SurfaceStyle(BlendMode Mode, float Amount, float ScrollSpeed, bool ToggleTextures = false, bool Lit = false,
+			Vector3? Color = null)
 		{
 			public static readonly SurfaceStyle World = new SurfaceStyle(BlendMode.Opaque, 1f, 0f);
 		}
@@ -501,9 +503,10 @@ namespace BSPConvert.Lib.GoldSrc
 
 			var style = new SurfaceStyle(BlendMode.Opaque, 1f, GetScrollSpeed(entity), textureToggleModels.Contains(modelIndex));
 
-			// Source tints a brush entity by its rendercolor. GoldSrc only uses it for the Color rendermode (approximated
-			// as Texture below), glow sprites and conveyor speeds, and editors default it to "0 0 0", which turned
+			// Source tints a brush entity by its rendercolor. GoldSrc only uses it for the Color rendermode (baked into
+			// the material below), glow sprites and conveyor speeds, and editors default it to "0 0 0", which turned
 			// brush entities black.
+			TryParseVector(entity["rendercolor"], out var color);
 			entity.Remove("rendercolor");
 
 			var amount = Math.Clamp(int.TryParse(entity["renderamt"], out var renderAmt) ? renderAmt : 0, 0, 255) / 255f;
@@ -512,6 +515,11 @@ namespace BSPConvert.Lib.GoldSrc
 			switch (int.TryParse(entity["rendermode"], out var renderMode) ? renderMode : 0)
 			{
 				case RenderTransColor:
+					// Drawn untextured and unlit, so only the color and renderamt matter
+					style = new SurfaceStyle(BlendMode.Translucent, amount, 0f,
+						Color: Vector3.Round(Vector3.Clamp(color, Vector3.Zero, new Vector3(255f))));
+					entity["rendermode"] = "0";
+					break;
 				case RenderTransTexture:
 					style = style with { Mode = BlendMode.Translucent, Amount = amount, Lit = lit };
 					entity["rendermode"] = "0";
@@ -525,6 +533,10 @@ namespace BSPConvert.Lib.GoldSrc
 					entity["rendermode"] = "0";
 					break;
 			}
+
+			// Source's renderfx blend by renderamt even in the normal rendermode, which would apply it twice
+			if (style.Mode != BlendMode.Opaque)
+				entity["renderamt"] = "255";
 
 			if (style != SurfaceStyle.World)
 				modelStyles[modelIndex] = style;
@@ -718,7 +730,8 @@ namespace BSPConvert.Lib.GoldSrc
 			}
 		}
 
-		private int AddTexInfo(int texInfoIndex, string materialName, int textureDataIndex, int extraSurfaceFlags = 0)
+		// surfaceFlags replaces the flags the GoldSrc texture gives it
+		private int AddTexInfo(int texInfoIndex, string materialName, int textureDataIndex, int? surfaceFlags = null)
 		{
 			var texInfo = gs.TexInfos[texInfoIndex];
 			var uAxis = new Vector3(texInfo.s.X, texInfo.s.Y, texInfo.s.Z);
@@ -730,7 +743,7 @@ namespace BSPConvert.Lib.GoldSrc
 			return builder.AddTextureInfo(
 				uAxis, vAxis,
 				uAxis / LightmapLuxelSize, vAxis / LightmapLuxelSize,
-				GetSurfaceFlags(texInfo, GetMipTexName(texInfo)) | extraSurfaceFlags,
+				surfaceFlags ?? GetSurfaceFlags(texInfo, GetMipTexName(texInfo)),
 				textureDataIndex,
 				materialName,
 				textureOffset,
@@ -743,7 +756,8 @@ namespace BSPConvert.Lib.GoldSrc
 		}
 
 		// The texinfo for a face of a brush model its entity draws differently from the world: the same mapping with
-		// a material that draws the texture translucent, additive or scrolling, or nodraw where renderamt hides it
+		// a material that draws the texture translucent, additive or scrolling, or a flat color, or nodraw where
+		// renderamt hides it
 		private int GetStyleTexInfo(int texInfoIndex, SurfaceStyle style)
 		{
 			var mipTexName = GetMipTexName(gs.TexInfos[texInfoIndex]);
@@ -763,6 +777,20 @@ namespace BSPConvert.Lib.GoldSrc
 			if (style.Mode != BlendMode.Opaque && style.Amount <= 0f)
 			{
 				styleTexInfo = GetNoDrawTexInfo(texInfoIndex);
+			}
+			else if (style.Color is Vector3 color)
+			{
+				// GoldSrc doesn't draw the texture, so tool textures get it too
+				var material = FormattableString.Invariant($"{assetDir}/rendercolor_{color.X}_{color.Y}_{color.Z}") + GetStyleSuffix(style);
+				var textureDataIndex = builder.LookupTextureData(material);
+				if (textureDataIndex < 0)
+				{
+					materialConverter.WriteColor(material, color / 255f, style.Amount);
+					textureDataIndex = builder.AddTextureData(material, ColorTextureSize, ColorTextureSize,
+						ColorExtensions.FromArgb(255, (int)color.X, (int)color.Y, (int)color.Z));
+				}
+
+				styleTexInfo = AddTexInfo(texInfoIndex, material, textureDataIndex, (int)SourceSurfaceFlags.SURF_NOLIGHT);
 			}
 			else if (!IsToolTexture(mipTexName) && convertedMaterials.TryGetValue(baseMaterial, out var converted))
 			{
@@ -843,8 +871,9 @@ namespace BSPConvert.Lib.GoldSrc
 		{
 			if (!noDrawTexInfos.TryGetValue(texInfoIndex, out var noDrawTexInfo))
 			{
+				var texInfo = gs.TexInfos[texInfoIndex];
 				noDrawTexInfo = AddTexInfo(texInfoIndex, NoDrawMaterial, GetNoDrawTextureData(),
-					(int)(SourceSurfaceFlags.SURF_NODRAW | SourceSurfaceFlags.SURF_NOLIGHT));
+					GetSurfaceFlags(texInfo, GetMipTexName(texInfo)) | (int)(SourceSurfaceFlags.SURF_NODRAW | SourceSurfaceFlags.SURF_NOLIGHT));
 				noDrawTexInfos[texInfoIndex] = noDrawTexInfo;
 			}
 
@@ -1592,6 +1621,8 @@ namespace BSPConvert.Lib.GoldSrc
 
 		private const string NoDrawMaterial = "tools/toolsnodraw";
 		private const string TriggerMaterial = "tools/toolstrigger";
+		// Color materials have no texture, so any size maps them
+		private const int ColorTextureSize = 64;
 
 		// Compiler tool textures, drawn with the game's tool materials instead of being converted
 		private static readonly Dictionary<string, string> ToolMaterials = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)

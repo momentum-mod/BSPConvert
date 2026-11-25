@@ -5,6 +5,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
+using Vector3 = System.Numerics.Vector3;
 
 namespace BSPConvert.Lib.GoldSrc
 {
@@ -12,7 +13,7 @@ namespace BSPConvert.Lib.GoldSrc
 	public enum BlendMode
 	{
 		Opaque,
-		// kRenderTransTexture (and kRenderTransColor, approximated): blended by renderamt
+		// kRenderTransTexture and kRenderTransColor: blended by renderamt
 		Translucent,
 		// kRenderTransAdd: added, scaled by renderamt
 		Additive
@@ -579,6 +580,25 @@ namespace BSPConvert.Lib.GoldSrc
 			WriteVmt(materialName, vtfMaterialName, texture, IsAlphaTested(texture.Name), animation, blendMode, amount, scrollSpeed, toggled, lit);
 		}
 
+		// A material drawing a brush entity in the Color rendermode: untextured and unlit in its color (0-1, gamma space),
+		// blended by amount, its renderamt as 0-1
+		public void WriteColor(string materialName, Vector3 color, float amount)
+		{
+			var vmt = new StringBuilder();
+			vmt.AppendLine("\"UnlitGeneric\"");
+			vmt.AppendLine("{");
+			vmt.AppendLine(CultureInfo.InvariantCulture, $"\t\"$color\" \"[{color.X:0.###} {color.Y:0.###} {color.Z:0.###}]\"");
+			vmt.AppendLine("\t\"$translucent\" \"1\"");
+			var alpha = GetLinearBlendAlpha(0.2126f * color.X + 0.7152f * color.Y + 0.0722f * color.Z, amount);
+			if (alpha < 1f)
+				vmt.AppendLine(CultureInfo.InvariantCulture, $"\t\"$alpha\" \"{alpha:0.###}\"");
+			vmt.AppendLine("}");
+
+			var vmtPath = GetBasePath(materialName) + ".vmt";
+			File.WriteAllText(vmtPath, vmt.ToString());
+			writtenFiles.Add(vmtPath);
+		}
+
 		private void WriteVmt(string materialName, string baseTexture, MipTexture texture, bool isAlphaTested, TextureAnimation animation,
 			BlendMode blendMode = BlendMode.Opaque, float amount = 1f, float scrollSpeed = 0f, bool toggled = false, bool lit = false)
 		{
@@ -701,7 +721,7 @@ namespace BSPConvert.Lib.GoldSrc
 				case BlendMode.Translucent:
 					// Blends by the texture's alpha too, so '{' texels stay transparent
 					vmt.AppendLine("\t\"$translucent\" \"1\"");
-					var alpha = GetLinearBlendAlpha(texture, isAlphaTested, amount);
+					var alpha = GetLinearBlendAlpha(GetAverageBrightness(texture, isAlphaTested), amount);
 					if (alpha < 1f)
 						vmt.AppendLine(CultureInfo.InvariantCulture, $"\t\"$alpha\" \"{alpha:0.###}\"");
 					break;
@@ -766,14 +786,13 @@ namespace BSPConvert.Lib.GoldSrc
 			return vmt.ToString();
 		}
 
-		// The alpha that blends a texture in linear space over mid grey the way GoldSrc blends it by amount in gamma space
-		// (see BlendReferenceBackground)
-		private float GetLinearBlendAlpha(MipTexture texture, bool isAlphaTested, float amount)
+		// The alpha that blends a surface of a brightness (0-1, gamma space) in linear space over mid grey the way GoldSrc
+		// blends it by amount in gamma space (see BlendReferenceBackground)
+		private static float GetLinearBlendAlpha(float surface, float amount)
 		{
 			if (amount >= 1f)
 				return 1f;
 
-			var surface = GetAverageBrightness(texture, isAlphaTested);
 			var background = BlendReferenceBackground;
 			var target = MathF.Pow(amount * surface + (1f - amount) * background, DisplayGamma);
 			var linearSurface = MathF.Pow(surface, DisplayGamma);
