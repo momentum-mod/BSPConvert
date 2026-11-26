@@ -315,7 +315,15 @@ namespace BSPConvert.Lib.GoldSrc
 					case "env_laser":
 						ConvertLaserNoise(entity, gsFlags);
 						break;
+					case "info_tfdetect":
+						ApplyConcSettings(entity);
+						break;
 				}
+				if (!String.IsNullOrEmpty(entity["team_no"]))
+				{
+					var teamNo = float.TryParse(entity["team_no"], out var teamNumber) ? teamNumber : 0f;
+					entity["filtername"] = $"tfc_team_filter_{teamNo}";
+			}
 			}
 
 			// Masters are converted to locks (see ConvertMultisource)
@@ -323,6 +331,28 @@ namespace BSPConvert.Lib.GoldSrc
 				entity.Remove("master");
 
 			logger.Log($"Converted GoldSrc targets into {outputCount} outputs");
+		}
+
+		private void ApplyConcSettings(Entity entity)
+		{
+			var logicAuto = new Entity();
+			logicAuto.ClassName = "logic_auto";
+			AddOutput(logicAuto, "OnMapSpawn", "!player", "SetAmmoLimit", "3", 0f, -1);
+			AddOutput(logicAuto, "OnMapSpawn", "!player", "SetConcs", "3", 0f, -1);
+			entities.Add(logicAuto);
+
+			// Create team filters using tracks, maps don't always use team 1 for the main track so this will likely need to be modified in lumper
+			for (int i = 0; i <= 3; i++)
+			{
+				var zoneFilter = new Entity();
+				zoneFilter["old_name"] = entity[$"team{i + 1}_name"]; // Store the old name for reference in lumper to help determine the main track
+				zoneFilter.ClassName = "filter_momentum_timer_progress";
+				zoneFilter.Name = $"tfc_team_filter_{i + 1}";
+				zoneFilter["track_number"] = $"{i}";
+				zoneFilter["negated"] = "0";
+
+				entities.Add(zoneFilter);
+			}
 		}
 
 		// A multi_manager fires each of its targets after its own delay: every key that isn't an entvars field is a
