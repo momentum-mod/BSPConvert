@@ -21,6 +21,7 @@ namespace BSPConvert.Lib.GoldSrc
 
 		// Source trigger spawnflags
 		private const int SF_TRIGGER_ALLOW_CLIENTS = 1;
+		private const int SF_TRIGGER_PUSH_EVERYTHING = 64;
 		private const int SF_TRIG_PUSH_ONCE = 128;
 
 		// trigger_teleport VelocityMode (TeleportVelocityMode_t) that resets the velocity
@@ -1370,6 +1371,7 @@ namespace BSPConvert.Lib.GoldSrc
 			var flags = SF_TRIGGER_ALLOW_CLIENTS;
 			if ((gsFlags & SF_TRIGGER_PUSH_ONCE) != 0)
 				flags |= SF_TRIG_PUSH_ONCE;
+			flags |= SF_TRIGGER_PUSH_EVERYTHING; //goldsrc triggers push anything with physics
 			SetSpawnFlags(entity, flags);
 
 			if ((gsFlags & SF_TRIGGER_PUSH_START_OFF) != 0)
