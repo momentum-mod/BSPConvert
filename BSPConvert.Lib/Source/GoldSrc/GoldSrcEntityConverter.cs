@@ -177,6 +177,7 @@ namespace BSPConvert.Lib.GoldSrc
 		private readonly Dictionary<string, string> modelSpriteBranches = new Dictionary<string, string>();
 		// The trigger_cameras something uses (see ConvertCamera)
 		private readonly HashSet<Entity> usedCameras = new HashSet<Entity>();
+		public int gameTextCount;
 		private int outputCount;
 		// Whether an env_fog was converted (only the first one counts)
 		private bool fogConverted;
@@ -315,6 +316,9 @@ namespace BSPConvert.Lib.GoldSrc
 					case "env_laser":
 						ConvertLaserNoise(entity, gsFlags);
 						break;
+					case "i_t_g":
+						ConvertGoalTrigger(entity);
+						break;
 				}
 			}
 
@@ -323,6 +327,94 @@ namespace BSPConvert.Lib.GoldSrc
 				entity.Remove("master");
 
 			logger.Log($"Converted GoldSrc targets into {outputCount} outputs");
+		}
+
+		private void ConvertEntityNoise(Entity entity, string input)
+		{
+			var ambientGeneric = entities.FirstOrDefault(e => e.ClassName == "ambient_generic" && e.Name == entity["noise"])
+				?? CreateAmbientGeneric(entity);
+
+			AddOutput(entity, input, ambientGeneric.Name, "PlaySound", null, 0f, -1);
+		}
+
+		private void ConvertEntityMessage(Entity entity, string input)
+		{
+			string message = entity["message"].Replace("\\n", "\n", StringComparison.Ordinal);
+
+			var gameText = entities.FirstOrDefault(e => e.ClassName == "game_text" && e["message"] == message)
+				?? CreateGameTextEntity(message);
+
+			AddOutput(entity, input, gameText.Name, "Display", null, 0f, -1);
+		}
+
+		private Entity CreateAmbientGeneric(Entity entity)
+		{
+			Entity ambientGeneric = new Entity();
+			ambientGeneric.ClassName = "ambient_generic";
+			ambientGeneric.Name = entity["noise"];
+			ambientGeneric["message"] = entity["noise"];
+			ambientGeneric["health"] = "10";
+			SetSpawnFlags(ambientGeneric, SF_AMBIENT_SOUND_EVERYWHERE | SF_AMBIENT_SOUND_START_SILENT);
+			entities.Add(ambientGeneric);
+
+			return ambientGeneric;
+		}
+
+		private Entity CreateGameTextEntity(string message)
+		{
+			Entity gameText = new Entity();
+			gameTextCount++;
+			gameText.ClassName = "game_text";
+			gameText.Name = $"gametext{gameTextCount}";
+			gameText["message"] = message;
+			gameText["channel"] = "2";
+			gameText["color"] = "200 200 200";
+			gameText["color2"] = "240 110 0";
+			gameText["y"] = "0.85";
+			gameText["x"] = "-1";
+			gameText["effect"] = "0";
+			gameText["fadein"] = "0.5";
+			gameText["fadeout"] = "0.5";
+			gameText["fxtime"] = "0.25";
+			gameText["holdtime"] = "1.2";
+
+			entities.Add(gameText);
+
+			return gameText;
+		}
+
+		private void ConvertGoalTrigger(Entity entity)
+		{
+			entity.ClassName = "trigger_multiple";
+			bool anyConditionMet = false;
+
+			if (!String.IsNullOrEmpty(entity["no_grenades_2"]))
+			{
+				AddOutput(entity, "OnTrigger", "!player", "AddConcs", entity["no_grenades_2"], 0, -1);
+				anyConditionMet = true;
+		}
+
+			if (!String.IsNullOrEmpty(entity["noise"]))
+			{
+				var ambientGeneric = entities.FirstOrDefault(e => e.ClassName == "ambient_generic" && e.Name == entity["noise"])
+				?? CreateAmbientGeneric(entity);
+
+				AddOutput(entity, "OnStartTouch", ambientGeneric.Name, "PlaySound", null, 0, -1);
+				anyConditionMet = true;
+			}
+
+			if (!String.IsNullOrEmpty(entity["message"]))
+			{
+				string message = entity["message"].Replace("\\n", "\n", StringComparison.Ordinal);
+				var gameText = entities.FirstOrDefault(e => e.ClassName == "game_text" && e["message"] == message)
+				?? CreateGameTextEntity(message);
+
+				AddOutput(entity, "OnTrigger", gameText.Name, "display", null, 0, -1);
+				anyConditionMet = true;
+			}
+
+			if (!anyConditionMet)
+				entities.Remove(entity);
 		}
 
 		// A multi_manager fires each of its targets after its own delay: every key that isn't an entvars field is a
